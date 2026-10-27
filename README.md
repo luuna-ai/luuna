@@ -60,6 +60,16 @@ With a private `LUUNA_API_TOKEN` of at least 32 bytes set, start the service wit
 
 Linux cloud checks cannot establish Mac or Windows installation support. A frontend build cannot establish a working Tauri distribution. Report the commands and platforms actually exercised.
 
+## Homebrew packaging status
+
+A source-build formula draft for the Luuna command-line suite is staged in
+[`packaging/homebrew-luuna`](packaging/homebrew-luuna/README.md). It is not a
+published tap, so there is no working `brew tap` or `brew install` command yet.
+The draft installs the runtime, terminal client and pinned Missions, Atlas and
+Beacon CLIs; it does not install either desktop app. See the draft's desktop
+release matrix for the artifacts and platform evidence required before casks
+can be added.
+
 ## Terminal workbench
 
 Build the terminal client with `npm run build:tui` (Rust 1.90.0, locked dependencies),

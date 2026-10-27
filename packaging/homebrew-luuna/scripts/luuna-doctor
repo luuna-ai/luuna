@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+failed=0
+check_command() {
+	name=$1
+	if command -v "$name" >/dev/null 2>&1; then
+		printf 'ok      %s: %s\n' "$name" "$(command -v "$name")"
+	else
+		printf 'missing %s\n' "$name"
+		failed=1
+	fi
+}
+
+check_help() {
+	name=$1
+	shift
+	if command -v "$name" >/dev/null 2>&1 && "$name" "$@" >/dev/null 2>&1; then
+		printf 'ok      %s %s\n' "$name" "$*"
+	else
+		printf 'failed  %s %s\n' "$name" "$*"
+		failed=1
+	fi
+}
+
+printf 'Luuna CLI installation check (%s/%s)\n' "$(uname -s)" "$(uname -m)"
+for command_name in lu luuna luuna-runtime luuna-missions lms lm luuna-atlas lat la luuna-beacon lbc lb; do
+	check_command "$command_name"
+done
+check_help lu --help
+check_help luuna --help
+check_help luuna-missions --help
+check_help lms --help
+check_help lm --help
+check_help luuna-atlas --help
+check_help lat --help
+check_help la --help
+check_help luuna-beacon --help
+check_help lbc --help
+check_help lb --help
+
+if command -v luuna-runtime >/dev/null 2>&1; then
+	probe_dir=$(mktemp -d "${TMPDIR:-/tmp}/luuna-doctor.XXXXXX")
+	trap 'rm -rf "$probe_dir"' EXIT HUP INT TERM
+	printf '\nRuntime host check (temporary data path; credentials are never printed):\n'
+	if luuna-runtime doctor --data-dir "$probe_dir/data" --json >"$probe_dir/report" 2>&1; then
+		cat "$probe_dir/report"
+	else
+		cat "$probe_dir/report"
+		printf 'note    runtime prerequisites need attention; the CLI binaries themselves were checked above\n'
+	fi
+fi
+
+printf '\n'
+printf 'Luuna CLI commands are installed. Model-backed work still needs Pi and a configured provider key.\n'
+exit "$failed"

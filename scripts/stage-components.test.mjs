@@ -163,3 +163,26 @@ test('staging refuses a checkout whose pins and gitlinks disagree before copying
   assert.throws(() => readFileSync(join(out, DIST_MANIFEST)), /ENOENT/);
   assert.ok(components.length === 3);
 }));
+
+test('Homebrew staging verifies separate pinned resources and emits the same runtime-verified portable layout', { skip: process.platform === 'win32' && 'the Bun stand-in is a POSIX shell script' }, async () => {
+  const { stageHomebrewComponents } = await import('./stage-components.mjs');
+  scratch((root) => {
+    const source = join(root, 'checkout');
+    mkdirSync(source);
+    const { bun, components } = checkout(source);
+    const out = join(root, 'homebrew-stage');
+    const sources = Object.fromEntries(components.map((component) => [component.path.split('/')[1], join(source, component.path)]));
+    const dist = stageHomebrewComponents({ out, root: source, bun, sourceDirectories: sources, skipInstall: true, skipBuild: true });
+    assert.equal(dist.kind, DIST_KIND);
+    assert.deepEqual(dist.components.map((component) => component.name), ['missions', 'atlas', 'beacon']);
+    assert.deepEqual(verifyStaged(out), dist);
+    for (const component of components) {
+      assert.equal(dist.components.find((entry) => entry.name === component.path.split('/')[1]).commit, component.commit);
+      assert.throws(() => readFileSync(join(out, component.path, '.git')), /ENOENT/);
+    }
+
+    const wrongSource = { ...sources, atlas: sources.missions };
+    assert.throws(() => stageHomebrewComponents({ out: join(root, 'refused'), root: source, bun, sourceDirectories: wrongSource, skipInstall: true, skipBuild: true }), /Luuna Atlas: source revision/);
+    assert.throws(() => readFileSync(join(root, 'refused', DIST_MANIFEST)), /ENOENT/);
+  });
+});
