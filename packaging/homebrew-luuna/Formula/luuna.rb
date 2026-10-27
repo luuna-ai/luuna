@@ -7,7 +7,7 @@ class Luuna < Formula
   # These immutable Git revisions are refreshed together with
   # components/manifest.json. The component resources must exactly match its
   # pinned source commits before the build can proceed.
-  url "https://github.com/luuna-ai/luuna.git", revision: "b25f3e5d6a5f1baff9897a73ff03df3ac00b8f84"
+  url "https://github.com/luuna-ai/luuna.git", revision: "aeaaf204a16d1c0073e87afab02422119ea56150"
 
   resource "missions" do
     url "https://github.com/luuna-ai/luuna-missions.git", revision: "456bbcf07934d557d14fa3469f1c59ac5e4ec1c8"
