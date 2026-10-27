@@ -3,7 +3,7 @@ import { ExternalLink, Id, Kbd, ListGroup, ListRow, Page, PropertyList, Section,
 import { VIEWS, viewInfo, viewShortcut } from "./content/views";
 
 /** The repository the desktop is built from; its documents are linked from the Help panel. */
-export const REPOSITORY_URL = "https://github.com/brodynelly/luuna/blob/main";
+export const REPOSITORY_URL = "https://github.com/luuna-ai/luuna/blob/main";
 
 export const ONBOARDING_STEPS: readonly { title: string; detail: string }[] = [
   { title: "Connect to the runtime", detail: "The desktop app starts the local runtime and connects; the web build takes the loopback address and the service token, which stays in memory. The sidebar's connection status is the only green that is not evidence." },
