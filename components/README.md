@@ -4,11 +4,11 @@ Luuna maintains three MIT-licensed distributions with space-themed identities. E
 
 | Component | Responsibility | Primary CLI | Short alias | Origin | Data format |
 | --- | --- | --- | --- | --- | --- |
-| [Luuna Missions](https://github.com/brodynelly/luuna-missions/blob/6a4a3c3fb80679a77bbf1d7d2da05033fc15460c/README.md) | Tickets and structured plans | luuna-missions | lms | Seeds 0.6.0 | .luuna/missions/ |
-| [Luuna Atlas](https://github.com/brodynelly/luuna-atlas/blob/27477c313a3049b1579dfdc32c39da600726721f/README.md) | Expertise and project memory | luuna-atlas | lat | Mulch 0.11.0 | .luuna/atlas/ |
-| [Luuna Beacon](https://github.com/brodynelly/luuna-beacon/blob/4b01d37522ef448ada78be08cc7a24f7808dfbbb/README.md) | Composable prompts and instructions | luuna-beacon | lbc | Canopy 0.2.6 | .luuna/beacon/ |
+| [Luuna Missions](https://github.com/luuna-ai/luuna-missions/blob/6a4a3c3fb80679a77bbf1d7d2da05033fc15460c/README.md) | Tickets and structured plans | luuna-missions | lms | Seeds 0.6.0 | .luuna/missions/ |
+| [Luuna Atlas](https://github.com/luuna-ai/luuna-atlas/blob/27477c313a3049b1579dfdc32c39da600726721f/README.md) | Expertise and project memory | luuna-atlas | lat | Mulch 0.11.0 | .luuna/atlas/ |
+| [Luuna Beacon](https://github.com/luuna-ai/luuna-beacon/blob/4b01d37522ef448ada78be08cc7a24f7808dfbbb/README.md) | Composable prompts and instructions | luuna-beacon | lbc | Canopy 0.2.6 | .luuna/beacon/ |
 
-[manifest.json](manifest.json) records package names, versions, entrypoints, and compatible data paths for tooling. Packages are private and unpublished. Source now lives in the public repositories [Luuna Missions](https://github.com/brodynelly/luuna-missions), [Luuna Atlas](https://github.com/brodynelly/luuna-atlas), and [Luuna Beacon](https://github.com/brodynelly/luuna-beacon). These directories are exact-commit Git submodules. The manifest commit and Git gitlink must agree; see [ADR 0012](../docs/decisions/0012-independent-component-repositories.md).
+[manifest.json](manifest.json) records package names, versions, entrypoints, and compatible data paths for tooling. Packages are private and unpublished. Source lives in the public organization repositories [Luuna Missions](https://github.com/luuna-ai/luuna-missions), [Luuna Atlas](https://github.com/luuna-ai/luuna-atlas), and [Luuna Beacon](https://github.com/luuna-ai/luuna-beacon). These directories are exact-commit Git submodules. The manifest commit and Git gitlink must agree; see [ADR 0012](../docs/decisions/0012-independent-component-repositories.md).
 
 The existing automation boundary is CLI execution with structured JSON output (consult each command's help for its output contract). Atlas additionally exports a TypeScript library through src/index.ts and src/api.ts. Missions and Beacon expose executable CLI entrypoints; importing their package main as a service API would execute command-line code and is not a supported integration.
 

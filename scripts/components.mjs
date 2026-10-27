@@ -20,7 +20,7 @@ function verifyPinMetadata(root, component) {
   const expectedPath = `components/${component.brand.replace('Luuna ', '').toLowerCase()}`;
   if (!componentNames.includes(expectedPath.split('/')[1]) || component.path !== expectedPath ||
       !/^[a-f0-9]{40}$/.test(component.commit) ||
-      component.repository !== `https://github.com/brodynelly/luuna-${expectedPath.split('/')[1]}.git`) {
+      component.repository !== `https://github.com/luuna-ai/luuna-${expectedPath.split('/')[1]}.git`) {
     throw new Error('Invalid component identity or immutable commit in manifest');
   }
   const entry = git(root, ['ls-files', '--stage', '--', component.path]);

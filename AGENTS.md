@@ -31,7 +31,7 @@ Record material architecture changes in an ADR and update the current architectu
 <!-- missions-onboard:v0.6.0 -->
 <!-- missions-onboard-schema:8 -->
 
-This project uses [Missions](https://github.com/brodynelly/luuna-missions) v0.6.0 (`lm`) for git-native issue tracking. Run `luuna-missions prime` at session start for the workflow and live state (in-progress and ready issues), or run `luuna-missions setup claude` once to do it automatically.
+This project uses [Missions](https://github.com/luuna-ai/luuna-missions) (`lms`) for git-native issue tracking. Run `luuna-missions prime` at session start for the workflow and live state (in-progress and ready issues), or run `luuna-missions setup claude` once to do it automatically.
 
 - `luuna-missions ready` — Find unblocked work
 - `luuna-missions update <id> --claim` — Claim work (atomic)
@@ -47,7 +47,7 @@ Never hand-edit `.luuna/missions/*.jsonl`; `luuna-missions` locks and validates 
 ## Project Expertise (Atlas)
 <!-- atlas-onboard:v0.11.0 -->
 
-This project uses [Atlas](https://github.com/brodynelly/luuna-atlas) v0.11.0 for structured expertise management.
+This project uses [Atlas](https://github.com/luuna-ai/luuna-atlas) for structured expertise management.
 
 **At the start of every session**, run:
 ```bash
