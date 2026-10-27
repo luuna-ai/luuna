@@ -11,7 +11,7 @@ const doctor = readFileSync(resolve(directory, 'luuna-doctor'), 'utf8');
 const staging = readFileSync(resolve(root, 'scripts/stage-components.mjs'), 'utf8');
 const manifest = JSON.parse(readFileSync(resolve(root, 'components/manifest.json'), 'utf8'));
 const pins = [
-	['luuna', 'b25f3e5d6a5f1baff9897a73ff03df3ac00b8f84'],
+	['luuna', 'aeaaf204a16d1c0073e87afab02422119ea56150'],
 	...manifest.components.map((component) => [component.path.split('/')[1], component.commit]),
 ];
 
