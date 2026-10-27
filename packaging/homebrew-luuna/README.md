@@ -1,14 +1,16 @@
-# Luuna Homebrew packaging (staged)
+# Luuna Homebrew packaging
 
-This directory is a tap-ready packaging draft, not a published tap. It builds
-the **Luuna command-line suite** (runtime, terminal client, Missions, Atlas,
-and Beacon) from immutable organization repository commits. It does not install
-the Luuna desktop app or the separate Luuna AI app.
+This directory contains the source-side packaging implementation for the
+public `luuna-ai/homebrew-luuna` tap, which currently contains a draft formula.
+The formula has not passed Homebrew audit and source-build installation checks
+on supported macOS and Linux hosts. Treat it as unverified; do not present it as
+a supported install path yet.
 
-The supported command will be `brew install luuna-ai/luuna/luuna` after these
-files are reviewed and copied to a dedicated `luuna-ai/homebrew-luuna` tap.
-That repository does not exist yet, so do not advertise this as a usable live
-Homebrew command.
+It builds the **Luuna command-line suite** (runtime, terminal client, Missions,
+Atlas, and Beacon) from immutable organization repository commits. It does not
+install the Luuna workbench desktop app or the separate Luuna AI desktop app.
+The intended install command after platform validation is
+`brew install luuna-ai/luuna/luuna`.
 
 ## Contents
 
@@ -29,7 +31,7 @@ checksums govern build dependencies. Building requires Rust 1.90.0 or newer,
 Go 1.27.0 or newer, Node.js 24.19.0 or newer, and Git. The formula checks the
 minimum Node.js, Go and Rust versions and prevents Go from downloading another toolchain.
 
-## Commands after the tap is created
+## Intended commands after platform validation
 
 ```sh
 brew tap luuna-ai/luuna
@@ -57,5 +59,5 @@ brew install --build-from-source --formula ./packaging/homebrew-luuna/Formula/lu
 luuna-doctor
 ```
 
-This Linux workspace has no Homebrew, Ruby, Rust, Bun, or usable Go toolchain,
-so no Homebrew installation, native Mac build, or platform claim is made here.
+The formula has not yet been installed or audited on supported Homebrew hosts;
+these commands are validation steps, not evidence of a successful install.

@@ -62,13 +62,15 @@ Linux cloud checks cannot establish Mac or Windows installation support. A front
 
 ## Homebrew packaging status
 
-A source-build formula draft for the Luuna command-line suite is staged in
-[`packaging/homebrew-luuna`](packaging/homebrew-luuna/README.md). It is not a
-published tap, so there is no working `brew tap` or `brew install` command yet.
-The draft installs the runtime, terminal client and pinned Missions, Atlas and
-Beacon CLIs; it does not install either desktop app. See the draft's desktop
-release matrix for the artifacts and platform evidence required before casks
-can be added.
+A source-build formula draft for the Luuna command-line suite is available in
+the public [`luuna-ai/homebrew-luuna` tap](https://github.com/luuna-ai/homebrew-luuna)
+and is maintained with the source packaging files in
+[`packaging/homebrew-luuna`](packaging/homebrew-luuna/README.md). It has not yet
+passed Homebrew audit and source-build installation checks on supported macOS
+and Linux hosts, so treat it as unverified rather than a supported install path.
+The formula builds the runtime, terminal client and pinned Missions, Atlas and
+Beacon CLIs; it does not install either desktop app. See the desktop release
+matrix for artifacts and platform evidence needed before adding casks.
 
 ## Terminal workbench
 
