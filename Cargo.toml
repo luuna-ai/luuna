@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.90"
 license = "MIT"
-repository = "https://github.com/brodynelly/luuna"
+repository = "https://github.com/luuna-ai/luuna"
 
 [profile.dev]
 debug = 1
