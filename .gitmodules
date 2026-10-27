@@ -1,9 +1,9 @@
 [submodule "components/missions"]
 	path = components/missions
-	url = https://github.com/brodynelly/luuna-missions.git
+	url = https://github.com/luuna-ai/luuna-missions.git
 [submodule "components/atlas"]
 	path = components/atlas
-	url = https://github.com/brodynelly/luuna-atlas.git
+	url = https://github.com/luuna-ai/luuna-atlas.git
 [submodule "components/beacon"]
 	path = components/beacon
-	url = https://github.com/brodynelly/luuna-beacon.git
+	url = https://github.com/luuna-ai/luuna-beacon.git

@@ -19,10 +19,10 @@ function fixture(check) {
       bin: { 'luuna-atlas': 'src/cli.ts', lat: 'src/cli.ts' } }));
     git(directory, 'add', 'package.json'); git(directory, 'commit', '-m', 'Synthetic pin fixture');
     const component = { brand: 'Luuna Atlas', path: 'components/atlas', sourceVersion: '0.11.0',
-      package: '@luuna/atlas-cli', repository: 'https://github.com/brodynelly/luuna-atlas.git',
+      package: '@luuna/atlas-cli', repository: 'https://github.com/luuna-ai/luuna-atlas.git',
       commit: git(directory, 'rev-parse', 'HEAD'), cli: { primary: 'luuna-atlas', short: 'lat',
         legacy: [], entrypoint: 'src/cli.ts' } };
-    writeFileSync(join(root, '.gitmodules'), '[submodule "components/atlas"]\npath = components/atlas\nurl = https://github.com/brodynelly/luuna-atlas.git\n');
+    writeFileSync(join(root, '.gitmodules'), '[submodule "components/atlas"]\npath = components/atlas\nurl = https://github.com/luuna-ai/luuna-atlas.git\n');
     git(root, 'update-index', '--add', '--cacheinfo', `160000,${component.commit},components/atlas`);
     check({ root, directory, component, git });
   } finally { rmSync(root, { recursive: true, force: true }); }

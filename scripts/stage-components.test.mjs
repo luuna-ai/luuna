@@ -89,12 +89,12 @@ function checkout(root) {
     git(directory, 'add', '.');
     git(directory, 'commit', '-m', 'Synthetic component');
     const commit = git(directory, 'rev-parse', 'HEAD');
-    modules += `[submodule "components/${name}"]\n\tpath = components/${name}\n\turl = https://github.com/brodynelly/luuna-${name}.git\n`;
+    modules += `[submodule "components/${name}"]\n\tpath = components/${name}\n\turl = https://github.com/luuna-ai/luuna-${name}.git\n`;
     git(root, 'update-index', '--add', '--cacheinfo', `160000,${commit},components/${name}`);
     components.push({
       brand: pin.brand, path: `components/${name}`, sourceVersion: pin.version, package: `@luuna/${name}-cli`,
       cli: { primary: `luuna-${name}`, short: pin.short, legacy: pin.legacy, entrypoint: pin.entrypoint },
-      license: 'MIT', published: false, repository: `https://github.com/brodynelly/luuna-${name}.git`, commit,
+      license: 'MIT', published: false, repository: `https://github.com/luuna-ai/luuna-${name}.git`, commit,
     });
   }
   writeFileSync(join(root, '.gitmodules'), modules);

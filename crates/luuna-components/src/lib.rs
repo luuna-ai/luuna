@@ -239,7 +239,7 @@ impl Components {
                 .to_owned();
             if !["missions", "atlas", "beacon"].contains(&name.as_str())
                 || pin.path != format!("components/{name}")
-                || pin.repository != format!("https://github.com/brodynelly/luuna-{name}.git")
+                || pin.repository != format!("https://github.com/luuna-ai/luuna-{name}.git")
                 || pin.package != format!("@luuna/{name}-cli")
                 || pin.commit.len() != 40
                 || !pin
@@ -1539,7 +1539,7 @@ mod tests {
                     "sourceVersion": version, "package": format!("@luuna/{name}-cli"),
                     "cli": {"primary": format!("luuna-{name}"), "short": short, "legacy": legacy, "entrypoint": entrypoint},
                     "license": "MIT", "published": false,
-                    "repository": format!("https://github.com/brodynelly/luuna-{name}.git"),
+                    "repository": format!("https://github.com/luuna-ai/luuna-{name}.git"),
                     "commit": commit,
                 }));
                 staged.push(serde_json::json!({
