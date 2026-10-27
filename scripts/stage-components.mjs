@@ -141,6 +141,104 @@ export function stageComponents({ out, root = repositoryRoot, bun = null, skipIn
   return dist;
 }
 
+/**
+ * Homebrew downloads the component repositories as separate, revision-pinned
+ * resources instead of initializing the root checkout's gitlinks. Validate
+ * each resource against the same manifest, then use the exact portable-layout
+ * format and digest implementation as the ordinary packager.
+ */
+export function stageHomebrewComponents({ out, root, bun, sourceDirectories = {}, skipInstall = false, skipBuild = false } = {}) {
+  if (!out || !root || !bun) throw new Error('Homebrew staging requires --root, --out and --bun');
+  out = resolve(out);
+  root = resolve(root);
+  bun = resolve(bun);
+  const data = manifest(root);
+  if (data.components.length !== componentNames.length) throw new Error('The Homebrew package must stage exactly Missions, Atlas and Beacon');
+  const nodeVersion = process.versions.node.split('.').map(Number);
+  if (nodeVersion[0] < 24 || (nodeVersion[0] === 24 && nodeVersion[1] < 19)) {
+    throw new Error(`Node.js 24.19.0 or newer is required during packaging; found ${process.versions.node}`);
+  }
+  const bunVersion = execFileSync(bun, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
+  if (bunVersion !== data.runtime.version) throw new Error(`Use Bun ${data.runtime.version}; ${bun} is ${bunVersion}`);
+  if (!skipBuild) {
+    const goVersion = execFileSync('go', ['version'], { encoding: 'utf8', timeout: 10_000 });
+    const match = goVersion.match(/\bgo(\d+)\.(\d+)(?:\.(\d+))?/);
+    if (!match || Number(match[1]) < 1 || (Number(match[1]) === 1 && Number(match[2]) < 27)) {
+      throw new Error(`Go 1.27.0 or newer is required to build the pinned component CLIs; found ${goVersion.trim() || 'unknown'}`);
+    }
+  }
+  const manifestBytes = readFileSync(join(root, 'components/manifest.json'));
+  const sources = new Map();
+
+  // Check every commit and package identity before any install/build changes a
+  // resource directory. Homebrew's revision selector binds each Git checkout
+  // to an immutable object; the manifest remains the authority for identity.
+  for (const component of data.components) {
+    const name = component.path.split('/')[1];
+    if (!componentNames.includes(name) || component.repository !== `https://github.com/luuna-ai/luuna-${name}.git` ||
+        !/^[a-f0-9]{40}$/.test(component.commit)) throw new Error(`${component.brand}: invalid source identity or commit pin`);
+    const directory = resolve(sourceDirectories[name] ?? join(root, component.path));
+    const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: directory, encoding: 'utf8', timeout: 10_000 }).trim();
+    if (revision !== component.commit) throw new Error(`${component.brand}: source revision ${revision} differs from ${component.commit}`);
+    const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: directory, encoding: 'utf8', timeout: 10_000 }).trim();
+    if (dirty) throw new Error(`${component.brand}: source resource has tracked changes`);
+    const pkg = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
+    if (pkg.name !== component.package || pkg.version !== component.sourceVersion ||
+        pkg.bin?.[component.cli.primary] !== component.cli.entrypoint ||
+        pkg.bin?.[component.cli.short] !== component.cli.entrypoint ||
+        component.cli.legacy.some((alias) => pkg.bin?.[alias] !== component.cli.entrypoint)) {
+      throw new Error(`${component.brand}: incompatible package or CLI contract`);
+    }
+    sources.set(name, { component, directory });
+  }
+
+  for (const name of componentNames) {
+    const { directory } = sources.get(name);
+    if (!skipInstall) installComponent(root, bun, directory);
+    if (!skipBuild) {
+      if (name === 'atlas' || name === 'missions') {
+        execFileSync(bun, ['run', 'build:native'], { cwd: directory, stdio: 'inherit' });
+      } else {
+        // Beacon builds and caches its native Go command on first invocation.
+        execFileSync(bun, ['src/index.ts', '--help'], { cwd: directory, stdio: 'inherit' });
+      }
+    }
+    const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: directory, encoding: 'utf8', timeout: 10_000 }).trim();
+    if (dirty) throw new Error(`${sources.get(name).component.brand}: build changed tracked source files`);
+  }
+
+  const entries = [];
+  for (const name of componentNames) {
+    const { component, directory } = sources.get(name);
+    const destination = join(out, component.path);
+    copyTree(directory, destination);
+    const { digest, entries: count, files, bytes } = treeDigest(destination);
+    entries.push({
+      name, path: component.path, package: component.package, sourceVersion: component.sourceVersion,
+      repository: component.repository, commit: component.commit, digest, entries: count, files, bytes,
+    });
+  }
+  mkdirSync(join(out, 'components'), { recursive: true });
+  writeFileSync(join(out, 'components/manifest.json'), manifestBytes);
+  const bunDestination = join(out, 'bun', process.platform === 'win32' ? 'bun.exe' : 'bun');
+  mkdirSync(join(out, 'bun'), { recursive: true });
+  cpSync(bun, bunDestination, { dereference: true });
+  const dist = {
+    schemaVersion: DIST_SCHEMA_VERSION,
+    kind: DIST_KIND,
+    generatedAt: new Date().toISOString(),
+    source: { luunaCommit: sourceCommit(root), manifestSha256: sha256(manifestBytes) },
+    runtime: {
+      name: data.runtime.name, version: data.runtime.version,
+      executable: `bun/${process.platform === 'win32' ? 'bun.exe' : 'bun'}`,
+      sha256: sha256(readFileSync(bunDestination)),
+    },
+    components: entries,
+  };
+  writeFileSync(join(out, DIST_MANIFEST), `${JSON.stringify(dist, null, 2)}\n`);
+  return dist;
+}
+
 /** Re-check a staged root the way the runtime does: digests, pins and the Bun hash. */
 export function verifyStaged(out) {
   out = resolve(out);
@@ -183,6 +281,12 @@ function main() {
     for (const component of dist.components) console.log(`${component.name}: ${component.commit} ${component.digest} (${component.files} files)`);
     if (dist.runtime.executable) console.log(`bun ${dist.runtime.version}: ${dist.runtime.sha256}`);
     console.log(`Wrote ${join(resolve(parsed.out), DIST_MANIFEST)}`);
+  } else if (action === 'stage-homebrew') {
+    const sources = Object.fromEntries(componentNames.map((name) => [name, parsed[`source-${name}`] ?? join(parsed.root ?? repositoryRoot, 'components', name)]));
+    const dist = stageHomebrewComponents({ out: parsed.out, root: parsed.root, bun: parsed.bun, sourceDirectories: sources });
+    for (const component of dist.components) console.log(`${component.name}: ${component.commit} ${component.digest} (${component.files} files)`);
+    console.log(`bun ${dist.runtime.version}: ${dist.runtime.sha256}`);
+    console.log(`Wrote ${join(resolve(parsed.out), DIST_MANIFEST)}`);
   } else if (action === 'digest') {
     if (!parsed.positional[0]) throw new Error('digest requires a directory');
     console.log(treeDigest(resolve(parsed.positional[0])).digest);
@@ -192,7 +296,7 @@ function main() {
     for (const component of dist.components) console.log(`${component.name}: ${component.commit} ${component.digest} verified`);
     console.log(relative(process.cwd(), resolve(parsed.positional[0])) || '.');
   } else {
-    throw new Error('Usage: node scripts/stage-components.mjs stage --out <dir> [--root <checkout>] [--bun <exe>] [--skip-install] | digest <dir> | verify <staged-root>');
+    throw new Error('Usage: node scripts/stage-components.mjs stage|stage-homebrew --out <dir> [--root <checkout>] [--bun <exe>] [--skip-install] | digest <dir> | verify <staged-root>');
   }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
