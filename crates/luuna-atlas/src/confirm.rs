@@ -3,18 +3,63 @@
 //!
 //! A port of the Go tool's `writeConfirm` (`delete.go:9-14`).
 
-use std::io::Read;
+use std::io::{self, Read};
 
-/// `writeConfirm(prompt)`: writes `<prompt> (y/N): ` to `stdout`, reads one line through a
-/// fresh 4096-byte buffer (what a new `bufio.Reader` takes from `input`), strips one
+/// The size of a new `bufio.Reader`'s buffer.
+const BUFFER_SIZE: usize = 4096;
+
+/// `writeConfirm(prompt)`: writes `<prompt> (y/N): ` to `stdout`, then does what
+/// `bufio.NewReader(in).ReadString('\n')` does with `input`: reads through a fresh
+/// 4096-byte buffer until a newline arrives or the input ends (a line longer than the
+/// buffer is read on), ignores the error and uses whatever line it has. It strips one
 /// trailing `\n` then one `\r`, lowercases with Go's `strings.ToLower` and answers true
-/// only for `y` or `yes`. Input with no data (EOF or a read error) is false. Input the
-/// buffer took beyond the line is lost, so a second call does not see it (a suspected Go
-/// defect, kept). The prompt goes to stdout even in JSON mode, as in Go.
+/// only for `y` or `yes`; so `y` then end of input is true and an input with no data is
+/// false. What the buffer took from `input` beyond the line is lost, so a second call
+/// does not see it (a suspected Go defect, kept). The prompt goes to stdout even in JSON
+/// mode, as in Go.
 pub fn confirm(prompt: &str, input: &mut dyn Read, stdout: &mut String) -> bool {
-    // stub until t2
-    let _ = (prompt, input, stdout);
-    false
+    stdout.push_str(prompt);
+    stdout.push_str(" (y/N): ");
+    let line = read_line(input);
+    let line = line.strip_suffix(b"\n").unwrap_or(&line);
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    // ToLower maps no non-ASCII character to an ASCII one, so ASCII case folding decides
+    // the same answers.
+    line.eq_ignore_ascii_case(b"y") || line.eq_ignore_ascii_case(b"yes")
+}
+
+/// `ReadString('\n')` on a new `bufio.Reader`: each read asks for the room left in the
+/// buffer, and the read that holds the newline is the last.
+fn read_line(input: &mut dyn Read) -> Vec<u8> {
+    let mut line = Vec::new();
+    let mut buf = [0u8; BUFFER_SIZE];
+    let mut filled = 0;
+    loop {
+        // In Rust a read of zero bytes into a non-empty buffer is the end of the input
+        // (Go's io.EOF); an interrupted read is tried again, as Go's file reads are.
+        let n = loop {
+            match input.read(&mut buf[filled..]) {
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Ok(n) => break n,
+                Err(_) => break 0,
+            }
+        };
+        if n == 0 {
+            line.extend_from_slice(&buf[..filled]);
+            break;
+        }
+        let new = &buf[filled..filled + n];
+        if let Some(i) = new.iter().position(|&b| b == b'\n') {
+            line.extend_from_slice(&buf[..filled + i + 1]);
+            break;
+        }
+        filled += n;
+        if filled == BUFFER_SIZE {
+            line.extend_from_slice(&buf);
+            filled = 0;
+        }
+    }
+    line
 }
 
 #[cfg(test)]
@@ -100,5 +145,81 @@ mod tests {
         let mut out = String::new();
         assert!(!confirm("First?", &mut input, &mut out));
         assert!(confirm("Second?", &mut input, &mut out));
+    }
+
+    /// Records the size of each read it is asked for, then serves `data` in pieces of at
+    /// most `piece` bytes.
+    struct Recording {
+        data: Vec<u8>,
+        piece: usize,
+        asked: Vec<usize>,
+    }
+
+    impl Read for Recording {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.asked.push(buf.len());
+            let n = self.piece.min(buf.len()).min(self.data.len());
+            buf[..n].copy_from_slice(&self.data[..n]);
+            self.data.drain(..n);
+            Ok(n)
+        }
+    }
+
+    /// Data and then an error: the line read so far is used, as Go ignores the error.
+    struct DataThenError(Option<&'static [u8]>);
+
+    impl Read for DataThenError {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match self.0.take() {
+                Some(data) => {
+                    buf[..data.len()].copy_from_slice(data);
+                    Ok(data.len())
+                }
+                None => Err(io::Error::other("boom")),
+            }
+        }
+    }
+
+    #[test]
+    fn reads_past_one_buffer_until_newline_or_end() {
+        // A line longer than the 4096-byte buffer is read on to its newline.
+        let mut data = vec![b'a'; 5000];
+        data.extend_from_slice(b"\nyes\n");
+        let mut input = Recording {
+            data,
+            piece: usize::MAX,
+            asked: Vec::new(),
+        };
+        let mut out = String::new();
+        assert!(!confirm("Long?", &mut input, &mut out));
+        // The first read fills the buffer without a newline, the second reads on and
+        // takes the rest, newline and the next line included (lost to the next call).
+        assert_eq!(input.asked, vec![4096, 4096]);
+        assert!(input.data.is_empty());
+        // Pieces without a newline: each read asks for the room left in the buffer.
+        let mut input = Recording {
+            data: b"y".to_vec(),
+            piece: 1,
+            asked: Vec::new(),
+        };
+        assert!(confirm("Piece?", &mut input, &mut out));
+        assert_eq!(input.asked, vec![4096, 4095]);
+        // A read that takes the newline is the last one: nothing past it is requested.
+        let mut input = Recording {
+            data: b"n\ny\n".to_vec(),
+            piece: 2,
+            asked: Vec::new(),
+        };
+        assert!(!confirm("Newline?", &mut input, &mut out));
+        assert_eq!(input.asked, vec![4096]);
+        assert_eq!(input.data, b"y\n");
+    }
+
+    #[test]
+    fn data_before_an_error_or_end_is_the_answer() {
+        let mut out = String::new();
+        assert!(confirm("Err?", &mut DataThenError(Some(b"yes")), &mut out));
+        assert!(!confirm("Err?", &mut DataThenError(Some(b"no")), &mut out));
+        assert!(!confirm("Err?", &mut DataThenError(Some(b"")), &mut out));
     }
 }
