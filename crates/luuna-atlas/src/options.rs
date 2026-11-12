@@ -11,9 +11,9 @@
 //! passes it gets the Go tool's results; tests pass [`Env::fixed`] and never touch the
 //! test process's environment. Only [`Env::from_process`] reads the process environment.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// The global flags every command accepts (`--json`, `--quiet`/`-q`, `--verbose`,
 /// `--allow-unknown-types`, `--allow-domain-mismatch`, `--format`).
@@ -34,17 +34,34 @@ impl GlobalOptions {
     /// `--allow-domain-mismatch` set their flag wherever they appear, flag values and
     /// arguments after `--` included. `format` is not set by the scan.
     pub fn prescan(args: &[String]) -> GlobalOptions {
-        // stub until t5
-        let _ = args;
-        GlobalOptions::default()
+        let mut g = GlobalOptions::default();
+        for arg in args {
+            match arg.as_str() {
+                "--json" => g.json = true,
+                "--quiet" | "-q" => g.quiet = true,
+                "--verbose" => g.verbose = true,
+                "--allow-unknown-types" => g.allow_unknown_types = true,
+                "--allow-domain-mismatch" => g.allow_domain_mismatch = true,
+                _ => {}
+            }
+        }
+        g
     }
 
     /// `setGlobal` (`cli.go:291-310`): the value is the last of `values`, or `true` when
     /// there is none; a boolean flag is set to `value != "false"`; `format` takes the value
     /// as it is. Unknown names change nothing.
     pub fn set(&mut self, name: &str, values: &[String]) {
-        // stub until t5
-        let _ = (name, values);
+        let v = values.last().map_or("true", String::as_str);
+        match name {
+            "json" => self.json = v != "false",
+            "quiet" => self.quiet = v != "false",
+            "verbose" => self.verbose = v != "false",
+            "allow-unknown-types" => self.allow_unknown_types = v != "false",
+            "allow-domain-mismatch" => self.allow_domain_mismatch = v != "false",
+            "format" => self.format = v.to_owned(),
+            _ => {}
+        }
     }
 }
 
@@ -68,8 +85,14 @@ impl Env {
     /// replaced by U+FFFD) and [`crate::style::stdout_is_terminal`]. The only reader of the
     /// process environment in this crate's building blocks.
     pub fn from_process() -> Env {
-        // stub until t5: a placeholder with no variables, no arguments and no terminal.
-        Env::default()
+        Env {
+            vars: std::env::vars_os().collect(),
+            args: std::env::args_os()
+                .skip(1)
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect(),
+            stdout_is_terminal: crate::style::stdout_is_terminal(),
+        }
     }
 
     /// An environment given in full, for tests and embedders.
@@ -92,9 +115,11 @@ impl Env {
     /// The value of `name` among this environment's own variables (`os.LookupEnv`), with
     /// non-UTF-8 bytes replaced by U+FFFD; `None` when it is not set.
     pub fn var(&self, name: &str) -> Option<String> {
-        // stub until t5
-        let _ = name;
-        None
+        // Go's environment map keeps the first occurrence of a name.
+        self.vars
+            .iter()
+            .find(|(k, _)| k.as_os_str() == OsStr::new(name))
+            .map(|(_, v)| v.to_string_lossy().into_owned())
     }
 
     /// Every variable, in order, as given to child processes.
@@ -118,10 +143,75 @@ impl Env {
     /// relative element) is refused, as Go 1.19+ does with `ErrDot`; `GODEBUG` is not
     /// honoured (D4). `None` when nothing is found or the result is refused.
     pub fn look_path(&self, name: &str) -> Option<PathBuf> {
-        // stub until t5
-        let _ = name;
+        if name.contains('/') {
+            // Go returns the name itself when it holds a slash, after the same check.
+            return is_executable_file(Path::new(name)).then(|| PathBuf::from(name));
+        }
+        let path = self.var("PATH").unwrap_or_default();
+        // filepath.SplitList: an empty PATH has no elements.
+        if path.is_empty() {
+            return None;
+        }
+        for dir in path.split(':') {
+            let dir = if dir.is_empty() { "." } else { dir };
+            let candidate = go_join(dir, name);
+            if is_executable_file(&candidate) {
+                // Go stops at the first match; a relative one is ErrDot, not a result.
+                return candidate.is_absolute().then_some(candidate);
+            }
+        }
         None
     }
+}
+
+/// `findExecutable` (os/exec, unix): the file exists (symlinks followed), is a regular file
+/// and has an execute bit set.
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|m| m.is_file())
+        .unwrap_or(false)
+}
+
+/// `filepath.Join(dir, name)` for two non-empty-or-empty elements: joined with `/` and
+/// lexically cleaned (`filepath.Clean`).
+fn go_join(dir: &str, name: &str) -> PathBuf {
+    let joined = if name.is_empty() {
+        dir.to_owned()
+    } else {
+        format!("{dir}/{name}")
+    };
+    let rooted = joined.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for part in joined.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.last().is_some_and(|p| *p != "..") {
+                    parts.pop();
+                } else if !rooted {
+                    parts.push("..");
+                }
+            }
+            other => parts.push(other),
+        }
+    }
+    let mut out = parts.join("/");
+    if rooted {
+        out.insert(0, '/');
+    }
+    if out.is_empty() {
+        out.push('.');
+    }
+    PathBuf::from(out)
 }
 
 impl fmt::Debug for Env {
