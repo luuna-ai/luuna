@@ -756,4 +756,102 @@ mod tests {
         assert_eq!(context.env("USER"), Some("me"));
         assert_eq!(context.env("HOME"), None);
     }
+
+    /// A store whose one record holds `extensions.x` and an unknown key `zz`,
+    /// each `depth` arrays deep around `1`, as in the reviewer's probe.
+    fn deep_store(depth: usize) -> (tempfile::TempDir, String, String) {
+        let nested = "[".repeat(depth) + "1" + &"]".repeat(depth);
+        let line = format!(
+            r#"{{"id":"a","title":"Ta","status":"open","type":"task","priority":2,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","extensions":{{"x":{nested}}},"zz":{nested}}}"#
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".luuna/missions");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.yaml"), "project: \"p\"\nversion: \"1\"\n").unwrap();
+        std::fs::write(dir.join("issues.jsonl"), format!("{line}\n")).unwrap();
+        std::fs::write(dir.join("plans.jsonl"), "").unwrap();
+        (temp, line, nested)
+    }
+
+    /// `stdout` without the encoder's indentation (the record holds no
+    /// spaces or newlines of its own).
+    fn unindented(stdout: &[u8]) -> String {
+        let bytes = stdout.iter().copied().filter(|byte| !b" \n".contains(byte));
+        String::from_utf8(bytes.collect()).unwrap()
+    }
+
+    #[test]
+    fn commands_read_and_write_records_as_deep_as_go_accepts_on_a_2_mib_stack() {
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                // The record line nests 10000 deep (record, extensions, and
+                // 9998 arrays): the deepest Go reads. Go prints these.
+                let (temp, _, nested) = deep_store(9_998);
+                let root = temp.path();
+                let run_here =
+                    |args: &[&str]| run(&Invocation::new(root, args.iter().copied())).unwrap();
+                let shown = run_here(&["show", "a"]);
+                assert_eq!(shown.exit_code, 0);
+                assert!(text(&shown.stdout).contains(&format!("\nExtensions: x={nested}\n")));
+                let ids = run_here(&["show", "a", "--format", "ids"]);
+                assert_eq!((ids.exit_code, text(&ids.stdout)), (0, "a\n"));
+                let listed = run_here(&["list"]);
+                assert_eq!(
+                    (listed.exit_code, text(&listed.stdout)),
+                    (0, "- a · Ta   [Medium · task]\n\n1 issue(s)\n")
+                );
+                drop(temp);
+
+                // With `--json` the envelope adds up to two levels, so 9996
+                // arrays is the deepest record all three print in Go.
+                let (temp, line, _) = deep_store(9_996);
+                let root = temp.path();
+                let run_here =
+                    |args: &[&str]| run(&Invocation::new(root, args.iter().copied())).unwrap();
+                let shown = run_here(&["show", "a", "--json"]);
+                assert_eq!(shown.exit_code, 0);
+                assert!(
+                    unindented(&shown.stdout)
+                        == format!(r#"{{"success":true,"command":"show","issue":{line}}}"#)
+                );
+                let listed = run_here(&["list", "--json"]);
+                assert_eq!(listed.exit_code, 0);
+                assert!(
+                    unindented(&listed.stdout)
+                        == format!(
+                            r#"{{"success":true,"command":"list","issues":[{line}],"count":1}}"#
+                        )
+                );
+                let updated = run_here(&[
+                    "update",
+                    "a",
+                    "--title=X",
+                    "--extensions",
+                    r#"{"y":1}"#,
+                    "--json",
+                ]);
+                assert_eq!(updated.exit_code, 0);
+                let stored =
+                    std::fs::read_to_string(root.join(".luuna/missions/issues.jsonl")).unwrap();
+                let stored = stored.trim_end();
+                // Only the title, the time and the new extension change.
+                let (head, tail) = line
+                    .split_once(r#""updatedAt":"2026-01-01T00:00:00.000Z""#)
+                    .unwrap();
+                let head = head.replace(r#""title":"Ta""#, r#""title":"X""#);
+                assert!(stored.starts_with(&format!(r#"{head}"updatedAt":""#)));
+                let after_time =
+                    &stored[head.len() + r#""updatedAt":"2026-01-01T00:00:00.000Z""#.len()..];
+                let want_tail = tail.replacen(r#"]]},"zz""#, r#"]],"y":1},"zz""#, 1);
+                assert!(after_time == want_tail);
+                assert!(
+                    unindented(&updated.stdout)
+                        == format!(r#"{{"success":true,"command":"update","issue":{stored}}}"#)
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }

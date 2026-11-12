@@ -206,8 +206,9 @@ fn extensions_patch(raw: &str) -> Result<BTreeMap<String, Value>, String> {
         return Err(format!("--extensions must be valid JSON: {reason}"));
     }
     match Value::decode(bytes) {
-        Ok(Value::Object(patch)) => Ok(patch),
-        Ok(_) => Err("--extensions must be a JSON object (not array, null, or scalar)".to_owned()),
+        Ok(value) => value.into_object().ok_or_else(|| {
+            "--extensions must be a JSON object (not array, null, or scalar)".to_owned()
+        }),
         Err(error) => Err(format!("--extensions must be valid JSON: {error}")),
     }
 }
@@ -222,9 +223,7 @@ struct PlanLinks {
 
 impl Record for PlanLinks {
     fn from_line(line: &[u8]) -> Option<Self> {
-        let Ok(Value::Object(members)) = Value::decode(line) else {
-            return None;
-        };
+        let members = Value::decode(line).ok().and_then(Value::into_object)?;
         let text = |key: &str| match members.get(key) {
             Some(Value::String(text)) => text.clone(),
             _ => String::new(),

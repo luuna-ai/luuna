@@ -29,9 +29,7 @@ struct PlanId(String);
 
 impl Record for PlanId {
     fn from_line(line: &[u8]) -> Option<Self> {
-        let Ok(Value::Object(members)) = Value::decode(line) else {
-            return None;
-        };
+        let members = Value::decode(line).ok().and_then(Value::into_object)?;
         Some(Self(match members.get("id") {
             Some(Value::String(id)) => id.clone(),
             _ => String::new(),
@@ -180,25 +178,59 @@ fn sprint_number(number: f64) -> String {
     format!("{number}")
 }
 
-/// Go's `fmt.Sprint` of a value decoded into `any`.
+/// Go's `fmt.Sprint` of a value decoded into `any`: `[a b]` for an array,
+/// `map[k:v l:w]` for an object. The tree is walked with a heap stack, so
+/// a value nested as deep as the decoder accepts does not use the call
+/// stack in proportion to its depth.
 fn sprint(value: &Value) -> String {
-    match value {
-        Value::Null => "<nil>".to_owned(),
-        Value::Bool(flag) => flag.to_string(),
-        Value::Number(number) => sprint_number(*number),
-        Value::String(text) => text.clone(),
-        Value::Array(items) => {
-            let parts: Vec<String> = items.iter().map(sprint).collect();
-            format!("[{}]", parts.join(" "))
-        }
-        Value::Object(map) => {
-            let parts: Vec<String> = map
-                .iter()
-                .map(|(key, item)| format!("{key}:{}", sprint(item)))
-                .collect();
-            format!("map[{}]", parts.join(" "))
+    enum Frame<'a> {
+        Array(std::slice::Iter<'a, Value>, bool),
+        Object(std::collections::btree_map::Iter<'a, String, Value>, bool),
+    }
+    fn open<'a>(out: &mut String, value: &'a Value, stack: &mut Vec<Frame<'a>>) {
+        match value {
+            Value::Null => out.push_str("<nil>"),
+            Value::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+            Value::Number(number) => out.push_str(&sprint_number(*number)),
+            Value::String(text) => out.push_str(text),
+            Value::Array(items) => {
+                out.push('[');
+                stack.push(Frame::Array(items.iter(), true));
+            }
+            Value::Object(map) => {
+                out.push_str("map[");
+                stack.push(Frame::Object(map.iter(), true));
+            }
         }
     }
+    let mut out = String::new();
+    let mut stack = Vec::new();
+    open(&mut out, value, &mut stack);
+    while let Some(frame) = stack.last_mut() {
+        let child = match frame {
+            Frame::Array(items, first) => items.next().inspect(|_| {
+                if !std::mem::replace(first, false) {
+                    out.push(' ');
+                }
+            }),
+            Frame::Object(entries, first) => entries.next().map(|(key, item)| {
+                if !std::mem::replace(first, false) {
+                    out.push(' ');
+                }
+                out.push_str(key);
+                out.push(':');
+                item
+            }),
+        };
+        match child {
+            Some(child) => open(&mut out, child, &mut stack),
+            None => {
+                stack.pop();
+                out.push(']');
+            }
+        }
+    }
+    out
 }
 
 /// Go's `formatIssueFull`.

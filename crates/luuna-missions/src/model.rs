@@ -189,10 +189,7 @@ impl Ticket {
                 };
             }
             "extensions" => {
-                self.extensions = match Value::decode(raw) {
-                    Ok(Value::Object(map)) => Some(map),
-                    _ => None,
-                };
+                self.extensions = Value::decode(raw).ok().and_then(Value::into_object);
             }
             "closedAt" => self.closed_at = decode_string(raw),
             _ => {}
@@ -381,18 +378,13 @@ fn decode_int(raw: &[u8]) -> Option<i64> {
 /// A `[]string` member: `null` or a non-array gives `None`; an array gives
 /// its strings, with the zero value `""` for an element of another type.
 fn decode_strings(raw: &[u8]) -> Option<Vec<String>> {
-    match Value::decode(raw) {
-        Ok(Value::Array(items)) => Some(
-            items
-                .into_iter()
-                .map(|item| match item {
-                    Value::String(text) => text,
-                    _ => String::new(),
-                })
-                .collect(),
-        ),
-        _ => None,
-    }
+    let items = Value::decode(raw).ok().and_then(Value::into_array)?;
+    Some(
+        items
+            .into_iter()
+            .map(|item| item.into_string().unwrap_or_default())
+            .collect(),
+    )
 }
 
 /// The current time as Go's `model.NowISO` writes it: UTC with exactly three
@@ -690,5 +682,40 @@ mod tests {
         });
         assert_eq!(id, "p-12cd");
         assert_eq!(calls, 50);
+    }
+
+    #[test]
+    fn a_record_as_deep_as_decode_accepts_needs_no_deep_stack() {
+        // The record object holds `intent` and `extensions` -> `x`, so these
+        // members reach MAX_DEPTH (10000), the deepest nesting Go accepts.
+        let deep = |depth: usize| "[".repeat(depth) + "1" + &"]".repeat(depth);
+        let record = move |title: &str| {
+            format!(
+                r#"{{"id":"p-d001","title":"{title}","status":"open","type":"task","priority":2,"createdAt":"c","updatedAt":"u","intent":{},"extensions":{{"x":{}}}}}"#,
+                deep(9_999),
+                deep(9_998)
+            )
+        };
+        std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(move || {
+                let ticket = Ticket::from_json(record("Old").as_bytes()).expect("Go keeps it");
+                let copy = ticket.clone();
+                // `assert!` rather than `assert_eq!`: the derived `Debug` of
+                // a failure message would recurse.
+                assert!(copy == ticket);
+                let mut changed = copy.clone();
+                changed.title = "New".into();
+                assert!(changed != ticket);
+                let written = changed.to_json_line().unwrap();
+                assert!(written == record("New").into_bytes());
+                assert!(Ticket::from_json(&written).is_some_and(|read| read.title == "New"));
+                drop(changed);
+                drop(copy);
+                drop(ticket);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }

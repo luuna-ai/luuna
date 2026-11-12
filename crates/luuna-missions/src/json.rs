@@ -95,7 +95,14 @@ impl fmt::Display for UnsupportedValue {
 }
 
 /// A value decoded the way Go decodes JSON into `any`.
-#[derive(Debug, Clone)]
+///
+/// A value may nest as deep as the decoder accepts (`MAX_DEPTH`), so
+/// `Clone`, `PartialEq`, `Drop` and [`Value::encode`] walk the tree with a
+/// heap stack instead of recursing: none of them uses the call stack in
+/// proportion to the depth. Because `Value` implements `Drop`, its
+/// contents cannot be moved out by a pattern; match by reference, or take
+/// the contents with `std::mem::take`.
+#[derive(Debug)]
 pub enum Value {
     /// `null` (Go `nil`).
     Null,
@@ -112,23 +119,167 @@ pub enum Value {
 }
 
 impl PartialEq for Value {
+    /// The derived comparison (same variant, arrays element by element,
+    /// objects with equal lengths and equal entries in key order), walked
+    /// with a heap stack.
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Null, Self::Null) => true,
-            (Self::Bool(a), Self::Bool(b)) => a == b,
-            // Bit equality keeps `Eq` lawful; JSON input never yields NaN.
-            (Self::Number(a), Self::Number(b)) => a.to_bits() == b.to_bits(),
-            (Self::String(a), Self::String(b)) => a == b,
-            (Self::Array(a), Self::Array(b)) => a == b,
-            (Self::Object(a), Self::Object(b)) => a == b,
-            _ => false,
+        let mut pending: Vec<(&Value, &Value)> = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (Self::Null, Self::Null) => {}
+                (Self::Bool(a), Self::Bool(b)) if a == b => {}
+                // Bit equality keeps `Eq` lawful; JSON input never yields NaN.
+                (Self::Number(a), Self::Number(b)) if a.to_bits() == b.to_bits() => {}
+                (Self::String(a), Self::String(b)) if a == b => {}
+                (Self::Array(a), Self::Array(b)) if a.len() == b.len() => {
+                    pending.extend(a.iter().zip(b).rev());
+                }
+                (Self::Object(a), Self::Object(b)) if a.len() == b.len() => {
+                    let start = pending.len();
+                    for ((key_a, value_a), (key_b, value_b)) in a.iter().zip(b) {
+                        if key_a != key_b {
+                            return false;
+                        }
+                        pending.push((value_a, value_b));
+                    }
+                    pending[start..].reverse();
+                }
+                _ => return false,
+            }
         }
+        true
     }
 }
 
 impl Eq for Value {}
 
+impl Clone for Value {
+    /// A deep copy, built with a heap stack.
+    fn clone(&self) -> Self {
+        enum Frame<'a> {
+            Array(std::slice::Iter<'a, Value>, Vec<Value>),
+            Object(
+                std::collections::btree_map::Iter<'a, String, Value>,
+                BTreeMap<String, Value>,
+                String,
+            ),
+        }
+        let mut stack: Vec<Frame<'_>> = Vec::new();
+        let mut next: &Value = self;
+        loop {
+            // Copy a leaf or an empty container, or open a frame.
+            let mut done = match next {
+                Self::Null => Some(Self::Null),
+                Self::Bool(flag) => Some(Self::Bool(*flag)),
+                Self::Number(number) => Some(Self::Number(*number)),
+                Self::String(text) => Some(Self::String(text.clone())),
+                Self::Array(items) => {
+                    stack.push(Frame::Array(items.iter(), Vec::with_capacity(items.len())));
+                    None
+                }
+                Self::Object(map) => {
+                    stack.push(Frame::Object(map.iter(), BTreeMap::new(), String::new()));
+                    None
+                }
+            };
+            // Attach the copy to its parent, then move to the parent's next
+            // child, closing every frame that has none left.
+            loop {
+                let Some(frame) = stack.last_mut() else {
+                    return done.expect("the root is copied before the stack empties");
+                };
+                let child = match frame {
+                    Frame::Array(items, copy) => {
+                        copy.extend(done.take());
+                        items.next()
+                    }
+                    Frame::Object(entries, copy, key) => {
+                        if let Some(value) = done.take() {
+                            copy.insert(std::mem::take(key), value);
+                        }
+                        entries.next().map(|(name, value)| {
+                            key.clone_from(name);
+                            value
+                        })
+                    }
+                };
+                if let Some(child) = child {
+                    next = child;
+                    break;
+                }
+                done = Some(match stack.pop() {
+                    Some(Frame::Array(_, copy)) => Self::Array(copy),
+                    Some(Frame::Object(_, copy, _)) => Self::Object(copy),
+                    None => unreachable!("the stack has a frame"),
+                });
+            }
+        }
+    }
+}
+
+impl Drop for Value {
+    /// Moves nested containers onto a heap stack and drops them one level
+    /// at a time, so that a deep value does not recurse through the derived
+    /// drop glue.
+    fn drop(&mut self) {
+        fn nested(value: &Value) -> bool {
+            let deep = |child: &Value| match child {
+                Value::Array(items) => !items.is_empty(),
+                Value::Object(map) => !map.is_empty(),
+                _ => false,
+            };
+            match value {
+                Value::Array(items) => items.iter().any(deep),
+                Value::Object(map) => map.values().any(deep),
+                _ => false,
+            }
+        }
+        fn take_children(value: &mut Value, into: &mut Vec<Value>) {
+            match value {
+                Value::Array(items) => into.append(items),
+                Value::Object(map) => into.extend(std::mem::take(map).into_values()),
+                _ => {}
+            }
+        }
+        // A value whose children are all leaves or empty containers drops
+        // in one step; only deeper values need the stack.
+        if !nested(self) {
+            return;
+        }
+        let mut pending = Vec::new();
+        take_children(self, &mut pending);
+        while let Some(mut value) = pending.pop() {
+            take_children(&mut value, &mut pending);
+            // `value` now holds no children, so its own drop is shallow.
+        }
+    }
+}
+
 impl Value {
+    /// The items of an array, or `None` for any other value.
+    pub(crate) fn into_array(mut self) -> Option<Vec<Value>> {
+        match &mut self {
+            Self::Array(items) => Some(std::mem::take(items)),
+            _ => None,
+        }
+    }
+
+    /// The members of an object, or `None` for any other value.
+    pub(crate) fn into_object(mut self) -> Option<BTreeMap<String, Value>> {
+        match &mut self {
+            Self::Object(map) => Some(std::mem::take(map)),
+            _ => None,
+        }
+    }
+
+    /// The text of a string, or `None` for any other value.
+    pub(crate) fn into_string(mut self) -> Option<String> {
+        match &mut self {
+            Self::String(text) => Some(std::mem::take(text)),
+            _ => None,
+        }
+    }
+
     /// Decodes `src`, one valid JSON value, as Go's `json.Unmarshal` into
     /// `any` does.
     pub(crate) fn decode(src: &[u8]) -> Result<Self, SyntaxError> {
@@ -251,25 +402,9 @@ impl Value {
         out: &mut Vec<u8>,
         escape_html: bool,
     ) -> Result<(), UnsupportedValue> {
-        match self {
-            Self::Null => out.extend_from_slice(b"null"),
-            Self::Bool(true) => out.extend_from_slice(b"true"),
-            Self::Bool(false) => out.extend_from_slice(b"false"),
-            Self::Number(number) => out.extend_from_slice(format_float(*number)?.as_bytes()),
-            Self::String(text) => quote(out, text, escape_html),
-            Self::Array(items) => {
-                out.push(b'[');
-                for (index, item) in items.iter().enumerate() {
-                    if index > 0 {
-                        out.push(b',');
-                    }
-                    item.encode(out, escape_html)?;
-                }
-                out.push(b']');
-            }
-            Self::Object(map) => encode_map(out, map, escape_html)?,
-        }
-        Ok(())
+        let mut stack = Vec::new();
+        open_value(out, self, &mut stack, escape_html)?;
+        encode_frames(out, &mut stack, escape_html)
     }
 }
 
@@ -280,15 +415,79 @@ pub(crate) fn encode_map(
     escape_html: bool,
 ) -> Result<(), UnsupportedValue> {
     out.push(b'{');
-    for (index, (key, value)) in map.iter().enumerate() {
-        if index > 0 {
-            out.push(b',');
+    let mut stack = vec![EncodeFrame::Object(map.iter(), true)];
+    encode_frames(out, &mut stack, escape_html)
+}
+
+/// An array or object [`Value::encode`] has opened and not yet closed, with
+/// the children still to write and whether none has been written yet.
+enum EncodeFrame<'a> {
+    Array(std::slice::Iter<'a, Value>, bool),
+    Object(std::collections::btree_map::Iter<'a, String, Value>, bool),
+}
+
+/// Writes a scalar, or writes the opening bracket of a container and pushes
+/// its frame.
+fn open_value<'a>(
+    out: &mut Vec<u8>,
+    value: &'a Value,
+    stack: &mut Vec<EncodeFrame<'a>>,
+    escape_html: bool,
+) -> Result<(), UnsupportedValue> {
+    match value {
+        Value::Null => out.extend_from_slice(b"null"),
+        Value::Bool(true) => out.extend_from_slice(b"true"),
+        Value::Bool(false) => out.extend_from_slice(b"false"),
+        Value::Number(number) => out.extend_from_slice(format_float(*number)?.as_bytes()),
+        Value::String(text) => quote(out, text, escape_html),
+        Value::Array(items) => {
+            out.push(b'[');
+            stack.push(EncodeFrame::Array(items.iter(), true));
         }
-        quote(out, key, escape_html);
-        out.push(b':');
-        value.encode(out, escape_html)?;
+        Value::Object(map) => {
+            out.push(b'{');
+            stack.push(EncodeFrame::Object(map.iter(), true));
+        }
     }
-    out.push(b'}');
+    Ok(())
+}
+
+/// Writes the rest of every open container: each child after a comma (an
+/// object member as its quoted key and a colon first), then the closing
+/// bracket. The output is what the recursive form `[a,b]` and `{"k":v}`
+/// gives, and an unsupported number stops it at the same byte.
+fn encode_frames<'a>(
+    out: &mut Vec<u8>,
+    stack: &mut Vec<EncodeFrame<'a>>,
+    escape_html: bool,
+) -> Result<(), UnsupportedValue> {
+    while let Some(frame) = stack.last_mut() {
+        let child = match frame {
+            EncodeFrame::Array(items, first) => items.next().inspect(|_| {
+                if !std::mem::replace(first, false) {
+                    out.push(b',');
+                }
+            }),
+            EncodeFrame::Object(entries, first) => entries.next().map(|(key, value)| {
+                if !std::mem::replace(first, false) {
+                    out.push(b',');
+                }
+                quote(out, key, escape_html);
+                out.push(b':');
+                value
+            }),
+        };
+        match child {
+            Some(child) => open_value(out, child, stack, escape_html)?,
+            None => {
+                let close = match stack.pop() {
+                    Some(EncodeFrame::Array(..)) => b']',
+                    _ => b'}',
+                };
+                out.push(close);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -951,5 +1150,92 @@ mod tests {
             String::from_utf8(out).unwrap(),
             r#"{"html":"\u003c\u0026\u003e","keep":{"n":[1,2.5,null]},"z":-0}"#
         );
+    }
+
+    /// Runs `check` on a thread with a 256 KiB stack, far less than a
+    /// recursive walk of a value nested `MAX_DEPTH` deep needs.
+    fn on_a_small_stack(check: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(check)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// `depth` containers around `leaf`: arrays, objects with the key `k`,
+    /// or both in turn.
+    fn nested(depth: usize, shape: &str, leaf: &str) -> String {
+        let object = |level: usize| shape == "object" || (shape == "mixed" && level % 2 == 1);
+        let mut text = String::new();
+        for level in 0..depth {
+            text.push_str(if object(level) { "{\"k\":" } else { "[" });
+        }
+        text.push_str(leaf);
+        for level in (0..depth).rev() {
+            text.push(if object(level) { '}' } else { ']' });
+        }
+        text
+    }
+
+    #[test]
+    fn values_as_deep_as_decode_accepts_need_no_deep_stack() {
+        on_a_small_stack(|| {
+            for shape in ["array", "object", "mixed"] {
+                // MAX_DEPTH is the deepest nesting decode accepts.
+                assert!(Value::decode(nested(MAX_DEPTH + 1, shape, "1").as_bytes()).is_err());
+                let src = nested(MAX_DEPTH, shape, "1");
+                let value = Value::decode(src.as_bytes()).unwrap();
+                let copy = value.clone();
+                // `assert!` rather than `assert_eq!`: the derived `Debug` of
+                // a failure message would recurse.
+                assert!(copy == value, "{shape}: a clone equals its source");
+                let other = Value::decode(nested(MAX_DEPTH, shape, "2").as_bytes()).unwrap();
+                assert!(other != value, "{shape}: the innermost leaf is compared");
+                let mut out = Vec::new();
+                copy.encode(&mut out, true).unwrap();
+                assert!(out == src.as_bytes(), "{shape}: encode writes the source");
+                if let Value::Object(map) = &value {
+                    let mut out = Vec::new();
+                    encode_map(&mut out, map, true).unwrap();
+                    assert!(out == src.as_bytes(), "{shape}: encode_map writes it");
+                }
+                drop(copy);
+                drop(other);
+                drop(value);
+            }
+        });
+    }
+
+    #[test]
+    fn iterative_comparison_clone_and_encode_match_the_recursive_forms() {
+        let src = r#"{"a":[1,{"b":[],"c":{}},"<s>"],"d":{"e":[null,true,false,-0]}}"#;
+        let value = Value::decode(src.as_bytes()).unwrap();
+        let copy = value.clone();
+        assert_eq!(copy, value);
+        for different in [
+            r#"{"a":[1,{"b":[],"c":{}},"<s>"],"d":{"e":[null,true,false,0]}}"#,
+            r#"{"a":[1,{"b":[],"c":{}},"<s>"],"d":{"e":[null,true,false]}}"#,
+            r#"{"a":[1,{"b":[],"x":{}},"<s>"],"d":{"e":[null,true,false,-0]}}"#,
+            r#"{"a":[1,{"b":[],"c":[]},"<s>"],"d":{"e":[null,true,false,-0]}}"#,
+            r#"{"a":[1,{"b":[],"c":{}},"<s>"]}"#,
+            r#"[1]"#,
+        ] {
+            assert_ne!(
+                Value::decode(different.as_bytes()).unwrap(),
+                value,
+                "{different}"
+            );
+        }
+        let mut out = Vec::new();
+        copy.encode(&mut out, false).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), src);
+        // An unsupported number stops the output at the byte where the
+        // recursive form stopped.
+        let value = Value::decode(br#"[1,[2,{"k":1e400,"z":3}],4]"#).unwrap();
+        let mut out = Vec::new();
+        let error = value.encode(&mut out, true).unwrap_err();
+        assert_eq!(error.to_string(), "json: unsupported value: +Inf");
+        assert_eq!(out, br#"[1,[2,{"k":"#);
     }
 }
