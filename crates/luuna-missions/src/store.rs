@@ -27,7 +27,7 @@
 //!   renaming it to `<file>.lock.stale.<16 hex>` and removing that only if it
 //!   is still the same file with the same modification time.
 //!
-//! Discovery is ported in task t3.
+//! Discovery follows Go's `FindDir` (see [`Store::discover`]).
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -37,7 +37,8 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::error::{Error, Result, THIS_PLAN};
+use crate::config::{self, ProcessEnv};
+use crate::error::{Error, Result};
 use crate::model::{self, Ticket};
 
 /// A lock older than this is stale and may be reclaimed (`lockStale`).
@@ -86,10 +87,23 @@ impl Store {
         Ok(Self { dir: dir.into() })
     }
 
-    /// The store found by walking up from `cwd`, as Go's `FindDir` does.
+    /// The store found by walking up from `cwd` to the first
+    /// `.luuna/missions/config.yaml`, as Go's `FindDir` does. A relative
+    /// `cwd` is taken from the process's working directory.
+    ///
+    /// From a linked git worktree, the main checkout's store is returned when
+    /// it is initialised; this runs `git rev-parse --git-common-dir` with the
+    /// process's environment, as Go does. Reaching the file system root
+    /// returns [`Error::NotInProject`]. A legacy `.seeds` folder that Go
+    /// would migrate (or refuse) on the way returns
+    /// [`Error::Unsupported`] until s4-missions-lib-3.
     pub fn discover(cwd: &Path) -> Result<Self> {
-        let _ = cwd;
-        Err(Error::unsupported("Store::discover", THIS_PLAN))
+        Self::discover_with(cwd, ProcessEnv::Inherit)
+    }
+
+    /// [`Store::discover`] with git run in `env`.
+    pub(crate) fn discover_with(cwd: &Path, env: ProcessEnv<'_>) -> Result<Self> {
+        Self::open(config::find_dir(cwd, env)?)
     }
 
     /// The store directory.
@@ -231,7 +245,7 @@ pub(crate) fn append_record<R: Record>(path: &Path, item: &R) -> Result<()> {
 
 /// Go's `bytes.TrimSpace`: leading and trailing Unicode white space; an
 /// invalid UTF-8 byte stops the trim.
-fn trim_space(mut bytes: &[u8]) -> &[u8] {
+pub(crate) fn trim_space(mut bytes: &[u8]) -> &[u8] {
     while !bytes.is_empty() {
         let (ch, width) = crate::json::decode_char(bytes);
         if !ch.is_some_and(char::is_whitespace) {

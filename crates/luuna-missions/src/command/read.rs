@@ -4,20 +4,20 @@
 //!
 //! Ported in task t5.
 
-use super::{Invocation, Outcome};
-use crate::error::{Error, Result, THIS_PLAN};
+use super::{Context, Failure};
+use crate::error::{Error, THIS_PLAN};
 
-pub(super) fn show(invocation: &Invocation) -> Result<Outcome> {
-    let _ = invocation;
-    Err(Error::unsupported("show", THIS_PLAN))
+pub(super) fn show(context: &mut Context<'_>, args: &[String]) -> Result<(), Failure> {
+    let _ = (context, args);
+    Err(Error::unsupported("show", THIS_PLAN).into())
 }
 
-pub(super) fn list(invocation: &Invocation) -> Result<Outcome> {
-    let _ = invocation;
-    Err(Error::unsupported("list", THIS_PLAN))
+pub(super) fn list(context: &mut Context<'_>, args: &[String]) -> Result<(), Failure> {
+    let _ = (context, args);
+    Err(Error::unsupported("list", THIS_PLAN).into())
 }
 
-pub(super) fn search(invocation: &Invocation) -> Result<Outcome> {
-    let _ = invocation;
-    Err(Error::unsupported("search", THIS_PLAN))
+pub(super) fn search(context: &mut Context<'_>, args: &[String]) -> Result<(), Failure> {
+    let _ = (context, args);
+    Err(Error::unsupported("search", THIS_PLAN).into())
 }

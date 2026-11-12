@@ -2,10 +2,10 @@
 //!
 //! Ported in task t4.
 
-use super::{Invocation, Outcome};
-use crate::error::{Error, Result, THIS_PLAN};
+use super::{Context, Failure};
+use crate::error::{Error, THIS_PLAN};
 
-pub(super) fn run(invocation: &Invocation) -> Result<Outcome> {
-    let _ = invocation;
-    Err(Error::unsupported("block", THIS_PLAN))
+pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Failure> {
+    let _ = (context, args);
+    Err(Error::unsupported("block", THIS_PLAN).into())
 }

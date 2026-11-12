@@ -19,6 +19,7 @@
 pub mod command;
 mod config;
 mod error;
+mod gopath;
 mod json;
 pub mod model;
 pub mod store;

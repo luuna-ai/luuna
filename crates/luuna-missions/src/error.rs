@@ -50,6 +50,11 @@ pub enum Error {
         /// Go's message.
         message: String,
     },
+    /// Store discovery reached the file system root without finding
+    /// `.luuna/missions/config.yaml`. The message is Go's
+    /// (`internal/config/config.go:50`, `FindDir`).
+    #[error("Not in a missions project. Run `luuna-missions init` first.")]
+    NotInProject,
 }
 
 impl Error {
@@ -79,6 +84,16 @@ impl Error {
 
 /// The plan that ports the behaviour stubbed in this crate today.
 pub(crate) const THIS_PLAN: &str = "s4-missions-lib";
+/// The plan that ports close, ready, blocked, stats, dep, label, unblock,
+/// help and version output, unknown-command suggestions, the logging
+/// variables and completions.
+pub(crate) const PLAN_2: &str = "s4-missions-lib-2";
+/// The plan that ports config and the full config.yaml, tpl, doctor, sync,
+/// migrate-from-beads, the legacy `.seeds` migration, prime, onboard, setup,
+/// guard and upgrade.
+pub(crate) const PLAN_3: &str = "s4-missions-lib-3";
+/// The plan that ports plans.
+pub(crate) const PLAN_4: &str = "s4-missions-lib-4";
 
 #[cfg(test)]
 mod tests {

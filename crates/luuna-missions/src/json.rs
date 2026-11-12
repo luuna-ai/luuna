@@ -56,7 +56,6 @@ impl Format {
     };
     /// The Go tool's `Context.JSON` encoder: `SetEscapeHTML(false)` and
     /// `SetIndent("", "  ")`.
-    #[allow(dead_code, reason = "used by the command output ported in t3 to t5")]
     pub const OUTPUT: Self = Self {
         escape_html: false,
         escape_js: true,
@@ -386,7 +385,6 @@ pub(crate) fn compact(src: &[u8]) -> Result<Vec<u8>, SyntaxError> {
 
 /// What the Go tool's `Context.JSON` prints for the compact JSON `src`:
 /// indented by two spaces, HTML characters literal, and a final newline.
-#[allow(dead_code, reason = "used by the command output ported in t3 to t5")]
 pub(crate) fn to_output(src: &[u8]) -> Result<Vec<u8>, SyntaxError> {
     let mut out = reformat(src, Format::OUTPUT)?;
     out.push(b'\n');
