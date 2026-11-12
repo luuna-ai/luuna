@@ -60,6 +60,11 @@ pub struct Object {
     entries: Vec<(String, Value)>,
     /// `entries[unordered_from..]` are the unremembered keys, none of them index-like.
     unordered_from: usize,
+    /// The Go tool's remembered order as it stood when a remembered key was first
+    /// removed, kept only from then until the order is next replaced. Go's `delete` leaves
+    /// a key in the remembered order, so setting the key again later puts it back in its
+    /// old place; [`Object::insert_unordered`] uses this to do the same.
+    removed_order: Option<Vec<String>>,
 }
 
 impl PartialEq for Object {
@@ -109,13 +114,17 @@ impl Object {
             self.entries.push((key, value));
             self.unordered_from = self.entries.len();
         }
+        // Go replaced the remembered order with the current keys, so removed keys are gone
+        // from it.
+        self.removed_order = None;
         None
     }
 
     /// Sets `key` to `value` without remembering its order, as the Go tool does when it
     /// assigns a map entry that is not in the map's remembered order. A new key goes
     /// after the remembered keys, among the other unremembered keys in byte order (or to
-    /// its numeric place if it is index-like); an existing key keeps its position.
+    /// its numeric place if it is index-like); an existing key keeps its position. A key
+    /// removed while remembered returns to its remembered place (see [`Object::remove`]).
     /// Returns the previous value, if any.
     pub fn insert_unordered(
         &mut self,
@@ -129,6 +138,18 @@ impl Object {
         }
         if let Some(index) = array_index(&key) {
             self.insert_index_key(index, key, value);
+        } else if let Some(rank) = self.removed_rank(&key) {
+            // A removed key that Go still remembers returns to its remembered place: before
+            // the first present remembered key that comes after it in that order.
+            let order = self.removed_order.as_deref().unwrap_or_default();
+            let position = (0..self.unordered_from)
+                .find(|&i| {
+                    let k = self.entries[i].0.as_str();
+                    array_index(k).is_none() && order.iter().position(|o| o == k) > Some(rank)
+                })
+                .unwrap_or(self.unordered_from);
+            self.entries.insert(position, (key, value));
+            self.unordered_from += 1;
         } else {
             let tail = &self.entries[self.unordered_from..];
             let offset = tail.partition_point(|(k, _)| k.as_str() < key.as_str());
@@ -174,6 +195,15 @@ impl Object {
         self.entries.extend(remembered);
         self.unordered_from = self.entries.len();
         self.entries.extend(unremembered);
+        self.removed_order = None;
+    }
+
+    /// The place of `key` in the remembered order kept since a remembered key was
+    /// removed, if `key` is in it.
+    fn removed_rank(&self, key: &str) -> Option<usize> {
+        self.removed_order
+            .as_ref()
+            .and_then(|order| order.iter().position(|k| k == key))
     }
 
     /// Inserts a new index-like key at its numeric place among the leading index keys.
@@ -202,12 +232,20 @@ impl Object {
 
     /// Removes `key`, keeping the order of the remaining keys.
     ///
-    /// The Go tool keeps a removed key in its remembered order, so re-adding it there
-    /// restores its old place; here the key is forgotten, and re-adding it places it as
-    /// [`Object::insert`] or [`Object::insert_unordered`] says.
+    /// As in the Go tool, a removed remembered key stays in the remembered order: setting
+    /// it again with [`Object::insert_unordered`] puts it back in its old place, until
+    /// [`Object::insert`] of a new key or [`Object::remember_order`] replaces the order.
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         let index = self.entries.iter().position(|(k, _)| k == key)?;
         if index < self.unordered_from {
+            if self.removed_order.is_none() {
+                self.removed_order = Some(
+                    self.entries[..self.unordered_from]
+                        .iter()
+                        .map(|(k, _)| k.clone())
+                        .collect(),
+                );
+            }
             self.unordered_from -= 1;
         }
         Some(self.entries.remove(index).1)
@@ -1033,6 +1071,38 @@ mod tests {
             ordered.insert(key, 0.0);
         }
         assert_eq!(object, ordered);
+    }
+
+    #[test]
+    fn removed_remembered_key_returns_to_its_place() {
+        // Go's `delete` keeps the key in the remembered order, so a later map assignment
+        // puts it back where it was, ahead of keys Go never remembered.
+        let mut record = parse(r#"{"type":"t","outcome":"a","result":"b","z":1}"#)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        record.insert_unordered("outcomes", Value::Array(Vec::new()));
+        record.remove("outcome");
+        record.remove("result");
+        record.insert_unordered("outcome", "b");
+        assert_eq!(
+            compact(&Value::Object(record.clone())),
+            r#"{"type":"t","outcome":"b","z":1,"outcomes":[]}"#
+        );
+        record.insert_unordered("result", "c");
+        assert_eq!(
+            record.keys().collect::<Vec<_>>(),
+            ["type", "outcome", "result", "z", "outcomes"]
+        );
+        // Once the order is replaced, a removed key is forgotten.
+        record.remove("result");
+        record.insert("w", 0.0);
+        record.insert_unordered("result", "d");
+        assert_eq!(
+            record.keys().collect::<Vec<_>>(),
+            ["type", "outcome", "z", "outcomes", "w", "result"]
+        );
     }
 
     #[test]
