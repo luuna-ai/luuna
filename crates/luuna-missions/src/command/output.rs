@@ -65,7 +65,7 @@ impl Envelope {
     }
 
     /// Adds a field whose value is already compact JSON, such as a record
-    /// from [`Ticket::to_json_line`](crate::Ticket::to_json_line). Its
+    /// from [`Ticket::marshal_json`](crate::Ticket::marshal_json). Its
     /// strings are kept as they are.
     pub fn raw(mut self, key: &str, compact: &[u8]) -> Self {
         self.key(key);

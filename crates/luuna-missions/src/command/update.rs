@@ -191,7 +191,7 @@ pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Fail
         updated
     };
     if options.has("json") {
-        let record = updated.to_json_line()?;
+        let record = updated.marshal_json()?;
         context.json(Envelope::new(true, "update").raw("issue", &record));
     } else {
         context.success(format!("Updated {id}").as_bytes());
@@ -202,17 +202,13 @@ pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Fail
 /// Go's `parseExtensionsPatch`.
 fn extensions_patch(raw: &str) -> Result<BTreeMap<String, Value>, String> {
     let bytes = raw.as_bytes();
-    let invalid = |reason: String| format!("--extensions must be valid JSON: {reason}");
-    if let Some(reason) = json_error::syntax_error(bytes) {
-        return Err(invalid(reason));
-    }
-    if let Some(reason) = json_error::out_of_range_number(bytes) {
-        return Err(invalid(reason));
+    if let Some(reason) = json_error::unmarshal_error(raw) {
+        return Err(format!("--extensions must be valid JSON: {reason}"));
     }
     match Value::decode(bytes) {
         Ok(Value::Object(patch)) => Ok(patch),
         Ok(_) => Err("--extensions must be a JSON object (not array, null, or scalar)".to_owned()),
-        Err(error) => Err(invalid(error.to_string())),
+        Err(error) => Err(format!("--extensions must be valid JSON: {error}")),
     }
 }
 
@@ -443,7 +439,7 @@ mod tests {
             ),
             (
                 "{\"a\":1e999}",
-                "--extensions must be valid JSON: json: cannot unmarshal number 1e999 into Go value of type float64",
+                "--extensions must be valid JSON: json: cannot unmarshal number 1e999 into Go struct field .a of type float64",
             ),
             ("[1]", "--extensions must be a JSON object (not array, null, or scalar)"),
             ("null", "--extensions must be a JSON object (not array, null, or scalar)"),

@@ -71,3 +71,87 @@ fn add_dependency(
     store.write_tickets(&tickets)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::Path;
+
+    use super::super::{run, Invocation, Outcome};
+
+    fn record(id: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","title":"T","status":"open","type":"task","priority":2,"createdAt":"c","updatedAt":"u"}}"#
+        )
+    }
+
+    fn project() -> tempfile::TempDir {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".luuna/missions");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("config.yaml"), "project: \"p\"\nversion: \"1\"\n").unwrap();
+        fs::write(
+            dir.join("issues.jsonl"),
+            format!("{}\n{}\n", record("a"), record("b")),
+        )
+        .unwrap();
+        temp
+    }
+
+    fn block(root: &Path, args: &[&str]) -> Outcome {
+        let mut all = vec!["block"];
+        all.extend_from_slice(args);
+        run(&Invocation::new(root, all)).unwrap()
+    }
+
+    fn issues(root: &Path) -> String {
+        fs::read_to_string(root.join(".luuna/missions/issues.jsonl")).unwrap()
+    }
+
+    #[test]
+    fn blocking_links_both_tickets_once() {
+        let temp = project();
+        for _ in 0..2 {
+            let outcome = block(temp.path(), &["a", "--by", "b"]);
+            assert_eq!(outcome.exit_code, 0);
+            assert_eq!(
+                String::from_utf8(outcome.stdout).unwrap(),
+                "a is now blocked by b\n"
+            );
+        }
+        let text = issues(temp.path());
+        assert_eq!(text.matches("\"blockedBy\":[\"b\"]").count(), 1, "{text}");
+        assert_eq!(text.matches("\"blocks\":[\"a\"]").count(), 1, "{text}");
+        // The message is not a success line, so --quiet keeps it.
+        let outcome = block(temp.path(), &["a", "--by", "b", "-q"]);
+        assert_eq!(outcome.stdout, b"a is now blocked by b\n");
+    }
+
+    #[test]
+    fn invalid_requests_change_nothing() {
+        let temp = project();
+        let before = issues(temp.path());
+        for (args, message) in [
+            (
+                &["a"][..],
+                "Usage: luuna-missions block <id> --by <blocker-id>",
+            ),
+            (
+                &["a", "--by", ""],
+                "Usage: luuna-missions block <id> --by <blocker-id>",
+            ),
+            (&["a", "--by", "a"], "Cannot block an issue by itself: a"),
+            (&["a", "--by", "zz"], "Issue not found: zz"),
+            (&["zz", "--by", "a"], "Issue not found: zz"),
+        ] {
+            let outcome = block(temp.path(), args);
+            assert_eq!(outcome.exit_code, 1, "{args:?}");
+            assert_eq!(
+                String::from_utf8(outcome.stderr).unwrap(),
+                format!("Error: {message}\n"),
+                "{args:?}"
+            );
+            assert_eq!(issues(temp.path()), before, "{args:?}");
+        }
+    }
+}
