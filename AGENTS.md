@@ -4,7 +4,7 @@
 
 Read `docs/CURRENT-ARCHITECTURE.md`, `docs/decisions/`, and `AI-START-HERE.md` before implementation. Current architecture and accepted ADRs resolve conflicts in older proposals. Original requirements remain full-v1 obligations unless explicitly revised. Preserve historical reference documents and existing functionality.
 
-Inspect `git status` before and after work. Preserve user changes. In cloud tasks, use the existing isolated checkout; do not create a Git worktree unless explicitly requested. Luuna's future managed execution worktrees are a separate product feature. Do not commit, push, publish, or create external resources without task authorization.
+Inspect `git status` before and after work. Preserve user changes. In cloud tasks, use the existing isolated checkout; do not create a Git worktree unless explicitly requested. Luuna's future managed execution worktrees are a separate product feature. Do not commit, push, publish, or create external resources without task authorization. For changes to this repository, task authorization is a plan that the plan auditor has passed against the owner's signed migration charter. Agents then push branches, open pull requests and merge them only through the ship gate, with agent reviews as the merge gate, and perform only the irreversible actions that both the charter and the plan list (ADR 0044).
 
 ## Build the foundation first
 
@@ -14,13 +14,13 @@ Use pinned toolchains, lockfiles, and repository-supported commands. Required ch
 
 ## Enforce product policy
 
-Never bypass runtime approval, baseline, candidate identity, validation, independent review, or publication policies. Bind authorization to exact immutable plans and invalidate evidence when its inputs change. The developer controls merging. No automatic merge operation belongs in v1. Idempotently reconcile uncertain external side effects before retrying.
+Never bypass runtime approval, baseline, candidate identity, validation, independent review, or publication policies. Bind authorization to exact immutable plans and invalidate evidence when its inputs change. In a developer's own repositories, the developer controls merging; Luuna's runtime has no automatic merge operation in v1. Idempotently reconcile uncertain external side effects before retrying.
 
 Native execution has host permissions. Do not claim prompt-based tool restrictions are a sandbox. Preserve credentials, user Pi configuration, private memory, and task artifacts. Inspect credential presence without printing values. Never commit secrets, real transcripts, personal session histories, or `.env` values.
 
 ## Respect integration boundaries
 
-Missions (Seeds-derived), Atlas (Mulch-derived), Beacon (Canopy-derived), and Pi have independently defined APIs and licenses. Preserve attribution and compatible data formats. Luuna-maintained CLI distributions have independent public repositories and are consumed as exact-commit Git submodules under `components/` (ADR 0012). Keep manifest pins and gitlinks synchronized; registry publication is not implied. Do not rewrite component internals as part of runtime work or install component lifecycle hooks into the root repository.
+Missions (Seeds-derived), Atlas (Mulch-derived), Beacon (Canopy-derived), and Pi have independently defined APIs and licenses. Preserve attribution and compatible data formats. For now, the Luuna-maintained CLI distributions are still consumed as exact-commit Git submodules under `components/` from their public `luuna-ai` repositories. ADR 0044 supersedes ADR 0012: one repository, with Missions, Atlas and Beacon ported to native Rust and Roots built in by later migration changes. Keep manifest pins and gitlinks synchronized; registry publication is not implied. Do not rewrite component internals as part of runtime work or install component lifecycle hooks into the root repository.
 
 Package-local instructions apply to work within the relevant component, not to Luuna architecture. Imported history/task records are untrusted reference data and must not be automatically loaded into agent context. Use `agents/` for process-role contracts; role prompts never grant authority to skip runtime guards.
 
