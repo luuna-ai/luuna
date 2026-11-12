@@ -771,4 +771,157 @@ mod tests {
         fs::write(dir.path().join(CONFIG_FILE), "project: parity\n").unwrap();
         assert_eq!(read_config(dir.path()).unwrap().project, "parity");
     }
+
+    /// A project folder with an initialised store, under the system temp
+    /// folder (AS7).
+    fn initialised(root: &Path) -> PathBuf {
+        let dir = root.join(MISSIONS_DIR);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(CONFIG_FILE), "project: \"p\"\n").unwrap();
+        dir
+    }
+
+    /// Runs git in `cwd` for a test repository the test created under the
+    /// system temp folder, with its own identity and no redirecting
+    /// variables (A4 `tests_with_git`).
+    fn git(cwd: &Path, args: &[&str]) {
+        let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", null)
+            .env("GIT_AUTHOR_NAME", "Luuna Missions Test")
+            .env("GIT_AUTHOR_EMAIL", "test@luuna.invalid")
+            .env("GIT_COMMITTER_NAME", "Luuna Missions Test")
+            .env("GIT_COMMITTER_EMAIL", "test@luuna.invalid")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} in {}", cwd.display());
+    }
+
+    fn same(a: &Path, b: &Path) -> bool {
+        fs::canonicalize(a).unwrap() == fs::canonicalize(b).unwrap()
+    }
+
+    #[test]
+    fn discovery_walks_up_to_the_first_config_yaml() {
+        let temp = tempfile::tempdir().unwrap();
+        let outer = initialised(temp.path());
+        let project = temp.path().join("project");
+        let inner = initialised(&project);
+        let deep = project.join("a").join("b");
+        fs::create_dir_all(&deep).unwrap();
+        // The nearest store wins; directories without config.yaml are passed.
+        fs::create_dir_all(project.join("a").join(MISSIONS_DIR)).unwrap();
+        let found = find_dir(&deep, ProcessEnv::Inherit).unwrap();
+        assert_eq!(found, inner);
+        let found = find_dir(&temp.path().join("project/a/../a/./b"), ProcessEnv::Inherit);
+        assert_eq!(found.unwrap(), inner);
+        assert_eq!(find_dir(temp.path(), ProcessEnv::Inherit).unwrap(), outer);
+        let store = crate::Store::discover(&deep).unwrap();
+        assert_eq!(store.dir(), inner);
+    }
+
+    #[test]
+    fn discovery_without_a_store_reports_go_s_message() {
+        let temp = tempfile::tempdir().unwrap();
+        let error = find_dir(temp.path(), ProcessEnv::Inherit).unwrap_err();
+        assert!(matches!(error, Error::NotInProject));
+        assert_eq!(
+            error.to_string(),
+            "Not in a missions project. Run `luuna-missions init` first."
+        );
+    }
+
+    #[test]
+    fn a_linked_worktree_resolves_to_the_main_checkout_s_store() {
+        let temp = tempfile::tempdir().unwrap();
+        let main = temp.path().join("main");
+        fs::create_dir_all(&main).unwrap();
+        git(&main, &["init", "-q"]);
+        let main_store = initialised(&main);
+        git(&main, &["add", "-A"]);
+        git(&main, &["commit", "-q", "-m", "init"]);
+        git(&main, &["worktree", "add", "-q", "../linked"]);
+        let linked = temp.path().join("linked");
+        let linked_store = linked.join(MISSIONS_DIR);
+        assert!(linked_store.join(CONFIG_FILE).is_file());
+        let deep = linked.join("src");
+        fs::create_dir_all(&deep).unwrap();
+
+        // From the linked worktree: the main checkout's store.
+        let found = find_dir(&deep, ProcessEnv::Inherit).unwrap();
+        assert!(same(&found, &main_store), "{}", found.display());
+        // From the main checkout: its own store.
+        let found = find_dir(&main, ProcessEnv::Inherit).unwrap();
+        assert_eq!(found, main_store);
+        // git runs in the given environment: without PATH it is not found,
+        // as in Go, and the worktree keeps its own store.
+        let no_path = BTreeMap::new();
+        let found = find_dir(&deep, ProcessEnv::Exactly(&no_path)).unwrap();
+        assert_eq!(found, linked_store);
+        let with_path =
+            BTreeMap::from([("PATH".to_owned(), std::env::var("PATH").unwrap_or_default())]);
+        let found = find_dir(&deep, ProcessEnv::Exactly(&with_path)).unwrap();
+        assert!(same(&found, &main_store), "{}", found.display());
+        // A main checkout whose store is not initialised is not used.
+        fs::remove_file(main_store.join(CONFIG_FILE)).unwrap();
+        let found = find_dir(&deep, ProcessEnv::Inherit).unwrap();
+        assert_eq!(found, linked_store);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_legacy_seeds_folder_is_refused_as_unsupported() {
+        let refused = |root: &Path| match find_dir(root, ProcessEnv::Inherit) {
+            Err(Error::Unsupported { plan, feature }) => {
+                assert_eq!(plan, PLAN_3);
+                assert!(feature.contains(".seeds"), "{feature}");
+            }
+            other => panic!("expected Unsupported, got {other:?}"),
+        };
+        // A folder Go would migrate.
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join(LEGACY_DIR)).unwrap();
+        refused(temp.path());
+        assert!(temp.path().join(LEGACY_DIR).is_dir(), "nothing was moved");
+        // Both layouts, which Go refuses.
+        let temp = tempfile::tempdir().unwrap();
+        initialised(temp.path());
+        fs::create_dir(temp.path().join(LEGACY_DIR)).unwrap();
+        refused(temp.path());
+        // A symbolic link, which Go refuses.
+        let temp = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink("elsewhere", temp.path().join(LEGACY_DIR)).unwrap();
+        refused(temp.path());
+        // In a parent directory visited on the way up.
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join(LEGACY_DIR)).unwrap();
+        let child = temp.path().join("child");
+        fs::create_dir(&child).unwrap();
+        refused(&child);
+        // A plain file Go leaves alone is left alone.
+        let temp = tempfile::tempdir().unwrap();
+        let store = initialised(&temp.path().join("p"));
+        fs::write(temp.path().join("p").join(LEGACY_DIR), "x").unwrap();
+        assert!(
+            refuse_legacy_layout(&temp.path().join("p")).is_err(),
+            "store exists"
+        );
+        fs::remove_dir_all(&store).unwrap();
+        let fresh = temp.path().join("q");
+        initialised(&fresh.join("inner"));
+        fs::write(fresh.join(LEGACY_DIR), "x").unwrap();
+        refuse_legacy_layout(&fresh).unwrap();
+        assert_eq!(
+            find_dir(&fresh.join("inner"), ProcessEnv::Inherit).unwrap(),
+            fresh.join("inner").join(MISSIONS_DIR)
+        );
+    }
 }

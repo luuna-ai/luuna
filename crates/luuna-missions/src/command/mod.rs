@@ -701,4 +701,54 @@ mod tests {
             assert_eq!(outcome.exit_code, 1, "{key}={value}");
         }
     }
+
+    #[test]
+    fn an_explicit_store_directory_overrides_discovery() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("project");
+        let discovered = project.join(".luuna/missions");
+        std::fs::create_dir_all(&discovered).unwrap();
+        std::fs::write(discovered.join("config.yaml"), "project: p\n").unwrap();
+        let elsewhere = temp.path().join("elsewhere");
+        let deep = project.join("sub");
+        std::fs::create_dir_all(&deep).unwrap();
+
+        let plain = Invocation::new(&deep, ["list"]);
+        let context = Context::new(&plain, "list").unwrap();
+        assert_eq!(context.store().unwrap().dir(), discovered);
+
+        // The explicit directory is used as it is, even without config.yaml
+        // and with a store that discovery would find.
+        let explicit = Invocation::new(&deep, ["list"]).with_store_dir(&elsewhere);
+        let context = Context::new(&explicit, "list").unwrap();
+        assert_eq!(context.store().unwrap().dir(), elsewhere);
+
+        // Discovery from a directory without a store gives Go's message as
+        // a command error, unless a directory is given.
+        let outside = Invocation::new(temp.path(), ["list"]);
+        let context = Context::new(&outside, "list").unwrap();
+        let failure = Failure::from(context.store().unwrap_err());
+        assert!(matches!(
+            failure,
+            Failure::Message(message)
+                if message == "Not in a missions project. Run `luuna-missions init` first."
+        ));
+        let given = Invocation::new(temp.path(), ["list"]).with_store_dir(&discovered);
+        let context = Context::new(&given, "list").unwrap();
+        assert_eq!(context.store().unwrap().dir(), discovered);
+    }
+
+    #[test]
+    fn the_context_reads_the_invocation() {
+        let env = BTreeMap::from([("USER".to_owned(), "me".to_owned())]);
+        let invocation = Invocation::new("/a/./b/../c/", ["x", "--timing", "-q"])
+            .with_stdin("in")
+            .with_env(env);
+        let context = Context::new(&invocation, "x").unwrap();
+        assert_eq!(context.cwd, PathBuf::from("/a/c"));
+        assert!(context.quiet && context.timing && !context.verbose);
+        assert_eq!(context.stdin(), b"in");
+        assert_eq!(context.env("USER"), Some("me"));
+        assert_eq!(context.env("HOME"), None);
+    }
 }
