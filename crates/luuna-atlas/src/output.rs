@@ -258,4 +258,16 @@ mod tests {
             CommandOutput::json(&Value::Object(object.clone()))
         );
     }
+
+    #[test]
+    fn too_deep_output_prints_an_empty_line_as_go() {
+        // JSONPretty returns "" when json.Indent fails past 10000 levels, and the Go tool
+        // prints that and a newline.
+        let mut value = Value::Null;
+        for _ in 0..10_001 {
+            value = Value::Array(vec![value]);
+        }
+        let out = CommandOutput::json(&value);
+        assert_eq!((out.exit_code, out.stdout.as_str()), (0, "\n"));
+    }
 }

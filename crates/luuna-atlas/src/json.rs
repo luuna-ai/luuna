@@ -867,7 +867,7 @@ fn push_lossy_per_byte(out: &mut String, mut bytes: &[u8]) {
 /// escaping. The result has no trailing newline.
 pub fn to_compact_string(value: &Value) -> Result<String> {
     let mut out = String::new();
-    write_value(&mut out, value, None);
+    write_value(&mut out, value, None)?;
     Ok(out)
 }
 
@@ -876,9 +876,13 @@ pub fn to_compact_string(value: &Value) -> Result<String> {
 ///
 /// This is what `json.Indent(dst, compact, "", "  ")` makes of the compact form: an empty
 /// array or object stays `[]` or `{}`, and a colon is followed by one space.
+///
+/// Like `json.Indent`, it fails for a value nested more than [`MAX_DEPTH`] levels deep;
+/// the Go tool's `JSONPretty` then prints an empty string, as
+/// `CommandOutput`'s printing does with this error. The compact form has no such limit.
 pub fn to_indented_string(value: &Value) -> Result<String> {
     let mut out = String::new();
-    write_value(&mut out, value, Some(0));
+    write_value(&mut out, value, Some(0))?;
     Ok(out)
 }
 
@@ -898,12 +902,19 @@ enum EncodeFrame<'a> {
 
 /// Writes `value`; `indent` is the current depth for the indented form, `None` for the
 /// compact form. Nested arrays and objects are walked with an explicit stack, so the depth
-/// of `value` does not use the thread's stack.
-fn write_value(out: &mut String, value: &Value, indent: Option<usize>) {
+/// of `value` does not use the thread's stack. The indented form fails past
+/// [`MAX_DEPTH`] levels, as `json.Indent` does.
+fn write_value(out: &mut String, value: &Value, indent: Option<usize>) -> Result<()> {
     let mut stack: Vec<EncodeFrame<'_>> = Vec::new();
     let mut next = Some((value, indent));
     loop {
         if let Some((value, indent)) = next.take() {
+            if indent.is_some()
+                && stack.len() == MAX_DEPTH
+                && matches!(value, Value::Array(_) | Value::Object(_))
+            {
+                return Err(syntax_error("exceeded max depth"));
+            }
             match value {
                 Value::Null => out.push_str("null"),
                 Value::Bool(true) => out.push_str("true"),
@@ -921,7 +932,7 @@ fn write_value(out: &mut String, value: &Value, indent: Option<usize>) {
             }
         }
         let Some(frame) = stack.last_mut() else {
-            return;
+            return Ok(());
         };
         match frame {
             EncodeFrame::Array(items, first, indent) => {
@@ -1423,7 +1434,7 @@ mod tests {
                 }
                 out.push('}');
             }
-            scalar => write_value(out, scalar, indent),
+            scalar => write_value(out, scalar, indent).unwrap(),
         }
     }
 
@@ -1448,7 +1459,7 @@ mod tests {
                 let mut expected = String::new();
                 recursive_encoding(&mut expected, &value, indent);
                 let mut actual = String::new();
-                write_value(&mut actual, &value, indent);
+                write_value(&mut actual, &value, indent).unwrap();
                 assert_eq!(actual, expected, "{text} indent {indent:?}");
             }
             let copy = value.clone();
@@ -1498,5 +1509,24 @@ mod tests {
         }
         assert_eq!(compact(&built).len(), 10 * MAX_DEPTH * 8 + 4);
         drop(built.clone());
+    }
+
+    #[test]
+    fn indented_encoding_fails_past_go_max_depth() {
+        // json.Indent, which the Go tool's JSONPretty runs on the compact form, accepts
+        // 10000 levels and fails on more; JSONPretty then prints an empty string.
+        let nest = |n: usize| {
+            let mut value = Value::Null;
+            for _ in 0..n {
+                value = Value::Array(vec![value]);
+            }
+            value
+        };
+        assert!(to_indented_string(&nest(MAX_DEPTH)).is_ok());
+        assert!(to_indented_string(&nest(MAX_DEPTH + 1)).is_err());
+        let mut object = Object::new();
+        object.insert("a", nest(MAX_DEPTH));
+        assert!(to_indented_string(&Value::Object(object)).is_err());
+        assert!(to_compact_string(&nest(MAX_DEPTH + 1)).is_ok());
     }
 }
