@@ -61,6 +61,17 @@ removed or changed, and nothing new is written to `.luuna/beacon`.
   `results`. The runtime reads these fields from the named form.
   `validate --all` keeps Go's shape.
 
+`config.yaml` with too many aliases is refused with Go's error,
+`yaml: document contains excessive aliasing`, using yaml.v3's rule and
+thresholds. This check runs before any alias is expanded. Go decodes only
+the first YAML document and skips some values: a key that cannot be
+decoded, a mapping with a repeated key, and merged keys that are already
+present. The YAML reader used here builds every document and every value,
+so the check counts them too. Input that Go accepts can therefore be
+refused here only if its excess aliasing is in a later document or in one
+of those skipped values. Without this check, such input would exhaust
+memory.
+
 Lists that Go builds from map iteration, and therefore prints in no fixed
 order, are sorted by name here: `list`, `validate --all` and `schema list`
 (by name, then id).
