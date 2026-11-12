@@ -238,7 +238,6 @@ async fn service_reads_project_files_from_the_folder_it_resolved() {
 mod binary {
     use std::{
         ffi::OsString,
-        fs,
         io::{BufRead, BufReader, Read, Write},
         net::TcpStream,
         path::{Path, PathBuf},
