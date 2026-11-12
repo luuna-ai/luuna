@@ -343,6 +343,32 @@ fn harness_go_env_points_inside_target() {
         .find(|(k, _)| *k == "GIT_OPTIONAL_LOCKS")
         .and_then(|(_, v)| v);
     assert_eq!(optional_locks, Some(std::ffi::OsStr::new("0")));
+    // The rest of its environment: cleared except PATH, with the build root's home.
+    let mut git_env: Vec<(String, Option<String>)> = git
+        .get_envs()
+        .map(|(k, v)| {
+            (
+                k.to_string_lossy().into_owned(),
+                v.map(|v| v.to_string_lossy().into_owned()),
+            )
+        })
+        .filter(|(k, _)| k != "PATH")
+        .collect();
+    git_env.sort();
+    let home = root.join("home").to_string_lossy().into_owned();
+    assert_eq!(
+        git_env,
+        [
+            (
+                "GIT_CONFIG_GLOBAL".to_owned(),
+                Some(null_device().to_owned())
+            ),
+            ("GIT_CONFIG_NOSYSTEM".to_owned(), Some("1".to_owned())),
+            ("GIT_OPTIONAL_LOCKS".to_owned(), Some("0".to_owned())),
+            ("GIT_TERMINAL_PROMPT".to_owned(), Some("0".to_owned())),
+            ("HOME".to_owned(), Some(home)),
+        ]
+    );
     let git_args: Vec<String> = git
         .get_args()
         .map(|a| a.to_string_lossy().into_owned())

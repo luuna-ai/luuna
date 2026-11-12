@@ -25,18 +25,6 @@ const HOW_TO_RUN: &str = "set LUUNA_ATLAS_REFERENCE to the luuna-atlas clone at 
 c4db80c3f2e622afbdd84f09077fd73b2a92d199 and LUUNA_ATLAS_GO to a go1.27.0 executable, then run \
 `cargo test -p luuna-atlas --locked --test parity -- --ignored` (or `--test format_compat`)";
 
-/// Environment variables that could point a git call at another repository or index.
-const GIT_REDIRECT_VARS: &[&str] = &[
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_INDEX_FILE",
-    "GIT_COMMON_DIR",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_NAMESPACE",
-    "GIT_CEILING_DIRECTORIES",
-];
-
 /// The workspace root: two levels above this crate (plan assumption A2). It does not
 /// depend on `CARGO_TARGET_DIR`.
 pub fn workspace_root() -> PathBuf {
@@ -119,16 +107,21 @@ pub fn go_build_command(go: &Path, reference: &Path, build_root: &Path, output: 
     cmd
 }
 
-/// A read-only git call against the reference clone. `GIT_OPTIONAL_LOCKS=0` keeps
-/// `git status` from refreshing the clone's index; system and global config are ignored so
-/// that no user setting (fsmonitor, hidden untracked files) changes what is read or
-/// written; variables that could redirect git elsewhere are removed.
+/// A read-only git call against the reference clone. The environment is cleared, as for
+/// git in a test project, so nothing inherited (`GIT_DIR`, `GIT_INDEX_FILE`,
+/// `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`, `GIT_EXEC_PATH`, ...) can point git
+/// elsewhere or configure it; only `PATH` is kept and the home is the build root's.
+/// `GIT_OPTIONAL_LOCKS=0` keeps `git status` from refreshing the clone's index; system and
+/// global config are ignored so that no user setting (fsmonitor, hidden untracked files)
+/// changes what is read or written.
 pub fn reference_git(reference: &Path) -> Command {
     let mut cmd = Command::new("git");
-    for var in GIT_REDIRECT_VARS {
-        cmd.env_remove(var);
+    cmd.env_clear();
+    if let Some(path) = std::env::var_os("PATH") {
+        cmd.env("PATH", path);
     }
-    cmd.env("GIT_OPTIONAL_LOCKS", "0")
+    cmd.env("HOME", build_root(&workspace_root()).join("home"))
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", null_device())
         .env("GIT_TERMINAL_PROMPT", "0")
