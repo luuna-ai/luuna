@@ -56,13 +56,6 @@ pub enum AtlasError {
     UnsupportedYaml { line: usize, message: String },
 }
 
-impl AtlasError {
-    /// The error for an operation that a later task of this plan implements.
-    pub(crate) fn not_implemented(feature: &'static str) -> Self {
-        AtlasError::NotImplemented { feature }
-    }
-}
-
 /// The reason text Go prints for an operating-system error: the C library's message with
 /// its first letter in lower case and without Rust's ` (os error N)` suffix, as in Go's
 /// errno table on Linux (`no such file or directory`, `permission denied`). Errors that

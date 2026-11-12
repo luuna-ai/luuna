@@ -29,11 +29,20 @@ pub struct AtlasStore {
 
 impl AtlasStore {
     /// Opens the store of `project_root`, running the legacy `.mulch/` migration first as
-    /// the Go tool does. The store directory need not exist yet.
-    pub fn open(_project_root: impl Into<PathBuf>) -> Result<AtlasStore> {
-        Err(AtlasError::NotImplemented {
-            feature: "AtlasStore::open (task t5)",
-        })
+    /// the Go tool does. The store directory need not exist yet. The migration notice the
+    /// Go tool prints is dropped here; [`AtlasStore::open_with_notice`] returns it.
+    pub fn open(project_root: impl Into<PathBuf>) -> Result<AtlasStore> {
+        AtlasStore::open_with_notice(project_root).map(|(store, _)| store)
+    }
+
+    /// Like [`AtlasStore::open`], also returning the notice (without its newline) that
+    /// the Go tool prints on stderr when it migrated a legacy store.
+    pub fn open_with_notice(
+        project_root: impl Into<PathBuf>,
+    ) -> Result<(AtlasStore, Option<String>)> {
+        let project_root = project_root.into();
+        let notice = legacy::migrate_legacy_store(&project_root)?;
+        Ok((AtlasStore { project_root }, notice))
     }
 
     /// The project root the store belongs to.
