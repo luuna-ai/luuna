@@ -6,14 +6,28 @@
 //! `config show`. It takes the project root as a parameter: it never runs git and never
 //! reads the environment to find a store. Nothing here is wired into the runtime.
 
+pub mod actions;
+pub mod assets;
 pub mod commands;
 pub mod config;
+pub mod confirm;
 pub mod error;
+pub mod evidence;
+pub mod git;
+pub mod hooks;
 pub mod json;
 pub mod legacy;
+pub mod lifecycle;
+pub mod options;
 pub mod output;
+pub mod prime;
+pub mod records;
 pub mod registry;
+pub mod schema;
 pub mod store;
+pub mod style;
+pub mod timefmt;
+pub mod tooling;
 pub mod yaml;
 
 use std::path::{Path, PathBuf};

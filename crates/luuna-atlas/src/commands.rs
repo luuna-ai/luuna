@@ -165,7 +165,7 @@ pub fn run_config_show(project_root: &Path) -> CommandOutput {
 /// What the Go tool's `Run` does before dispatching: reading the config migrates a
 /// legacy store (its failure is ignored here and shows again when the command opens the
 /// store) and builds the registry, whose failure ends the run.
-fn prelude(project_root: &Path) -> (Option<String>, Option<CommandOutput>) {
+pub(crate) fn prelude(project_root: &Path) -> (Option<String>, Option<CommandOutput>) {
     let (notice, config) = match legacy::migrate_legacy_store(project_root) {
         Ok(notice) => {
             let dir = project_root.join(".luuna").join("atlas");
@@ -179,7 +179,7 @@ fn prelude(project_root: &Path) -> (Option<String>, Option<CommandOutput>) {
     (notice, early)
 }
 
-fn with_notice(notice: Option<String>, output: CommandOutput) -> CommandOutput {
+pub(crate) fn with_notice(notice: Option<String>, output: CommandOutput) -> CommandOutput {
     match notice {
         Some(text) => output.with_stderr_prefix(&text),
         None => output,
@@ -190,7 +190,7 @@ fn with_notice(notice: Option<String>, output: CommandOutput) -> CommandOutput {
 /// separators collapse, `.` elements go, `..` removes the element before it (and is
 /// dropped at the root), and an empty result is `.`. Nothing is read from the disk and
 /// symbolic links are not resolved.
-fn clean_path(path: &Path) -> PathBuf {
+pub(crate) fn clean_path(path: &Path) -> PathBuf {
     let text = path.to_string_lossy();
     let rooted = text.starts_with('/');
     let mut parts: Vec<&str> = Vec::new();
@@ -216,7 +216,7 @@ fn clean_path(path: &Path) -> PathBuf {
 }
 
 /// Go's `os.WriteFile(path, data, 0666)`.
-fn write_file(path: &Path, data: &[u8]) -> Result<()> {
+pub(crate) fn write_file(path: &Path, data: &[u8]) -> Result<()> {
     let fail = |op: &'static str| {
         move |source: io::Error| AtlasError::PathOp {
             op,
@@ -241,7 +241,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 }
 
 /// Go's `%q`: a double-quoted string with Go escapes.
-fn go_quote(text: &str) -> String {
+pub(crate) fn go_quote(text: &str) -> String {
     let mut out = String::from("\"");
     for c in text.chars() {
         match c {

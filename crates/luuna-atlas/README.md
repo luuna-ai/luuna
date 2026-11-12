@@ -9,6 +9,8 @@ git, and is not wired into the runtime.
 Only `init`, `add` and `config show` (including the legacy `.mulch/` migration). The other
 Atlas commands come in later plans.
 
+Each later Atlas plan records what it covers in its own file under `notes/`.
+
 ## Reference
 
 The Go tool is the reference. The crate is checked against this commit of the Luuna Atlas
@@ -33,8 +35,8 @@ If either is missing, wrong or the clone is dirty, the harness panics and names 
 The `parity_*` and `format_*` tests are `#[ignore]`d, so a plain `cargo test` reports them as
 ignored rather than passed. Run them explicitly, from the workspace root:
 
-    LUUNA_ATLAS_REFERENCE=/home/brodynelly/luuna-work/luuna-atlas LUUNA_ATLAS_GO=/home/brodynelly/.local/opt/go/bin/go cargo test -p luuna-atlas --locked --test parity -- --ignored
-    LUUNA_ATLAS_REFERENCE=/home/brodynelly/luuna-work/luuna-atlas LUUNA_ATLAS_GO=/home/brodynelly/.local/opt/go/bin/go cargo test -p luuna-atlas --locked --test format_compat -- --ignored
+    LUUNA_ATLAS_REFERENCE=/path/to/luuna-atlas LUUNA_ATLAS_GO=/path/to/go cargo test -p luuna-atlas --locked --test parity -- --ignored
+    LUUNA_ATLAS_REFERENCE=/path/to/luuna-atlas LUUNA_ATLAS_GO=/path/to/go cargo test -p luuna-atlas --locked --test format_compat -- --ignored
 
 Adjust the two paths for your host. `tests/harness.rs` is not ignored and needs only host git.
 
