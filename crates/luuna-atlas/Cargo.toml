@@ -11,5 +11,8 @@ chrono = { version = "0.4.42", default-features = false, features = ["clock", "s
 sha2 = "0.10.9"
 thiserror = "2.0.17"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3.23.0"
