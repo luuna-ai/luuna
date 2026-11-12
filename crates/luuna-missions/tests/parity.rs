@@ -16,12 +16,14 @@
 
 mod support;
 
+mod later_plans;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::{json, Value};
 
-use support::fixtures::{self, DEFERRED, IN_SCOPE, IN_SCOPE_COUNT};
+use support::fixtures::{self, DEFERRED, IN_SCOPE, IN_SCOPE_COUNT, LATER_PLAN_GROUPS};
 use support::reference::{self, check_reference, FIXTURE_TOTAL, REFERENCE_COMMIT};
 use support::{
     child_env, commit_all, git_read, guarded, run_differences, run_go, run_rust, system_temp_dir,
@@ -123,7 +125,175 @@ fn fixture_scope_is_complete() {
                     .collect::<serde_json::Map<_, _>>(),
             }),
         );
+        for failure in later_plan_failures() {
+            report.fail(failure);
+        }
+        for (plan, groups, _) in LATER_PLAN_GROUPS {
+            for group in *groups {
+                for file in group.files {
+                    if !files.iter().any(|name| name == file) {
+                        continue;
+                    }
+                    let fixture = fixtures::load(&clone, file);
+                    let command = fixture
+                        .args
+                        .iter()
+                        .find(|arg| !arg.starts_with('-'))
+                        .map(String::as_str);
+                    let expected = if group.command.is_empty() {
+                        None
+                    } else {
+                        Some(group.command)
+                    };
+                    if command != expected {
+                        report.fail(format!(
+                            "{file} runs {command:?}, but its group {} of {plan} is for {expected:?}",
+                            group.test
+                        ));
+                    }
+                }
+            }
+        }
+        report.set(
+            "later_plans",
+            LATER_PLAN_GROUPS
+                .iter()
+                .map(|(plan, groups, _)| {
+                    let moved = groups.iter().map(|group| group.files.len()).sum::<usize>();
+                    let deferred = DEFERRED
+                        .iter()
+                        .find(|(name, _, _)| name == plan)
+                        .map_or(0, |(_, list, _)| list.len());
+                    (
+                        (*plan).to_owned(),
+                        json!({
+                            "moved_into_scope": moved,
+                            "still_deferred": deferred.saturating_sub(moved),
+                        }),
+                    )
+                })
+                .collect::<serde_json::Map<_, _>>()
+                .into(),
+        );
     });
+}
+
+/// The allocation checks on the later plans' groups that need no fixture
+/// file: every group of the foundation and of every later plan has a
+/// `parity_*` name unique across all of them; [`LATER_PLAN_GROUPS`] names the
+/// plans of [`DEFERRED`] in the same order; each later plan's groups hold as
+/// many files as it declares; every file of a later plan's group is in that
+/// plan's own deferred list; and no file is in two groups. Each failure names
+/// the plan and the group or file.
+fn later_plan_failures() -> Vec<String> {
+    let mut failures = Vec::new();
+    let mut tests = BTreeSet::new();
+    let mut groups_of: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    let all_groups = IN_SCOPE
+        .iter()
+        .map(|group| ("the foundation", group))
+        .chain(
+            LATER_PLAN_GROUPS
+                .iter()
+                .flat_map(|(plan, groups, _)| groups.iter().map(move |group| (*plan, group))),
+        );
+    for (plan, group) in all_groups {
+        if !group.test.starts_with("parity_") || !tests.insert(group.test) {
+            failures.push(format!(
+                "group test name {} of {plan} is not a unique parity_* name",
+                group.test
+            ));
+        }
+        for file in group.files {
+            groups_of
+                .entry(file)
+                .or_default()
+                .push(format!("{} of {plan}", group.test));
+        }
+    }
+    for (file, groups) in &groups_of {
+        if groups.len() > 1 {
+            failures.push(format!("{file} is in more than one group: {groups:?}"));
+        }
+    }
+    let later_plans: Vec<&str> = LATER_PLAN_GROUPS.iter().map(|(plan, _, _)| *plan).collect();
+    let deferred_plans: Vec<&str> = DEFERRED.iter().map(|(plan, _, _)| *plan).collect();
+    if later_plans != deferred_plans {
+        failures.push(format!(
+            "the later plans' groups are for {later_plans:?}, but the deferred lists are for {deferred_plans:?}"
+        ));
+    }
+    for (plan, groups, expected) in LATER_PLAN_GROUPS {
+        let moved: usize = groups.iter().map(|group| group.files.len()).sum();
+        if moved != *expected {
+            failures.push(format!(
+                "{plan} has {moved} fixtures in its groups, expected {expected}"
+            ));
+        }
+        let own = DEFERRED
+            .iter()
+            .find(|(name, _, _)| name == plan)
+            .map_or(&[][..], |(_, list, _)| *list);
+        for group in *groups {
+            for file in group.files {
+                if !own.contains(file) {
+                    failures.push(format!(
+                        "{file} in group {} of {plan} is not in {plan}'s deferred list",
+                        group.test
+                    ));
+                }
+            }
+        }
+    }
+    failures
+}
+
+/// The allocation holds without the reference: the later plans' groups pass
+/// [`later_plan_failures`], every list has its declared length, no fixture
+/// is listed twice, and the foundation's count plus the deferred lists' lengths
+/// is the reference's fixture total.
+#[test]
+fn later_plan_groups_stay_in_their_allocation() {
+    let mut failures = later_plan_failures();
+    let mut owners: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let in_scope: usize = IN_SCOPE.iter().map(|group| group.files.len()).sum();
+    if in_scope != IN_SCOPE_COUNT {
+        failures.push(format!(
+            "the foundation has {in_scope} fixtures in scope, expected {IN_SCOPE_COUNT}"
+        ));
+    }
+    for group in IN_SCOPE {
+        for file in group.files {
+            owners.entry(file).or_default().push("the foundation");
+        }
+    }
+    for (plan, list, expected) in DEFERRED {
+        if list.len() != *expected {
+            failures.push(format!(
+                "{} fixtures deferred to {plan}, expected {expected}",
+                list.len()
+            ));
+        }
+        for file in *list {
+            owners.entry(file).or_default().push(plan);
+        }
+    }
+    for (file, plans) in &owners {
+        if plans.len() > 1 {
+            failures.push(format!("{file} is allocated more than once: {plans:?}"));
+        }
+    }
+    let total = IN_SCOPE_COUNT
+        + DEFERRED
+            .iter()
+            .map(|(_, list, _)| list.len())
+            .sum::<usize>();
+    if total != FIXTURE_TOTAL {
+        failures.push(format!(
+            "the foundation's count and the deferred lists name {total} fixtures, expected {FIXTURE_TOTAL}"
+        ));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

@@ -2,9 +2,17 @@
 //! (`internal/regression/testdata/*.json`) to plans, by literal file name.
 //!
 //! Fixtures are read in place from the reference clone and never copied.
-//! Later plans (s4-missions-lib-2 to -4) may change this file only by moving
-//! fixtures from their own deferred list into a new in-scope group, and by
-//! updating the matching counts; nothing is removed or loosened.
+//! [`IN_SCOPE`] holds the foundation's groups, and [`DEFERRED`] is each later
+//! plan's allocation: the fixtures that s4-missions-lib-2, -3 or -4 makes
+//! pass. Fixtures 124 (`tpl step add --help`) and 135
+//! (`setup claude --help`) are answered by s4-missions-lib-2's command-help
+//! hook and 130 runs -2's `close`, so they belong to -4, which is built after
+//! -2 and -3.
+//!
+//! This file is frozen for the later plans. Each later plan moves fixtures
+//! from its own deferred list into scope only in its own slot file,
+//! `tests/support/fixtures/<plan>.rs`, listed in [`LATER_PLAN_GROUPS`];
+//! nothing is removed or loosened.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -13,13 +21,18 @@ use serde::Deserialize;
 
 use super::reference::Reference;
 
+mod s4_missions_lib_2;
+mod s4_missions_lib_3;
+mod s4_missions_lib_4;
+
 /// A group of in-scope fixtures, replayed by one parity test.
 #[derive(Debug)]
 pub struct Group {
     /// The parity test that replays the group.
     pub test: &'static str,
     /// The command every fixture of the group runs: the first argument that
-    /// does not begin with `-`.
+    /// does not begin with `-`. For a later plan's group only, `""` means
+    /// that no argument of the group's fixtures lacks a leading `-`.
     pub command: &'static str,
     /// The fixture files.
     pub files: &'static [&'static str],
@@ -93,31 +106,59 @@ pub const DEFERRED_TO_S4_MISSIONS_LIB_3: &[&str] = &[
     "015.json", "016.json", "017.json", "018.json", "019.json", "020.json", "021.json", "035.json",
     "036.json", "104.json", "105.json", "107.json", "108.json", "109.json", "110.json", "111.json",
     "112.json", "113.json", "114.json", "115.json", "116.json", "117.json", "120.json", "121.json",
-    "122.json", "123.json", "124.json", "125.json", "126.json", "127.json", "128.json", "129.json",
-    "130.json", "131.json", "132.json", "134.json", "135.json", "136.json", "137.json", "138.json",
-    "139.json", "140.json", "141.json", "142.json", "143.json", "144.json", "145.json", "146.json",
-    "147.json", "148.json", "149.json",
+    "122.json", "123.json", "125.json", "126.json", "127.json", "128.json", "129.json", "131.json",
+    "132.json", "134.json", "136.json", "137.json", "138.json", "139.json", "140.json", "141.json",
+    "142.json", "143.json", "144.json", "145.json", "146.json", "147.json", "148.json", "149.json",
 ];
 pub const DEFERRED_TO_S4_MISSIONS_LIB_4: &[&str] = &[
-    "153.json", "154.json", "155.json", "156.json", "157.json", "158.json", "159.json", "160.json",
-    "161.json", "162.json", "163.json", "164.json", "165.json", "166.json", "167.json", "168.json",
-    "169.json", "170.json", "171.json", "172.json", "173.json", "174.json", "175.json", "176.json",
-    "177.json", "178.json", "179.json", "180.json", "181.json", "182.json", "183.json", "184.json",
-    "185.json", "186.json", "187.json", "188.json", "189.json", "190.json", "191.json", "192.json",
-    "193.json", "194.json",
+    "124.json", "130.json", "135.json", "153.json", "154.json", "155.json", "156.json", "157.json",
+    "158.json", "159.json", "160.json", "161.json", "162.json", "163.json", "164.json", "165.json",
+    "166.json", "167.json", "168.json", "169.json", "170.json", "171.json", "172.json", "173.json",
+    "174.json", "175.json", "176.json", "177.json", "178.json", "179.json", "180.json", "181.json",
+    "182.json", "183.json", "184.json", "185.json", "186.json", "187.json", "188.json", "189.json",
+    "190.json", "191.json", "192.json", "193.json", "194.json",
 ];
 
 /// The deferred fixtures, by plan, with the expected count of each list.
 pub const DEFERRED: &[(&str, &[&str], usize)] = &[
     ("s4-missions-lib-2", DEFERRED_TO_S4_MISSIONS_LIB_2, 48),
-    ("s4-missions-lib-3", DEFERRED_TO_S4_MISSIONS_LIB_3, 51),
-    ("s4-missions-lib-4", DEFERRED_TO_S4_MISSIONS_LIB_4, 42),
+    ("s4-missions-lib-3", DEFERRED_TO_S4_MISSIONS_LIB_3, 48),
+    ("s4-missions-lib-4", DEFERRED_TO_S4_MISSIONS_LIB_4, 45),
+];
+
+/// The later plans' fixture groups, by plan, with the number of fixtures
+/// each plan has moved into scope. Each entry comes from the plan's own slot
+/// file; the plans are those of [`DEFERRED`], in the same order.
+pub const LATER_PLAN_GROUPS: &[(&str, &[Group], usize)] = &[
+    (
+        "s4-missions-lib-2",
+        s4_missions_lib_2::IN_SCOPE,
+        s4_missions_lib_2::IN_SCOPE_COUNT,
+    ),
+    (
+        "s4-missions-lib-3",
+        s4_missions_lib_3::IN_SCOPE,
+        s4_missions_lib_3::IN_SCOPE_COUNT,
+    ),
+    (
+        "s4-missions-lib-4",
+        s4_missions_lib_4::IN_SCOPE,
+        s4_missions_lib_4::IN_SCOPE_COUNT,
+    ),
 ];
 
 /// The in-scope group replayed by `test`.
+///
+/// It is one of the foundation's groups in [`IN_SCOPE`] or one of a later
+/// plan's groups in [`LATER_PLAN_GROUPS`].
 pub fn group(test: &str) -> &'static Group {
     IN_SCOPE
         .iter()
+        .chain(
+            LATER_PLAN_GROUPS
+                .iter()
+                .flat_map(|(_, groups, _)| groups.iter()),
+        )
         .find(|group| group.test == test)
         .unwrap_or_else(|| panic!("no fixture group for {test}"))
 }
