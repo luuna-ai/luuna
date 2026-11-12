@@ -170,7 +170,6 @@ pub fn contains(values: &[String], value: &str) -> bool {
 /// nothing), objects by content whatever their key order, arrays by order. Walks with an
 /// explicit stack, never recursing per nesting level (CF1). Shared with
 /// [`rewrite_guard`].
-#[cfg_attr(not(test), allow(dead_code))] // called by t7's code
 pub(crate) fn go_deep_equal(a: &Value, b: &Value) -> bool {
     let mut pending: Vec<(&Value, &Value)> = vec![(a, b)];
     while let Some((x, y)) = pending.pop() {

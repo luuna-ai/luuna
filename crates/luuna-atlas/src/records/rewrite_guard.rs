@@ -7,9 +7,14 @@
 //! [`crate::store::write_records`]. Reading is unchanged: `read_records` and read-only
 //! commands never call the guard.
 
+use std::collections::HashSet;
+use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 use crate::error::{AtlasError, Result};
+use crate::json::{self, Object, Value};
+use crate::records::go_deep_equal;
 use crate::registry::Registry;
 
 /// Checks that rewriting the expertise file at `path` loses nothing, without writing to it
@@ -32,14 +37,245 @@ use crate::registry::Registry;
 ///   <path>: line <N> has "<legacy>", an old name of "<canonical>", whose value differs
 ///   from "<canonical>" and would be dropped. The file is unchanged.`
 ///
-/// A missing file is `Ok`. The duplicate-key scan is iterative and linear in the line's
-/// length.
+/// A missing file is `Ok`. Any other read failure is returned as an error rather than
+/// passed: `read_records` reads such a file as holding no records, so a rewrite would
+/// replace whatever it holds. A line that is not valid JSON is not checked here (the
+/// caller's `read_records` already refused it). Within a line the checks run in the order
+/// GDL3, GDL4, GDL5. Keys and field names are quoted as JSON strings in the message, so a
+/// key holding a quote or a control character cannot break the message's line.
+///
+/// The duplicate-key scan is iterative and linear in the line's length, so a line nested
+/// as deep as the parser accepts (10000 levels) is safe on a 2 MiB stack.
 pub fn check_lossless_rewrite(path: &Path, registry: &Registry, replaced: &[usize]) -> Result<()> {
-    // stub until t7
-    let _ = (path, registry, replaced);
-    Err(AtlasError::Message(
-        "not implemented: records::rewrite_guard::check_lossless_rewrite".to_owned(),
-    ))
+    let data = match fs::read(path) {
+        Ok(data) => data,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(AtlasError::Io {
+                path: path.to_path_buf(),
+                source,
+            })
+        }
+    };
+    let replaced: HashSet<usize> = replaced.iter().copied().collect();
+    let mut record_index = 0usize;
+    for (idx, line) in data.split(|b| *b == b'\n').enumerate() {
+        if !is_record_line(line) {
+            continue;
+        }
+        let index = record_index;
+        record_index += 1;
+        if replaced.contains(&index) {
+            continue;
+        }
+        let Ok(value) = json::parse_bytes(line) else {
+            continue;
+        };
+        if let Some(loss) = line_loss(line, value, registry) {
+            return Err(AtlasError::Message(format!(
+                "Refusing to rewrite {}: line {} {loss} The file is unchanged.",
+                path.display(),
+                idx + 1
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Whether `read_records` keeps `line` as a record: not blank and not starting with `#`
+/// after trimming.
+///
+/// `read_records` trims a per-byte lossy decoding of the line; `from_utf8_lossy` may use
+/// fewer U+FFFD for an invalid sequence, but U+FFFD is neither whitespace nor `#` and the
+/// valid characters decode the same, so the answer is the same.
+fn is_record_line(line: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(line);
+    let trimmed = text.trim();
+    !(trimmed.is_empty() || trimmed.starts_with('#'))
+}
+
+/// The loss a rewrite of this parsed line would cause, as the middle of the refusal
+/// message, or `None`.
+fn line_loss(line: &[u8], mut value: Value, registry: &Registry) -> Option<String> {
+    if let Some(key) = first_repeated_key(line) {
+        return Some(format!(
+            "repeats the key {}, and rewriting would keep only its last value.",
+            quoted(&key)
+        ));
+    }
+    // Only an object row has fields; an array row reads as an empty record, which
+    // write_records refuses (K7), and any other row is refused by read_records.
+    let Value::Object(record) = &mut value else {
+        return None;
+    };
+    if legacy_outcome_loses_data(record) {
+        return Some(
+            "has a legacy \"outcome\" that cannot be converted to \"outcomes\" without losing data."
+                .to_owned(),
+        );
+    }
+    alias_loss(record, registry).map(|(legacy, canonical)| {
+        let canonical = quoted(&canonical);
+        format!(
+            "has {}, an old name of {canonical}, whose value differs from {canonical} and would be dropped.",
+            quoted(&legacy)
+        )
+    })
+}
+
+/// `s` as a JSON string, quotes included.
+fn quoted(s: &str) -> String {
+    json::to_compact_string(&Value::String(s.to_owned())).unwrap_or_else(|_| format!("\"{s}\""))
+}
+
+/// The keys of the legacy `outcome` that `read_records` converts into `outcomes`.
+const LEGACY_OUTCOME_KEYS: [&str; 4] = ["status", "duration", "test_results", "agent"];
+
+/// GDL4: a non-null `outcome` without `outcomes` is converted by `read_records`
+/// (store.rs `rewrite_legacy_outcome`), which keeps only the four keys of an object and
+/// nothing of any other value.
+fn legacy_outcome_loses_data(record: &Object) -> bool {
+    let Some(legacy) = record.get("outcome") else {
+        return false;
+    };
+    if legacy.is_null() || record.contains_key("outcomes") {
+        return false;
+    }
+    match legacy.as_object() {
+        Some(outcome) => outcome
+            .keys()
+            .any(|key| !LEGACY_OUTCOME_KEYS.contains(&key)),
+        None => true,
+    }
+}
+
+/// GDL5: replays, on `record`, what `read_records` does after parsing (the legacy outcome
+/// conversion, then `registry::apply_aliases` in its order, canonical by canonical and
+/// legacy name by legacy name) and returns the first `(legacy, canonical)` whose legacy
+/// value is removed without the canonical field holding an equal value afterwards (Go
+/// comparison, [`go_deep_equal`]).
+///
+/// This catches a canonical field that is already non-empty with a different value, and
+/// also a second legacy name whose value differs from the value an earlier legacy name
+/// filled in. An alias filling an absent, null or `""` canonical field loses nothing.
+fn alias_loss(record: &mut Object, registry: &Registry) -> Option<(String, String)> {
+    convert_legacy_outcome(record);
+    let type_name = record
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let definition = registry.get(type_name)?;
+    for (canonical, names) in &definition.aliases {
+        for legacy in names {
+            // Same steps as apply_aliases (registry.rs), with a check after each removal.
+            let Some(value) = record.get(legacy).cloned() else {
+                continue;
+            };
+            let empty = match record.get(canonical) {
+                None | Some(Value::Null) => true,
+                Some(Value::String(s)) => s.is_empty(),
+                Some(_) => false,
+            };
+            if empty {
+                record.insert_unordered(canonical.clone(), value.clone());
+            }
+            record.remove(legacy);
+            let kept = record
+                .get(canonical)
+                .is_some_and(|now| go_deep_equal(now, &value));
+            if !kept {
+                return Some((legacy.clone(), canonical.clone()));
+            }
+        }
+    }
+    None
+}
+
+/// What `read_records` does to a legacy `outcome` before applying aliases (store.rs
+/// `rewrite_legacy_outcome`, private there), so the alias replay sees the same fields.
+fn convert_legacy_outcome(record: &mut Object) {
+    let Some(legacy) = record.get("outcome") else {
+        return;
+    };
+    if legacy.is_null() || record.contains_key("outcomes") {
+        return;
+    }
+    let mut normalized = Object::new();
+    if let Some(legacy) = legacy.as_object() {
+        for key in LEGACY_OUTCOME_KEYS {
+            if let Some(value) = legacy.get(key) {
+                normalized.insert_unordered(key, value.clone());
+            }
+        }
+    }
+    record.insert_unordered("outcomes", Value::Array(vec![Value::Object(normalized)]));
+    record.remove("outcome");
+}
+
+/// An open array or object of [`first_repeated_key`]'s scan.
+enum ScanFrame {
+    Array,
+    /// The keys seen so far, decoded, and whether the next string is a key.
+    Object(HashSet<String>, bool),
+}
+
+/// GDL3: the first key, in text order, that an object of `line` holds twice, compared
+/// after decoding as the parser decodes it (escapes, invalid UTF-8 and lone surrogates
+/// as U+FFFD).
+///
+/// `line` has already been parsed successfully, so it is well-formed JSON. One pass over
+/// the bytes with an explicit stack of open containers: no recursion per nesting level,
+/// and each byte is looked at a bounded number of times (each key is decoded once, from
+/// its own slice), so the scan is linear in the line's length.
+fn first_repeated_key(line: &[u8]) -> Option<String> {
+    let mut stack: Vec<ScanFrame> = Vec::new();
+    let mut i = 0;
+    while i < line.len() {
+        match line[i] {
+            b'{' => stack.push(ScanFrame::Object(HashSet::new(), true)),
+            b'[' => stack.push(ScanFrame::Array),
+            b'}' | b']' => {
+                stack.pop();
+            }
+            b',' => {
+                if let Some(ScanFrame::Object(_, expect_key)) = stack.last_mut() {
+                    *expect_key = true;
+                }
+            }
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < line.len() {
+                    match line[i] {
+                        b'\\' => i += 2,
+                        b'"' => break,
+                        _ => i += 1,
+                    }
+                }
+                let end = (i + 1).min(line.len());
+                if let Some(ScanFrame::Object(keys, expect_key)) = stack.last_mut() {
+                    if *expect_key {
+                        *expect_key = false;
+                        // The parser's own decoding of the key, so equal keys are the
+                        // keys Go's decoder merges.
+                        if let Ok(Value::String(key)) =
+                            json::parse_bytes(&line[start..end]).as_mut()
+                        {
+                            // `Value` implements Drop, so the text is taken, not moved.
+                            let key = std::mem::take(key);
+                            if keys.contains(&key) {
+                                return Some(key);
+                            }
+                            keys.insert(key);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 #[cfg(test)]
@@ -310,6 +546,29 @@ mod tests {
                 .collect();
             assert_eq!(names, ["d.jsonl"]);
         }
+    }
+
+    #[test]
+    fn unreadable_file_and_odd_keys() {
+        // A read failure other than a missing file is not passed: read_records would read
+        // no records and a rewrite would replace the file's contents.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let err = check_lossless_rewrite(dir.path(), &fixture_registry(), &[])
+            .expect_err("a directory cannot be read as a file");
+        assert!(matches!(err, AtlasError::Io { .. }));
+        // Keys are quoted as JSON strings in the message.
+        let line = format!(r#"{{"type":"convention","content":"a",{BASE},"a\"\nb":1,"a\"\nb":2}}"#);
+        assert_eq!(
+            refusal(&line),
+            r#"line 1 repeats the key "a\"\nb", and rewriting would keep only its last value."#
+        );
+        // Braces, brackets and commas inside strings do not confuse the key scan.
+        let line = format!(
+            r#"{{"type":"convention","content":"{{\"content\":1,[","x":"}}],\"x\":",{BASE}}}"#
+        );
+        assert!(check(&line, &[]).is_ok());
+        // A line that is not JSON is read_records' refusal, not the guard's.
+        assert!(check("{\"a\":1,\"a\":\n", &[]).is_ok());
     }
 
     #[test]
