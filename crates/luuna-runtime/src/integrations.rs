@@ -37,14 +37,9 @@ fn project(state: &AppState, id: &str) -> Result<(), ApiError> {
         .ok_or_else(not_found)?;
     Ok(())
 }
+/// The project's component store, as the store resolver decides it.
 pub(crate) fn workspace(state: &AppState, id: &str) -> Result<PathBuf, ApiError> {
-    project(state, id)?;
-    Ok(state
-        .config
-        .data_dir
-        .join("components")
-        .join("projects")
-        .join(id))
+    crate::stores::project_store(state, id)
 }
 pub(crate) fn enabled(state: &AppState, id: &str) -> Result<bool, ApiError> {
     project(state, id)?;
@@ -227,7 +222,7 @@ pub struct MemoryRecord {
 }
 fn memory_workspace(state: &AppState, binding: &MemoryBinding) -> Result<PathBuf, ApiError> {
     if binding.scope == "user" {
-        Ok(state.config.data_dir.join("components").join("user"))
+        Ok(crate::stores::user_store(state))
     } else {
         workspace(state, &binding.project_id)
     }
@@ -407,7 +402,7 @@ pub(crate) async fn create_memory_locked(
         return serde_json::from_value(response).map_err(internal);
     }
     let directory = if scope == "user" {
-        state.config.data_dir.join("components/user")
+        crate::stores::user_store(state)
     } else {
         workspace(state, id)?
     };
@@ -1027,7 +1022,7 @@ pub async fn export_user_memory(State(state): State<AppState>) -> Result<Json<Va
         .map_err(internal)?;
     let mut memory = Vec::new();
     if !bindings.is_empty() {
-        let directory = state.config.data_dir.join("components").join("user");
+        let directory = crate::stores::user_store(&state);
         let rows = atlas_records(&state, &directory).await?;
         for binding in &bindings {
             memory.push(memory_from_rows(binding, &rows)?);
