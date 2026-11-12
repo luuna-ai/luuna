@@ -134,7 +134,7 @@ pub(crate) struct Context<'a> {
     /// `--timing` appears among the arguments.
     pub timing: bool,
     /// The command name.
-    #[allow(dead_code, reason = "no ported command reads it yet")]
+    #[allow(dead_code, reason = "no command ported so far reads it")]
     pub command: String,
     /// The exit code of a command that did not fail.
     pub exit_code: i32,
@@ -178,7 +178,10 @@ impl<'a> Context<'a> {
     }
 
     /// The bytes on stdin.
-    #[allow(dead_code, reason = "used by the commands ported in t4 and t5")]
+    #[allow(
+        dead_code,
+        reason = "no command ported so far reads it; the commands of s4-missions-lib-2 and -3 do"
+    )]
     pub fn stdin(&self) -> &[u8] {
         &self.invocation.stdin
     }
@@ -203,7 +206,10 @@ impl<'a> Context<'a> {
     }
 
     /// Go's `Context.Warning`: `! <message>` on stderr unless quiet.
-    #[allow(dead_code, reason = "used by the commands ported in t4 and t5")]
+    #[allow(
+        dead_code,
+        reason = "no command ported so far reads it; the commands of s4-missions-lib-2 and -3 do"
+    )]
     pub fn warning(&mut self, message: &[u8]) {
         if !self.quiet {
             self.stderr.extend_from_slice(b"! ");

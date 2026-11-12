@@ -32,6 +32,14 @@ impl Envelope {
         .string("command", command)
     }
 
+    /// An object with no fields yet, for payloads Go builds as a map and so
+    /// writes with its keys sorted.
+    pub fn object() -> Self {
+        Self {
+            compact: b"{".to_vec(),
+        }
+    }
+
     fn key(&mut self, key: &str) {
         if self.compact.len() > 1 {
             self.compact.push(b',');
@@ -57,7 +65,6 @@ impl Envelope {
     }
 
     /// Adds an integer field.
-    #[allow(dead_code, reason = "used by the commands ported in t4 and t5")]
     pub fn integer(mut self, key: &str, value: i64) -> Self {
         self.key(key);
         self.compact.extend_from_slice(value.to_string().as_bytes());
@@ -84,14 +91,12 @@ impl Envelope {
 }
 
 /// The output formats of the read commands (`issueFormats`).
-#[allow(dead_code, reason = "used by show, list and search, ported in t5")]
 pub(crate) const FORMATS: [&str; 5] = ["markdown", "compact", "plain", "ids", "json"];
 
 /// Go's `formatMode`: the last `--format` value, else `json` with the
 /// `--json` switch, else `markdown`; any other value is Go's error message.
 /// `--format json` selects JSON output only; error output still follows the
 /// literal `--json` token (SD5).
-#[allow(dead_code, reason = "used by show, list and search, ported in t5")]
 pub(crate) fn format_mode(options: &super::options::Options) -> Result<&'static str, String> {
     let mut mode = options.value("format");
     if mode.is_empty() && options.has("json") {

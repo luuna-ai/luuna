@@ -88,6 +88,11 @@ fn quote_bytes(bytes: &[u8]) -> String {
     out
 }
 
+/// Go's `%q` for a string (`strconv.Quote`).
+pub(crate) fn go_quote(text: &str) -> String {
+    quote_bytes(text.as_bytes())
+}
+
 /// `jsonwire.InvalidTextError.Error`.
 fn invalid_text(label: &str, what: &[u8], place: &str) -> Fail {
     let mut chars = Vec::new();

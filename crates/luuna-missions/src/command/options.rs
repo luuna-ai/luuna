@@ -31,7 +31,6 @@ pub(crate) struct Options {
     pub positionals: Vec<String>,
 }
 
-#[allow(dead_code, reason = "used by the commands ported in t4 and t5")]
 impl Options {
     /// The last value of `name`, or `""` (Go's `Value`).
     pub fn value(&self, name: &str) -> &str {

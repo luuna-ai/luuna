@@ -82,8 +82,6 @@ impl Error {
     }
 }
 
-/// The plan that ports the behaviour stubbed in this crate today.
-pub(crate) const THIS_PLAN: &str = "s4-missions-lib";
 /// The plan that ports close, ready, blocked, stats, dep, label, unblock,
 /// help and version output, unknown-command suggestions, the logging
 /// variables and completions.
