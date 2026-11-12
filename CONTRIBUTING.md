@@ -33,7 +33,7 @@ npm run build
 
 Run `npm run components:setup` with Bun 1.4.3 after cloning, or clone with `--recurse-submodules` and then install frozen component dependencies. `npm run components:verify` checks exact pins; `npm run test:components` exercises real CLI JSON operations on disposable stores. Until the migration changes of [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md) bring them into this repository, the component sources live in their public `luuna-ai` repositories and are consumed as these pinned submodules.
 
-Luuna Roots lives in `roots/` as its own Cargo workspace, separate from the root one. Run its checks from the repository root:
+Luuna Roots lives in `roots/`. Its library, roots-core, is a member of the root Cargo workspace, so the root `cargo fmt`, `cargo clippy` and `cargo test` commands build, lint and test it. `roots/Cargo.toml` remains the workspace of roots-cli, with `roots/Cargo.lock`. Run the Roots workspace checks from the repository root:
 
 ```sh
 RUSTUP_TOOLCHAIN=1.90.0 cargo fmt --manifest-path roots/Cargo.toml --all -- --check
