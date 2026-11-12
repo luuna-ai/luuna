@@ -4,7 +4,12 @@ use luuna_domain::{Approval, DomainError, EventEnvelope, PlanRevision, RunState,
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::BTreeSet, fs, path::Path, time::Duration};
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use thiserror::Error;
 
 mod backup;
@@ -13,6 +18,7 @@ mod components;
 mod history;
 mod missions;
 mod project_files;
+mod project_index;
 mod projects;
 mod publication;
 mod validation;
@@ -62,6 +68,10 @@ pub enum StorageError {
     /// The file failed SQLite's structural check; nothing is served or written.
     #[error("database {path} failed its integrity check ({detail}); stop the runtime and restore a backup with `luuna-runtime restore --input <backup>`; automatic pre-migration backups are kept in the data directory's backups/ folder (see crates/luuna-runtime/README.md)")]
     Corrupt { path: String, detail: String },
+    /// A project file that cannot be used, or a database holding project
+    /// records its file lacks; nothing was changed.
+    #[error("project file {path} cannot be used ({detail}); nothing was changed. Fix the file, or move it out of the data directory so the runtime writes it again from the database (see crates/luuna-runtime/README.md)")]
+    ProjectFile { path: String, detail: String },
 }
 
 /// The derived form, except that a refused database prints its actionable
@@ -69,7 +79,9 @@ pub enum StorageError {
 impl std::fmt::Debug for StorageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SchemaTooNew { .. } | Self::Corrupt { .. } => std::fmt::Display::fmt(self, f),
+            Self::SchemaTooNew { .. } | Self::Corrupt { .. } | Self::ProjectFile { .. } => {
+                std::fmt::Display::fmt(self, f)
+            }
             Self::Sqlite(error) => f.debug_tuple("Sqlite").field(error).finish(),
             Self::Io(error) => f.debug_tuple("Io").field(error).finish(),
             Self::Json(error) => f.debug_tuple("Json").field(error).finish(),
@@ -132,6 +144,9 @@ pub struct RunRecord {
 
 pub struct Store {
     connection: Connection,
+    /// The data folder: the database file's parent directory. `None` for
+    /// `:memory:`, which writes no project files.
+    data_dir: Option<PathBuf>,
 }
 
 impl Store {
@@ -139,7 +154,11 @@ impl Store {
     /// quick check or was written by a newer schema is refused before this
     /// build writes anything to it, not even a checkpoint. Only migrations the
     /// file lacks are applied, after an automatic backup of an existing
-    /// database under `<directory>/backups/`.
+    /// database under `<directory>/backups/`. A `-wal` or `-shm` left beside
+    /// a missing database is moved aside, never replayed. Last, the database
+    /// is reconciled with the project files in the data folder; a damaged
+    /// file, or a database holding records its file lacks, is refused with
+    /// nothing changed.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let memory = path == Path::new(":memory:");
@@ -155,6 +174,7 @@ impl Store {
                 }
                 builder.create(parent)?;
             }
+            project_index::move_orphaned_sidecars(path)?;
             let mut options = fs::OpenOptions::new();
             options.write(true).create_new(true);
             #[cfg(unix)]
@@ -175,8 +195,20 @@ impl Store {
             "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;",
         )?;
         migrate(&connection, (!memory).then_some(path))?;
-        let store = Self { connection };
+        let data_dir = (!memory).then(|| {
+            path.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."))
+                .to_path_buf()
+        });
+        let mut store = Self {
+            connection,
+            data_dir,
+        };
         store.initialize_component_state()?;
+        if let Some(data_dir) = &store.data_dir {
+            project_index::reconcile_project_files(&mut store.connection, data_dir)?;
+        }
         Ok(store)
     }
 
