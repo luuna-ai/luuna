@@ -1,6 +1,6 @@
 # ADR 0034: an owned component library, `@luuna/ui`, for the web and desktop clients
 
-Date: 2026-10-22. Status: Accepted. Amends [ADR 0013](0013-desktop-design-system.md) (alternatives: a component library was rejected for dependencies and class soup) and [ADR 0030](0030-desktop-shell-and-tailwind.md) (where the shared components live). [ADR 0033](0033-ledger-design-system.md) stays the visual source of truth.
+Date: 2026-10-22. Status: Accepted. Amends [ADR 0013](0013-desktop-design-system.md) (alternatives: a component library was rejected for dependencies and class soup) and [ADR 0030](0030-desktop-shell-and-tailwind.md) (where the shared components live). [ADR 0033](0033-ledger-design-system.md) stays the visual source of truth. The alternative rejected by reference to ADR 0012 (placing the library in root `components/`) relied on a record since superseded by [ADR 0044](0044-one-repository-and-agent-shipping.md); the decision itself (the library in `packages/ui`) is unchanged, and root `components/` still holds the component submodules until later migration changes replace them.
 
 ## Context
 

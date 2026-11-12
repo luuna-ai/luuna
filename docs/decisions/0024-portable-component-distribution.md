@@ -6,6 +6,10 @@ consumption) and ADR 0018 (`doctor`). Addresses audit finding 8 (R01, M7:
 the installer did not deliver the integrated product) without changing any
 component's source, licence or data contract. (Amended by ADR 0028 for the
 data paths and aliases of the staged components.)
+ADR 0012 is superseded by [ADR 0044](0044-one-repository-and-agent-shipping.md);
+the source-checkout verification and submodule layout this record relies on
+(decision 2, decision 4) remain in place until later migration changes
+replace them.
 
 ## Context
 

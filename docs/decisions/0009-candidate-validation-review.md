@@ -28,7 +28,7 @@ M2c freezes an approved writer's candidate and stops in `validating`. R09 requir
 
 ## Evidence and remaining gates
 
-Synthetic Pi fixtures make failure/recovery paths deterministic; required checks execute real host commands. Current platform and real-provider evidence are listed separately in `FOUNDATION-STATUS.md`, including the `scripts/m3-smoke.mjs` genuine-provider run (OpenRouter, pinned Pi 1.3.0) that closed the provider exit on Linux. Native Mac/Windows service lifecycle evidence remains open. Publication, merging, native service packaging, distributed clients and multi-repository scheduling remain later milestones. The developer controls merging.
+Synthetic Pi fixtures make failure/recovery paths deterministic; required checks execute real host commands. Current platform and real-provider evidence are listed separately in `FOUNDATION-STATUS.md`, including the `scripts/m3-smoke.mjs` genuine-provider run (OpenRouter, pinned Pi 1.3.0) that closed the provider exit on Linux. Native Mac/Windows service lifecycle evidence remains open. Publication, merging, native service packaging, distributed clients and multi-repository scheduling remain later milestones. In a developer's own repositories, the developer controls merging; Luuna's runtime has no automatic merge operation in v1.
 
 ## Amendment (2026-10-21): accounting, restart recovery and repair provenance
 
