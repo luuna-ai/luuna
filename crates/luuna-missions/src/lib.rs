@@ -18,6 +18,7 @@
 
 pub mod command;
 mod config;
+mod config_tree;
 mod error;
 mod gopath;
 mod json;

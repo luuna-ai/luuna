@@ -72,7 +72,6 @@ mod tests {
 
     use super::super::{run, Invocation, Outcome};
     use super::*;
-    use crate::error::PLAN_3;
 
     const ATTRIBUTES: &str = ".luuna/missions/issues.jsonl merge=union\n.luuna/missions/templates.jsonl merge=union\n.luuna/missions/plans.jsonl merge=union\n";
 
@@ -242,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn init_refuses_what_it_does_not_port() {
+    fn init_refuses_other_store_dirs_and_answers_legacy_folders_via_config_tree() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
         // An explicit store directory other than the one Go's init creates.
@@ -256,10 +255,6 @@ mod tests {
         // A legacy .seeds folder (s4-missions-lib-3).
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir(temp.path().join(".seeds")).unwrap();
-        match run(&Invocation::new(temp.path(), ["init"])) {
-            Err(Error::Unsupported { plan, .. }) => assert_eq!(plan, PLAN_3),
-            other => panic!("expected Unsupported, got {other:?}"),
-        }
-        assert!(!temp.path().join(".luuna").exists());
+        crate::config_tree::checks::init_with_legacy_folder(temp.path());
     }
 }
