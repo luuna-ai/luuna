@@ -4,10 +4,32 @@
 //! that order, so the store's files keep their bytes across a read and a rewrite. This
 //! module provides the same model without `serde_json` (plan s5-atlas-lib, "Dependencies").
 //!
-//! Task t1 declares the value type and its accessors. The parser and both encoders are
-//! filled in by task t2; until then they return [`AtlasError::NotImplemented`].
+//! The Go tool's model (`internal/atlas/model.go`, `ObjectKeys` and `jsObjectKeyOrder`) is a
+//! Go map plus an optional remembered key order. Its encoding order is: canonical
+//! uint32-like keys ("0", "1", ... "4294967294") first in numeric order, then the
+//! remembered keys in their remembered order, then every key that is not remembered,
+//! sorted by bytes. [`Object`] keeps its entries physically in that order, so iteration,
+//! [`Object::keys`] and both encoders all see the order the Go tool would write.
+//!
+//! The byte rules were checked against the Go tool's own code built with go1.27.0, whose
+//! `encoding/json` runs on the v2 implementation by default:
+//!
+//! * strings escape `"`, `\`, `\b`, `\f`, `\n`, `\r`, `\t` with their short forms, other
+//!   control characters as `\u00xx` (lowercase hex), and U+2028 and U+2029 as `\u2028`
+//!   and `\u2029`; `<`, `>`, `&`, `/` and DEL are written as they are (HTML escaping off);
+//! * numbers: NaN and infinities write `null`, zero (also `-0`) writes `0`, magnitudes in
+//!   `[1e-6, 1e21)` use the shortest plain decimal, others the shortest exponent form with
+//!   a sign and no leading zero in the exponent (`1e+21`, `1e-7`);
+//! * the parser follows RFC 8259 strictly, as Go's decoder does: no trailing commas, no
+//!   leading zeros, no comments, whitespace is space, tab, LF and CR only, at most 10000
+//!   nested arrays and objects, and a number that overflows `f64` is an error. Duplicate
+//!   keys keep the first key's position and the last value. In strings, an invalid UTF-8
+//!   byte and an unpaired UTF-16 surrogate escape each become U+FFFD.
 
 use crate::error::{AtlasError, Result};
+
+/// The deepest nesting of arrays and objects the Go decoder accepts.
+const MAX_DEPTH: usize = 10_000;
 
 /// A JSON value. Numbers are `f64`, as in the Go tool.
 #[derive(Debug, Clone, PartialEq)]
@@ -26,9 +48,41 @@ pub enum Value {
 /// [`Object::insert`] of a new key places it last, as the Go tool does when it remembers
 /// the order in which a record's fields were set; replacing an existing key keeps its
 /// position.
-#[derive(Debug, Clone, Default, PartialEq)]
+///
+/// As in the Go tool, keys that are canonical uint32 array indexes ("0", "17", but not
+/// "01" or "4294967295") always come first, in numeric order, whatever method added them.
+/// Keys added with [`Object::insert_unordered`] behave like keys the Go tool sets on a map
+/// without remembering their order: they follow the remembered keys, sorted by bytes.
+#[derive(Debug, Clone, Default)]
 pub struct Object {
+    /// Index-like keys (numeric order), then remembered keys, then unremembered keys
+    /// (byte order). This is the encoding order.
     entries: Vec<(String, Value)>,
+    /// `entries[unordered_from..]` are the unremembered keys, none of them index-like.
+    unordered_from: usize,
+}
+
+impl PartialEq for Object {
+    fn eq(&self, other: &Self) -> bool {
+        // Only the encoding order and the values matter, not which keys are remembered.
+        self.entries == other.entries
+    }
+}
+
+/// The value of `key` if it is a canonical uint32 array index other than 2^32-1, the keys
+/// JavaScript (and so the Go tool's `jsObjectKeyOrder`) enumerates first.
+fn array_index(key: &str) -> Option<u32> {
+    let bytes = key.as_bytes();
+    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    if bytes.len() > 1 && bytes[0] == b'0' {
+        return None;
+    }
+    match key.parse::<u32>() {
+        Ok(u32::MAX) | Err(_) => None,
+        Ok(index) => Some(index),
+    }
 }
 
 impl Object {
@@ -39,16 +93,98 @@ impl Object {
 
     /// Sets `key` to `value`. A new key goes last; an existing key keeps its position.
     /// Returns the previous value, if any.
+    ///
+    /// A new key makes the whole current order remembered, as the Go tool's
+    /// `rememberOrder(m, append(ObjectKeys(m), key))` does. An index-like key goes to its
+    /// numeric place among the index-like keys instead of last.
     pub fn insert(&mut self, key: impl Into<String>, value: impl Into<Value>) -> Option<Value> {
         let key = key.into();
         let value = value.into();
-        match self.entries.iter_mut().find(|(k, _)| *k == key) {
-            Some((_, slot)) => Some(std::mem::replace(slot, value)),
-            None => {
-                self.entries.push((key, value));
-                None
+        if let Some(slot) = self.get_mut(&key) {
+            return Some(std::mem::replace(slot, value));
+        }
+        if let Some(index) = array_index(&key) {
+            self.insert_index_key(index, key, value);
+        } else {
+            self.entries.push((key, value));
+            self.unordered_from = self.entries.len();
+        }
+        None
+    }
+
+    /// Sets `key` to `value` without remembering its order, as the Go tool does when it
+    /// assigns a map entry that is not in the map's remembered order. A new key goes
+    /// after the remembered keys, among the other unremembered keys in byte order (or to
+    /// its numeric place if it is index-like); an existing key keeps its position.
+    /// Returns the previous value, if any.
+    pub fn insert_unordered(
+        &mut self,
+        key: impl Into<String>,
+        value: impl Into<Value>,
+    ) -> Option<Value> {
+        let key = key.into();
+        let value = value.into();
+        if let Some(slot) = self.get_mut(&key) {
+            return Some(std::mem::replace(slot, value));
+        }
+        if let Some(index) = array_index(&key) {
+            self.insert_index_key(index, key, value);
+        } else {
+            let tail = &self.entries[self.unordered_from..];
+            let offset = tail.partition_point(|(k, _)| k.as_str() < key.as_str());
+            self.entries
+                .insert(self.unordered_from + offset, (key, value));
+        }
+        None
+    }
+
+    /// Replaces the remembered order, as the Go tool's `rememberOrder(m, keys)` does.
+    ///
+    /// Afterwards the present keys of `keys` come in that order (a repeated key counts at
+    /// its first place, an absent key is ignored), followed by every other key sorted by
+    /// bytes, which stays unremembered. Index-like keys still come first.
+    pub fn remember_order<I, K>(&mut self, keys: I)
+    where
+        I: IntoIterator<Item = K>,
+        K: AsRef<str>,
+    {
+        let mut rest = std::mem::take(&mut self.entries);
+        let mut indexed: Vec<(u32, (String, Value))> = Vec::new();
+        let mut remembered: Vec<(String, Value)> = Vec::new();
+        for key in keys {
+            let key = key.as_ref();
+            if let Some(position) = rest.iter().position(|(k, _)| k == key) {
+                let entry = rest.remove(position);
+                match array_index(&entry.0) {
+                    Some(index) => indexed.push((index, entry)),
+                    None => remembered.push(entry),
+                }
             }
         }
+        let mut unremembered: Vec<(String, Value)> = Vec::new();
+        for entry in rest {
+            match array_index(&entry.0) {
+                Some(index) => indexed.push((index, entry)),
+                None => unremembered.push(entry),
+            }
+        }
+        indexed.sort_by_key(|(index, _)| *index);
+        unremembered.sort_by(|a, b| a.0.cmp(&b.0));
+        self.entries = indexed.into_iter().map(|(_, entry)| entry).collect();
+        self.entries.extend(remembered);
+        self.unordered_from = self.entries.len();
+        self.entries.extend(unremembered);
+    }
+
+    /// Inserts a new index-like key at its numeric place among the leading index keys.
+    fn insert_index_key(&mut self, index: u32, key: String, value: Value) {
+        let position = self
+            .entries
+            .iter()
+            .position(|(k, _)| array_index(k).is_none_or(|other| other > index))
+            .unwrap_or(self.entries.len());
+        self.entries.insert(position, (key, value));
+        self.unordered_from += 1;
     }
 
     /// The value stored under `key`.
@@ -65,8 +201,15 @@ impl Object {
     }
 
     /// Removes `key`, keeping the order of the remaining keys.
+    ///
+    /// The Go tool keeps a removed key in its remembered order, so re-adding it there
+    /// restores its old place; here the key is forgotten, and re-adding it places it as
+    /// [`Object::insert`] or [`Object::insert_unordered`] says.
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         let index = self.entries.iter().position(|(k, _)| k == key)?;
+        if index < self.unordered_from {
+            self.unordered_from -= 1;
+        }
         Some(self.entries.remove(index).1)
     }
 
@@ -187,23 +330,802 @@ impl From<Object> for Value {
     }
 }
 
+// ---------------------------------------------------------------------------------------
+// Parser
+
 /// Parses one JSON text, keeping the key order of every object.
-pub fn parse(_text: &str) -> Result<Value> {
-    Err(AtlasError::not_implemented("json::parse (task t2)"))
+pub fn parse(text: &str) -> Result<Value> {
+    parse_bytes(text.as_bytes())
 }
+
+/// Parses one JSON text given as bytes, as the Go tool parses a line it read from a file:
+/// an invalid UTF-8 byte inside a string becomes U+FFFD (one per byte); outside a string
+/// it is a syntax error.
+pub fn parse_bytes(input: &[u8]) -> Result<Value> {
+    Parser { input, pos: 0 }.parse_document()
+}
+
+/// An array or object whose elements are still being read.
+enum Frame {
+    Array(Vec<Value>),
+    /// The object so far and the key of the member whose value is being read.
+    Object(Object, String),
+}
+
+struct Parser<'a> {
+    input: &'a [u8],
+    pos: usize,
+}
+
+fn syntax_error(message: impl Into<String>) -> AtlasError {
+    AtlasError::Message(message.into())
+}
+
+fn describe(byte: u8) -> String {
+    if byte.is_ascii_graphic() || byte == b' ' {
+        format!("'{}'", byte as char)
+    } else {
+        format!("'\\x{byte:02x}'")
+    }
+}
+
+impl Parser<'_> {
+    fn peek(&self) -> Option<u8> {
+        self.input.get(self.pos).copied()
+    }
+
+    fn skip_whitespace(&mut self) {
+        while let Some(b' ' | b'\t' | b'\n' | b'\r') = self.peek() {
+            self.pos += 1;
+        }
+    }
+
+    fn unexpected(&self, context: &str) -> AtlasError {
+        match self.peek() {
+            None => syntax_error("unexpected end of JSON input"),
+            Some(byte) => syntax_error(format!(
+                "invalid character {} {context} (offset {})",
+                describe(byte),
+                self.pos
+            )),
+        }
+    }
+
+    /// The whole document: one value, then only whitespace. Iterative, so deep nesting
+    /// up to [`MAX_DEPTH`] cannot exhaust the stack.
+    fn parse_document(&mut self) -> Result<Value> {
+        let mut stack: Vec<Frame> = Vec::new();
+        'value: loop {
+            self.skip_whitespace();
+            let mut value = match self.peek() {
+                None => return Err(syntax_error("unexpected end of JSON input")),
+                Some(open @ (b'{' | b'[')) => {
+                    if stack.len() >= MAX_DEPTH {
+                        return Err(syntax_error("exceeded max depth"));
+                    }
+                    self.pos += 1;
+                    self.skip_whitespace();
+                    if open == b'[' {
+                        if self.peek() == Some(b']') {
+                            self.pos += 1;
+                            Value::Array(Vec::new())
+                        } else {
+                            stack.push(Frame::Array(Vec::new()));
+                            continue 'value;
+                        }
+                    } else if self.peek() == Some(b'}') {
+                        self.pos += 1;
+                        Value::Object(Object::new())
+                    } else {
+                        let key = self.parse_member_name()?;
+                        stack.push(Frame::Object(Object::new(), key));
+                        continue 'value;
+                    }
+                }
+                Some(b'"') => Value::String(self.parse_string()?),
+                Some(b't') => self.parse_literal(b"true", Value::Bool(true))?,
+                Some(b'f') => self.parse_literal(b"false", Value::Bool(false))?,
+                Some(b'n') => self.parse_literal(b"null", Value::Null)?,
+                Some(b'-' | b'0'..=b'9') => Value::Number(self.parse_number()?),
+                Some(_) => return Err(self.unexpected("looking for beginning of value")),
+            };
+            // A value is complete: hand it to the enclosing array or object, closing
+            // every container that ends here.
+            loop {
+                self.skip_whitespace();
+                match stack.last_mut() {
+                    None => {
+                        if self.pos != self.input.len() {
+                            return Err(syntax_error(format!(
+                                "invalid character {} after top-level value (offset {})",
+                                describe(self.input[self.pos]),
+                                self.pos
+                            )));
+                        }
+                        return Ok(value);
+                    }
+                    Some(Frame::Array(items)) => {
+                        items.push(value);
+                        match self.peek() {
+                            Some(b',') => {
+                                self.pos += 1;
+                                continue 'value;
+                            }
+                            Some(b']') => {
+                                self.pos += 1;
+                                let Some(Frame::Array(items)) = stack.pop() else {
+                                    unreachable!("the top frame is an array");
+                                };
+                                value = Value::Array(items);
+                            }
+                            _ => return Err(self.unexpected("after array element")),
+                        }
+                    }
+                    Some(Frame::Object(object, key)) => {
+                        object.insert(std::mem::take(key), value);
+                        match self.peek() {
+                            Some(b',') => {
+                                self.pos += 1;
+                                self.skip_whitespace();
+                                *key = self.parse_member_name()?;
+                                continue 'value;
+                            }
+                            Some(b'}') => {
+                                self.pos += 1;
+                                let Some(Frame::Object(object, _)) = stack.pop() else {
+                                    unreachable!("the top frame is an object");
+                                };
+                                value = Value::Object(object);
+                            }
+                            _ => return Err(self.unexpected("after object key:value pair")),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A member name and its colon; the caller has skipped whitespace before it.
+    fn parse_member_name(&mut self) -> Result<String> {
+        if self.peek() != Some(b'"') {
+            return Err(self.unexpected("looking for beginning of object key string"));
+        }
+        let key = self.parse_string()?;
+        self.skip_whitespace();
+        if self.peek() != Some(b':') {
+            return Err(self.unexpected("after object key"));
+        }
+        self.pos += 1;
+        Ok(key)
+    }
+
+    fn parse_literal(&mut self, word: &[u8], value: Value) -> Result<Value> {
+        for &expected in word {
+            match self.peek() {
+                Some(byte) if byte == expected => self.pos += 1,
+                _ => return Err(self.unexpected("in literal")),
+            }
+        }
+        Ok(value)
+    }
+
+    fn take_digits(&mut self) -> usize {
+        let start = self.pos;
+        while let Some(b'0'..=b'9') = self.peek() {
+            self.pos += 1;
+        }
+        self.pos - start
+    }
+
+    /// `-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`, converted with `str::parse`.
+    fn parse_number(&mut self) -> Result<f64> {
+        let start = self.pos;
+        if self.peek() == Some(b'-') {
+            self.pos += 1;
+        }
+        match self.peek() {
+            Some(b'0') => self.pos += 1,
+            Some(b'1'..=b'9') => {
+                self.take_digits();
+            }
+            _ => return Err(self.unexpected("in numeric literal")),
+        }
+        if self.peek() == Some(b'.') {
+            self.pos += 1;
+            if self.take_digits() == 0 {
+                return Err(self.unexpected("after decimal point in numeric literal"));
+            }
+        }
+        if let Some(b'e' | b'E') = self.peek() {
+            self.pos += 1;
+            if let Some(b'+' | b'-') = self.peek() {
+                self.pos += 1;
+            }
+            if self.take_digits() == 0 {
+                return Err(self.unexpected("in exponent of numeric literal"));
+            }
+        }
+        // The slice holds only ASCII sign, digit, point and exponent bytes.
+        let text = std::str::from_utf8(&self.input[start..self.pos])
+            .map_err(|_| syntax_error("invalid number"))?;
+        let number: f64 = text
+            .parse()
+            .map_err(|_| syntax_error(format!("invalid number {text}")))?;
+        if number.is_infinite() {
+            // Go's strconv.ParseFloat reports a range error, which the decoder returns.
+            return Err(syntax_error(format!(
+                "json: cannot unmarshal number {text} into Go value of type float64"
+            )));
+        }
+        Ok(number)
+    }
+
+    fn parse_hex4(&mut self) -> Result<u16> {
+        let mut out: u16 = 0;
+        for _ in 0..4 {
+            let digit = match self.peek() {
+                Some(b @ b'0'..=b'9') => b - b'0',
+                Some(b @ b'a'..=b'f') => b - b'a' + 10,
+                Some(b @ b'A'..=b'F') => b - b'A' + 10,
+                _ => return Err(self.unexpected("in \\u hexadecimal character escape")),
+            };
+            out = out * 16 + u16::from(digit);
+            self.pos += 1;
+        }
+        Ok(out)
+    }
+
+    /// A string starting at its opening quote.
+    fn parse_string(&mut self) -> Result<String> {
+        debug_assert_eq!(self.peek(), Some(b'"'));
+        self.pos += 1;
+        let mut out = String::new();
+        loop {
+            // Copy the longest run of plain bytes at once.
+            let start = self.pos;
+            while let Some(byte) = self.peek() {
+                if byte == b'"' || byte == b'\\' || byte < 0x20 {
+                    break;
+                }
+                self.pos += 1;
+            }
+            push_lossy_per_byte(&mut out, &self.input[start..self.pos]);
+            match self.peek() {
+                None => return Err(syntax_error("unexpected end of JSON input")),
+                Some(b'"') => {
+                    self.pos += 1;
+                    return Ok(out);
+                }
+                Some(b'\\') => {
+                    self.pos += 1;
+                    let escaped = match self.peek() {
+                        Some(b'"') => '"',
+                        Some(b'\\') => '\\',
+                        Some(b'/') => '/',
+                        Some(b'b') => '\u{8}',
+                        Some(b'f') => '\u{c}',
+                        Some(b'n') => '\n',
+                        Some(b'r') => '\r',
+                        Some(b't') => '\t',
+                        Some(b'u') => {
+                            self.pos += 1;
+                            let unit = self.parse_hex4()?;
+                            out.push(self.finish_unicode_escape(unit)?);
+                            continue;
+                        }
+                        None => return Err(syntax_error("unexpected end of JSON input")),
+                        Some(_) => return Err(self.unexpected("in string escape code")),
+                    };
+                    self.pos += 1;
+                    out.push(escaped);
+                }
+                Some(_) => return Err(self.unexpected("in string literal")),
+            }
+        }
+    }
+
+    /// The character for `\uXXXX` whose code unit `unit` was just read. A high surrogate
+    /// followed by a `\u` low surrogate combines with it; any other surrogate becomes
+    /// U+FFFD and the following escape, if any, is read on its own (as in Go).
+    fn finish_unicode_escape(&mut self, unit: u16) -> Result<char> {
+        if let Some(c) = char::from_u32(u32::from(unit)) {
+            return Ok(c);
+        }
+        if (0xD800..0xDC00).contains(&unit)
+            && self.input.get(self.pos..self.pos + 2) == Some(b"\\u")
+        {
+            let saved = self.pos;
+            self.pos += 2;
+            if let Ok(low) = self.parse_hex4() {
+                if (0xDC00..0xE000).contains(&low) {
+                    let combined =
+                        0x10000 + ((u32::from(unit) - 0xD800) << 10) + (u32::from(low) - 0xDC00);
+                    if let Some(c) = char::from_u32(combined) {
+                        return Ok(c);
+                    }
+                }
+            }
+            self.pos = saved;
+        }
+        Ok(char::REPLACEMENT_CHARACTER)
+    }
+}
+
+/// Appends `bytes`, replacing each byte that is not part of a valid UTF-8 sequence with
+/// U+FFFD, one per byte, as Go's `utf8.DecodeRune` loop does.
+fn push_lossy_per_byte(out: &mut String, mut bytes: &[u8]) {
+    while !bytes.is_empty() {
+        match std::str::from_utf8(bytes) {
+            Ok(valid) => {
+                out.push_str(valid);
+                return;
+            }
+            Err(error) => {
+                let (valid, rest) = bytes.split_at(error.valid_up_to());
+                // `valid` is valid UTF-8 by construction.
+                out.push_str(std::str::from_utf8(valid).unwrap_or_default());
+                out.push(char::REPLACEMENT_CHARACTER);
+                bytes = &rest[1..];
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// Encoder
 
 /// Encodes `value` the way the Go tool writes a JSONL line: one line, no spaces, no HTML
 /// escaping. The result has no trailing newline.
-pub fn to_compact_string(_value: &Value) -> Result<String> {
-    Err(AtlasError::not_implemented(
-        "json::to_compact_string (task t2)",
-    ))
+pub fn to_compact_string(value: &Value) -> Result<String> {
+    let mut out = String::new();
+    write_value(&mut out, value, None);
+    Ok(out)
 }
 
 /// Encodes `value` the way the Go tool prints a command envelope: two-space indentation,
 /// no HTML escaping. The result has no trailing newline.
-pub fn to_indented_string(_value: &Value) -> Result<String> {
-    Err(AtlasError::not_implemented(
-        "json::to_indented_string (task t2)",
-    ))
+///
+/// This is what `json.Indent(dst, compact, "", "  ")` makes of the compact form: an empty
+/// array or object stays `[]` or `{}`, and a colon is followed by one space.
+pub fn to_indented_string(value: &Value) -> Result<String> {
+    let mut out = String::new();
+    write_value(&mut out, value, Some(0));
+    Ok(out)
+}
+
+fn newline(out: &mut String, depth: usize) {
+    out.push('\n');
+    for _ in 0..depth {
+        out.push_str("  ");
+    }
+}
+
+/// Writes `value`; `indent` is the current depth for the indented form, `None` for the
+/// compact form.
+fn write_value(out: &mut String, value: &Value, indent: Option<usize>) {
+    match value {
+        Value::Null => out.push_str("null"),
+        Value::Bool(true) => out.push_str("true"),
+        Value::Bool(false) => out.push_str("false"),
+        Value::Number(n) => write_number(out, *n),
+        Value::String(s) => write_string(out, s),
+        Value::Array(items) => {
+            out.push('[');
+            let inner = indent.map(|d| d + 1);
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                if let Some(depth) = inner {
+                    newline(out, depth);
+                }
+                write_value(out, item, inner);
+            }
+            if let (Some(depth), false) = (indent, items.is_empty()) {
+                newline(out, depth);
+            }
+            out.push(']');
+        }
+        Value::Object(object) => {
+            out.push('{');
+            let inner = indent.map(|d| d + 1);
+            for (i, (key, item)) in object.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                if let Some(depth) = inner {
+                    newline(out, depth);
+                }
+                write_string(out, key);
+                out.push(':');
+                if inner.is_some() {
+                    out.push(' ');
+                }
+                write_value(out, item, inner);
+            }
+            if let (Some(depth), false) = (indent, object.is_empty()) {
+                newline(out, depth);
+            }
+            out.push('}');
+        }
+    }
+}
+
+/// Go's float64 encoding as the Go tool applies it (`marshalOrdered` in model.go, then
+/// `encoding/json`'s float encoder).
+fn write_number(out: &mut String, n: f64) {
+    if !n.is_finite() {
+        out.push_str("null");
+        return;
+    }
+    if n == 0.0 {
+        out.push('0');
+        return;
+    }
+    let magnitude = n.abs();
+    if (1e-6..1e21).contains(&magnitude) {
+        // Rust's Display is the shortest round-tripping plain decimal, as Go's 'f', -1.
+        out.push_str(&n.to_string());
+        return;
+    }
+    // Shortest round-tripping exponent form; Go writes a sign on the exponent and, after
+    // its cleanup, no leading zero ("1e+21", "1e-7").
+    let text = format!("{n:e}");
+    match text.split_once('e') {
+        Some((mantissa, exponent)) if !exponent.starts_with('-') => {
+            out.push_str(mantissa);
+            out.push_str("e+");
+            out.push_str(exponent);
+        }
+        _ => out.push_str(&text),
+    }
+}
+
+/// Go's string encoding with HTML escaping off.
+fn write_string(out: &mut String, s: &str) {
+    out.push('"');
+    let mut plain_from = 0;
+    for (i, c) in s.char_indices() {
+        let escape: Option<&str> = match c {
+            '"' => Some("\\\""),
+            '\\' => Some("\\\\"),
+            '\u{8}' => Some("\\b"),
+            '\u{c}' => Some("\\f"),
+            '\n' => Some("\\n"),
+            '\r' => Some("\\r"),
+            '\t' => Some("\\t"),
+            '\u{2028}' => Some("\\u2028"),
+            '\u{2029}' => Some("\\u2029"),
+            c if (c as u32) < 0x20 => None,
+            _ => continue,
+        };
+        out.push_str(&s[plain_from..i]);
+        match escape {
+            Some(text) => out.push_str(text),
+            None => out.push_str(&format!("\\u{:04x}", c as u32)),
+        }
+        plain_from = i + c.len_utf8();
+    }
+    out.push_str(&s[plain_from..]);
+    out.push('"');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn compact(value: &Value) -> String {
+        to_compact_string(value).expect("compact encoding")
+    }
+
+    fn indented(value: &Value) -> String {
+        to_indented_string(value).expect("indented encoding")
+    }
+
+    fn round_trip(text: &str) -> String {
+        compact(&parse(text).expect("valid JSON"))
+    }
+
+    #[test]
+    fn parses_preserving_key_order() {
+        let value = parse(r#"{"type":"guide","name":"A","classification":"tactical","b":1,"a":2}"#)
+            .unwrap();
+        let object = value.as_object().unwrap();
+        assert_eq!(
+            object.keys().collect::<Vec<_>>(),
+            ["type", "name", "classification", "b", "a"]
+        );
+        // Nested objects keep their order too, and a rewrite reproduces the bytes.
+        let text = r#"{"z":{"y":1,"x":[{"q":true,"p":null}]},"a":"s"}"#;
+        assert_eq!(round_trip(text), text);
+        // A repeated key keeps its first place and takes the last value, as in Go.
+        assert_eq!(round_trip(r#"{"a":1,"b":2,"a":3}"#), r#"{"a":3,"b":2}"#);
+        // A new key goes last; replacing a key keeps its place.
+        let mut object = object.clone();
+        object.insert("added", "x");
+        object.insert("type", "pattern");
+        assert_eq!(
+            compact(&Value::Object(object.clone())),
+            r#"{"type":"pattern","name":"A","classification":"tactical","b":1,"a":2,"added":"x"}"#
+        );
+        object.remove("name");
+        assert_eq!(
+            object.keys().collect::<Vec<_>>(),
+            ["type", "classification", "b", "a", "added"]
+        );
+    }
+
+    #[test]
+    fn compact_encoding_is_one_line_without_spaces() {
+        let text = r#"{"a":[1,2,{"b":"c d"}],"e":{},"f":[],"g":null,"h":true,"i":false}"#;
+        let value = parse(&format!(" \t\r\n{text}\n")).unwrap();
+        let out = compact(&value);
+        assert_eq!(out, text);
+        assert!(!out.contains('\n'));
+        // A newline inside a string is escaped, so the line stays one line.
+        assert_eq!(
+            compact(&Value::String("two\nlines".into())),
+            r#""two\nlines""#
+        );
+    }
+
+    #[test]
+    fn indented_encoding_uses_two_spaces() {
+        let value = parse(r#"{"success":true,"command":"show","records":[{"domain":"d","record":{"a":[1,"x"],"e":{},"f":[]}}]}"#).unwrap();
+        let expected = "{\n  \"success\": true,\n  \"command\": \"show\",\n  \"records\": [\n    {\n      \"domain\": \"d\",\n      \"record\": {\n        \"a\": [\n          1,\n          \"x\"\n        ],\n        \"e\": {},\n        \"f\": []\n      }\n    }\n  ]\n}";
+        assert_eq!(indented(&value), expected);
+        assert_eq!(indented(&Value::Object(Object::new())), "{}");
+        assert_eq!(indented(&Value::Array(Vec::new())), "[]");
+        assert_eq!(indented(&Value::String("a: b".into())), "\"a: b\"");
+    }
+
+    #[test]
+    fn does_not_escape_html() {
+        let value = Value::String("<a href=\"x\">&amp;</a> / \u{7f}".into());
+        assert_eq!(compact(&value), "\"<a href=\\\"x\\\">&amp;</a> / \u{7f}\"");
+        // What Go does escape: quotes, backslashes, control characters, U+2028, U+2029.
+        let value = Value::String("\"\\\u{8}\u{c}\n\r\t\u{0}\u{1f}\u{2028}\u{2029}é😀".into());
+        assert_eq!(
+            compact(&value),
+            "\"\\\"\\\\\\b\\f\\n\\r\\t\\u0000\\u001f\\u2028\\u2029é😀\""
+        );
+        // Keys follow the same rules.
+        let mut object = Object::new();
+        object.insert("<k>&", "v");
+        assert_eq!(compact(&Value::Object(object)), r#"{"<k>&":"v"}"#);
+    }
+
+    #[test]
+    fn number_formatting_matches_go() {
+        // Expected strings were produced by the Go tool's MarshalJSON (go1.27.0).
+        let cases: &[(f64, &str)] = &[
+            (1.0, "1"),
+            (-0.0, "0"),
+            (0.1, "0.1"),
+            (1.5, "1.5"),
+            (100.0, "100"),
+            (-123.456, "-123.456"),
+            (1e20, "100000000000000000000"),
+            (1e21, "1e+21"),
+            (-1e21, "-1e+21"),
+            (0.000001, "0.000001"),
+            (9.99e-7, "9.99e-7"),
+            (1e-7, "1e-7"),
+            (-1.5e-10, "-1.5e-10"),
+            (1e100, "1e+100"),
+            (1.2345678901234569e23, "1.2345678901234569e+23"),
+            (12345678901234567890.0, "12345678901234567000"),
+            (f64::MAX, "1.7976931348623157e+308"),
+            (5e-324, "5e-324"),
+        ];
+        for (number, expected) in cases {
+            assert_eq!(compact(&Value::Number(*number)), *expected, "{number:e}");
+        }
+        assert_eq!(
+            round_trip("[1.0,-0,0.1e1,1E5,-0.0e+0,2.5e-324]"),
+            "[1,0,1,100000,0,5e-324]"
+        );
+        // Numbers parse with str::parse, so they round-trip exactly.
+        assert_eq!(
+            parse("0.30000000000000004").unwrap(),
+            Value::Number(0.1 + 0.2)
+        );
+        // Underflow reads as zero; overflow is an error, as in Go.
+        assert_eq!(round_trip("1e-400"), "0");
+        assert!(parse("1e400").is_err());
+        assert!(parse("-1.7976931348623157e309").is_err());
+    }
+
+    #[test]
+    fn non_finite_numbers_encode_as_null() {
+        let value = Value::Array(vec![
+            Value::Number(f64::NAN),
+            Value::Number(f64::INFINITY),
+            Value::Number(f64::NEG_INFINITY),
+        ]);
+        assert_eq!(compact(&value), "[null,null,null]");
+        assert_eq!(indented(&value), "[\n  null,\n  null,\n  null\n]");
+    }
+
+    #[test]
+    fn index_like_keys_sort_first_for_unordered_keys() {
+        // A map the Go tool builds without remembering an order: index keys in numeric
+        // order, then the rest sorted by bytes.
+        let mut object = Object::new();
+        for key in [
+            "b",
+            "10",
+            "a",
+            "2",
+            "B",
+            "01",
+            "4294967295",
+            "4294967294",
+            "_",
+        ] {
+            object.insert_unordered(key, 1.0);
+        }
+        assert_eq!(
+            object.keys().collect::<Vec<_>>(),
+            [
+                "2",
+                "10",
+                "4294967294",
+                "01",
+                "4294967295",
+                "B",
+                "_",
+                "a",
+                "b"
+            ]
+        );
+        // Keys not in the remembered order follow the remembered keys, sorted.
+        let mut record = parse(r#"{"z":1,"y":2}"#)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        record.insert_unordered("status", "archived");
+        record.insert_unordered("archived_at", "t");
+        record.insert_unordered("archive_reason", "r");
+        record.insert_unordered("7", 0.0);
+        assert_eq!(
+            compact(&Value::Object(record.clone())),
+            r#"{"7":0,"z":1,"y":2,"archive_reason":"r","archived_at":"t","status":"archived"}"#
+        );
+        // Inserting a remembered key afterwards keeps the current order and goes last.
+        record.insert("w", 3.0);
+        record.insert_unordered("c", 4.0);
+        assert_eq!(
+            record.keys().collect::<Vec<_>>(),
+            [
+                "7",
+                "z",
+                "y",
+                "archive_reason",
+                "archived_at",
+                "status",
+                "w",
+                "c"
+            ]
+        );
+        // Parsed objects put index keys first as well, whatever their place in the text.
+        assert_eq!(
+            round_trip(r#"{"z":1,"10":2,"a":{"1":1,"0":0},"0":3}"#),
+            r#"{"0":3,"10":2,"z":1,"a":{"0":0,"1":1}}"#
+        );
+        // remember_order: listed keys first (absent and repeated ones ignored), the rest
+        // sorted and still unremembered.
+        let mut object = Object::new();
+        for key in ["d", "c", "b", "a", "3"] {
+            object.insert(key, 0.0);
+        }
+        object.remember_order(["c", "missing", "a", "c"]);
+        assert_eq!(object.keys().collect::<Vec<_>>(), ["3", "c", "a", "b", "d"]);
+        object.insert_unordered("bb", 0.0);
+        assert_eq!(
+            object.keys().collect::<Vec<_>>(),
+            ["3", "c", "a", "b", "bb", "d"]
+        );
+        // Equality looks at the encoding order, not at what is remembered.
+        let mut ordered = Object::new();
+        for key in ["3", "c", "a", "b", "bb", "d"] {
+            ordered.insert(key, 0.0);
+        }
+        assert_eq!(object, ordered);
+    }
+
+    #[test]
+    fn malformed_input_is_an_error() {
+        for text in [
+            "",
+            "   ",
+            "{",
+            "[1,]",
+            r#"{"a":1,}"#,
+            r#"{"a" 1}"#,
+            "{1:2}",
+            "[1 2]",
+            "01",
+            "-01",
+            "1.",
+            ".5",
+            "1e",
+            "1e+",
+            "-",
+            "+1",
+            "NaN",
+            "Infinity",
+            "nul",
+            "True",
+            "'a'",
+            "\"a",
+            "\"a\u{1}\"",
+            "\"tab\there\"",
+            r#""\x""#,
+            r#""\u12g4""#,
+            "1 2",
+            r#"{"a":1}{"b":2}"#,
+            "{\"a\":1} x",
+            "\u{feff}1",
+            "\u{c}1",
+            "// c\n1",
+        ] {
+            assert!(parse(text).is_err(), "accepted {text:?}");
+        }
+        // Errors are values, not panics, for any byte.
+        assert!(parse_bytes(b"\xff").is_err());
+        // Trailing CR is whitespace, as Go's decoder treats it.
+        assert_eq!(round_trip("{\"a\":1}\r"), r#"{"a":1}"#);
+    }
+
+    #[test]
+    fn invalid_utf8_and_lone_surrogates_become_replacement_characters() {
+        // One U+FFFD per invalid byte, as the Go decoder does (checked with go1.27.0).
+        let cases: &[(&[u8], &str)] = &[
+            (b"\"\xff\"", "\u{fffd}"),
+            (b"\"\xe2\x82\"", "\u{fffd}\u{fffd}"),
+            (b"\"\xed\xb0\x80\"", "\u{fffd}\u{fffd}\u{fffd}"),
+            (b"\"\xc0\xaf\"", "\u{fffd}\u{fffd}"),
+            (b"\"\xff\x41\xfe\"", "\u{fffd}A\u{fffd}"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                parse_bytes(input).unwrap(),
+                Value::String((*expected).into()),
+                "{input:?}"
+            );
+        }
+        assert_eq!(parse(r#""😀""#).unwrap(), Value::from("😀"));
+        assert_eq!(parse(r#""\ud800""#).unwrap(), Value::from("\u{fffd}"));
+        assert_eq!(parse(r#""\ud800A""#).unwrap(), Value::from("\u{fffd}A"));
+        assert_eq!(
+            parse(r#""\udc00\ud800""#).unwrap(),
+            Value::from("\u{fffd}\u{fffd}")
+        );
+        assert_eq!(parse(r#""\ud800😀""#).unwrap(), Value::from("\u{fffd}😀"));
+        assert_eq!(parse(r#""\/é""#).unwrap(), Value::from("/é"));
+    }
+
+    #[test]
+    fn nesting_is_limited_to_go_max_depth() {
+        // The parser is iterative, but the encoder and the derived Drop recurse once per
+        // level; an unoptimised build needs more than the default 2 MiB test stack for
+        // 10000 levels (measured: about 5000 levels fit).
+        let check = || {
+            let deep = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
+            let value = parse(&deep(MAX_DEPTH)).unwrap();
+            assert_eq!(compact(&value), deep(MAX_DEPTH));
+            assert!(parse(&deep(MAX_DEPTH + 1)).is_err());
+            let objects = |n: usize| format!("{}1{}", "[{\"a\":".repeat(n), "}]".repeat(n));
+            assert!(parse(&objects(MAX_DEPTH / 2)).is_ok());
+            assert!(parse(&objects(MAX_DEPTH / 2 + 1)).is_err());
+        };
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(check)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }
