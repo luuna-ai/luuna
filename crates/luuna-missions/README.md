@@ -36,6 +36,8 @@ The unit tests and two harness self-checks run with the workspace:
 cargo test --locked -p luuna-missions
 ```
 
+The unit test `config::tests::a_linked_worktree_resolves_to_the_main_checkout_s_store` runs `git worktree add --orphan`, which needs git 2.42 or later. With an older git it fails, and so does `cargo test --workspace --locked`.
+
 The comparison with Go is `#[ignore]`d. It needs a clone of luuna-ai/luuna-missions at the reference commit and a Go toolchain:
 
 ```sh
