@@ -28,11 +28,12 @@ README and AI-START-HERE are entry points, not alternative specifications. Exist
 
 The repository has no CI/CD ([ADR 0041](decisions/0041-no-repository-ci.md)): no
 workflow, no status check, no deployment or release automation. Checks are run
-locally by the contributor and recorded as evidence with the change. Changes to this repository are pushed, proposed and merged by agents
-through a ship gate, under a plan audited against the owner's signed migration
-charter, with agent reviews as the merge gate until the consolidated CI pipeline
-exists ([ADR 0044](decisions/0044-one-repository-and-agent-shipping.md), which
-replaces ADR 0041 point 3). The runtime's observation of CI on pull requests
+locally by the contributor and recorded as evidence with the change. Changes to
+this repository are pushed, proposed and merged by agents through a ship gate,
+under a plan audited against the owner's signed migration charter, with agent
+reviews as the merge gate until the consolidated CI pipeline exists
+([ADR 0044](decisions/0044-one-repository-and-agent-shipping.md), which replaces
+ADR 0041 point 3). The runtime's observation of CI on pull requests
 it publishes to a developer's repositories (ADR 0018) is a product feature and is
 unrelated.
 

@@ -14,7 +14,9 @@ merges of this repository wait on the owner (for example the M2a assignment reco
 are history, and ADR 0044 supersedes them on that point. The submodules, pins and
 component commands stay until later migration changes.
 
-The product is unchanged: In a developer's own repositories, the developer controls merging; Luuna's runtime has no automatic merge operation in v1. R12, A34 and ADR 0018 are unchanged.
+The product is unchanged: In a developer's own repositories, the developer controls
+merging; Luuna's runtime has no automatic merge operation in v1. R12, A34 and ADR
+0018 are unchanged.
 
 ## Latest: terminal key bindings and settings, and no repository CI (October 26, 2026)
 

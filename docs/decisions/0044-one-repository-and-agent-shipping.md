@@ -18,7 +18,7 @@ The owner has now signed one migration charter. It consolidates Luuna into one r
 
 ## Consequences
 
-The current documents that stated ADR 0012's model or ADR 0041 point 3 are updated in the same change: AGENTS.md, CONTRIBUTING.md, SECURITY.md, README.md, AI-START-HERE.md, components/README.md, docs/CURRENT-ARCHITECTURE.md, docs/IMPLEMENTATION-ROADMAP.md, and status notes on ADRs 0012, 0041, 0014, 0024, 0028 and 0034. Dated evidence and historical reference documents stay as written, consistent with ADR 0041 point 5 and AGENTS.md. The process-role contracts in `agents/` are unchanged.
+The current documents that stated ADR 0012's model or ADR 0041 point 3 are updated in the same change: AGENTS.md, CONTRIBUTING.md, SECURITY.md, README.md, AI-START-HERE.md, components/README.md, docs/CURRENT-ARCHITECTURE.md, docs/IMPLEMENTATION-ROADMAP.md, status notes on ADRs 0012, 0041, 0014, 0024, 0028 and 0034, and a scoping of the merge sentence of ADR 0009 to a developer's own repositories. Dated evidence and historical reference documents stay as written, consistent with ADR 0041 point 5 and AGENTS.md. The process-role contracts in `agents/` are unchanged.
 
 Proposed ADR 0043 rests on the separate component repositories. It is neither accepted nor changed by this record, and it must be revisited before it is accepted.
 
