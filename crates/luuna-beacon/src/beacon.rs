@@ -6,19 +6,23 @@
 
 use crate::error::BeaconError;
 use crate::{config, gofmt, gotime, paths, Clock, SystemClock};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// The three record files `init` creates, in Go's order.
 const RECORD_FILES: [&str; 3] = ["prompts.jsonl", "schemas.jsonl", "artifacts.jsonl"];
 
-/// The last nanosecond count handed out as an id, so that ids are strictly
-/// increasing within one process even when the clock is coarse or fixed.
-static LAST_ID_NANOS: AtomicI64 = AtomicI64::new(i64::MIN);
+/// The last nanosecond count handed out as an id for each project root, so
+/// that ids are strictly increasing for one store within one process even when
+/// the clock is coarse or fixed, while two roots do not affect each other.
+fn last_id_nanos() -> &'static Mutex<HashMap<PathBuf, i64>> {
+    static LAST: OnceLock<Mutex<HashMap<PathBuf, i64>>> = OnceLock::new();
+    LAST.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// What `init` created.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,15 +131,19 @@ impl Beacon {
     }
 
     /// The hexadecimal tail of a new id: Go's `%x` of `UnixNano()`, forced to
-    /// be greater than any value this process handed out before.
+    /// be greater than any value this process handed out before for this
+    /// project root (across clones and separate handles on the same root).
     pub(crate) fn next_id_hex(&self) -> String {
         let nanos = gotime::unix_nano(self.clock.now());
-        let previous = LAST_ID_NANOS
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| {
-                Some(nanos.max(last.saturating_add(1)))
-            })
-            .unwrap_or(i64::MIN);
-        gofmt::hex_i64(nanos.max(previous.saturating_add(1)))
+        let mut map = last_id_nanos()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let next = match map.get(&self.root) {
+            Some(last) => nanos.max(last.saturating_add(1)),
+            None => nanos,
+        };
+        map.insert(self.root.clone(), next);
+        gofmt::hex_i64(next)
     }
 
     /// `paths.Prompts`: runs the legacy move, then names the prompts file.
@@ -196,6 +204,32 @@ mod tests {
         let a = i64::from_str_radix(&beacon.next_id_hex(), 16).unwrap();
         let b = i64::from_str_radix(&beacon.next_id_hex(), 16).unwrap();
         assert!(b > a);
+    }
+
+    #[test]
+    fn ids_increase_across_handles_on_one_root_but_not_across_roots() {
+        struct Fixed;
+        impl Clock for Fixed {
+            fn now(&self) -> std::time::SystemTime {
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(7)
+            }
+        }
+        let first = Beacon::open(Path::new("/per-root-a"))
+            .unwrap()
+            .with_clock(Arc::new(Fixed));
+        let second = Beacon::open(Path::new("/per-root-a"))
+            .unwrap()
+            .with_clock(Arc::new(Fixed));
+        let cloned = second.clone();
+        let other = Beacon::open(Path::new("/per-root-b"))
+            .unwrap()
+            .with_clock(Arc::new(Fixed));
+        let a = i64::from_str_radix(&first.next_id_hex(), 16).unwrap();
+        let b = i64::from_str_radix(&second.next_id_hex(), 16).unwrap();
+        let c = i64::from_str_radix(&cloned.next_id_hex(), 16).unwrap();
+        assert!(a < b && b < c);
+        assert_eq!(a, 7_000_000_000);
+        assert_eq!(i64::from_str_radix(&other.next_id_hex(), 16).unwrap(), a);
     }
 
     #[test]
