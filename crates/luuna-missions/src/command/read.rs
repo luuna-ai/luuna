@@ -17,11 +17,15 @@ use super::{options, Context, Failure};
 use crate::error::{Error, Result, PLAN_4};
 use crate::json::{self, Value};
 use crate::json_error::go_quote;
-use crate::model::Ticket;
+use crate::model::{self, Ticket};
 use crate::store::{read_records, DataFile, Record, Store};
 
 /// The sort modes of `list` and `search` (`issueSorts`).
 const SORTS: [&str; 4] = ["priority", "created", "updated", "id"];
+
+/// The Go type whose `MarshalJSON` method writes each record of the `list`
+/// and `search` payloads, as Go's errors name it.
+const ISSUE_WITH_PLAN: &str = "*cli.issueWithPlan";
 
 /// The id of a `plans.jsonl` record, the only part the read commands need to
 /// tell whether a ticket carries plan context.
@@ -463,11 +467,12 @@ fn render_list(
             plans.refuse(ticket, "--json output")?;
         }
         let issues = records_array(tickets)?;
-        context.json(
+        context.json_with_records(
             Envelope::new(true, "list")
                 .raw("issues", &issues)
                 .integer("count", i64::try_from(tickets.len()).unwrap_or(i64::MAX)),
-        );
+            ISSUE_WITH_PLAN,
+        )?;
         return Ok(());
     }
     for ticket in tickets {
@@ -567,12 +572,13 @@ pub(super) fn search(context: &mut Context<'_>, args: &[String]) -> Result<(), F
             plans.refuse(ticket, "--json output")?;
         }
         let issues = records_array(&tickets)?;
-        context.json(
+        context.json_with_records(
             Envelope::new(true, "search")
                 .string("query", query)
                 .raw("issues", &issues)
                 .integer("count", i64::try_from(tickets.len()).unwrap_or(i64::MAX)),
-        );
+            ISSUE_WITH_PLAN,
+        )?;
         return Ok(());
     }
     let closed = closed_ids(&all);
@@ -625,7 +631,10 @@ pub(super) fn show(context: &mut Context<'_>, args: &[String]) -> Result<(), Fai
             "json" => {
                 plans.refuse(ticket, "--json output")?;
                 let record = ticket.marshal_json()?;
-                context.json(Envelope::new(true, "show").raw("issue", &record));
+                context.json_with_records(
+                    Envelope::new(true, "show").raw("issue", &record),
+                    model::GO_TYPE,
+                )?;
             }
             "ids" => println(context, &ticket.id),
             "compact" => println(context, &compact_ticket(ticket, &closed_ids(&tickets))),
@@ -688,12 +697,13 @@ pub(super) fn show(context: &mut Context<'_>, args: &[String]) -> Result<(), Fai
             results.push(b'}');
         }
         results.push(b']');
-        context.json(
+        context.json_with_records(
             envelope
                 .raw("issues", &issues)
                 .raw("results", &results)
                 .boolean("success", failures.is_empty()),
-        );
+            model::GO_TYPE,
+        )?;
         return Ok(());
     }
     let closed = closed_ids(&tickets);

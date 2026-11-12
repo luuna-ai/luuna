@@ -196,6 +196,22 @@ impl<'a> Context<'a> {
         self.stdout.extend_from_slice(&envelope.render());
     }
 
+    /// Go's `Context.JSON` for a payload holding records, which Go writes
+    /// through the `MarshalJSON` method of `go_type`. When a record makes the
+    /// payload nest deeper than Go's encoder allows, Go prints nothing and
+    /// the command fails with Go's error, as here.
+    pub fn json_with_records(
+        &mut self,
+        envelope: Envelope,
+        go_type: &str,
+    ) -> std::result::Result<(), Failure> {
+        let rendered = envelope
+            .try_render()
+            .map_err(|_| Failure::message(crate::json::marshaler_too_deep(go_type)))?;
+        self.stdout.extend_from_slice(&rendered);
+        Ok(())
+    }
+
     /// Go's `Context.Success`: `✓ <message>` on stdout unless quiet.
     pub fn success(&mut self, message: &[u8]) {
         if !self.quiet {
@@ -253,7 +269,9 @@ impl From<Error> for Failure {
     /// returned from [`run`].
     fn from(error: Error) -> Self {
         match error {
-            Error::NotInProject | Error::LockTimeout { .. } => Self::Message(error.to_string()),
+            Error::NotInProject | Error::LockTimeout { .. } | Error::Encode { .. } => {
+                Self::Message(error.to_string())
+            }
             other => Self::Library(other),
         }
     }
@@ -849,6 +867,102 @@ mod tests {
                     unindented(&updated.stdout)
                         == format!(r#"{{"success":true,"command":"update","issue":{stored}}}"#)
                 );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn json_output_deeper_than_go_allows_fails_with_go_s_error() {
+        // What the Go binary at the reference commit prints for these stores.
+        let envelope = |command: &str, go_type: &str| {
+            format!(
+                "{{\n  \"success\": false,\n  \"command\": \"{command}\",\n  \"error\": \"json: error calling MarshalJSON for type {go_type}: exceeded max depth\"\n}}\n"
+            )
+        };
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || {
+                // A record nested 9999 deep: `show --json` prints it, but in
+                // the `list` and `search` payloads it sits two levels down.
+                let (temp, _, _) = deep_store(9_997);
+                let root = temp.path();
+                let run_here =
+                    |args: &[&str]| run(&Invocation::new(root, args.iter().copied())).unwrap();
+                for (args, command) in [
+                    (&["list", "--json"][..], "list"),
+                    (&["search", "T", "--json"][..], "search"),
+                ] {
+                    let outcome = run_here(args);
+                    assert_eq!(outcome.exit_code, 1, "{args:?}");
+                    assert_eq!(
+                        text(&outcome.stdout),
+                        envelope(command, "*cli.issueWithPlan"),
+                        "{args:?}"
+                    );
+                    assert_eq!(text(&outcome.stderr), "", "{args:?}");
+                }
+                let outcome = run_here(&["list", "--format", "json"]);
+                assert_eq!(
+                    (outcome.exit_code, text(&outcome.stdout), text(&outcome.stderr)),
+                    (
+                        1,
+                        "",
+                        "Error: json: error calling MarshalJSON for type *cli.issueWithPlan: exceeded max depth\n"
+                    )
+                );
+                drop(temp);
+
+                // A record nested 10000 deep, the deepest Go reads: `show`
+                // and `update` with `--json` fail too. `update` has already
+                // written the change when it fails to print it.
+                let (temp, _, _) = deep_store(9_998);
+                let root = temp.path();
+                let run_here =
+                    |args: &[&str]| run(&Invocation::new(root, args.iter().copied())).unwrap();
+                for args in [&["show", "a", "--json"][..], &["show", "a", "b", "--json"][..]] {
+                    let outcome = run_here(args);
+                    assert_eq!(outcome.exit_code, 1, "{args:?}");
+                    assert_eq!(
+                        text(&outcome.stdout),
+                        envelope("show", "*model.Issue"),
+                        "{args:?}"
+                    );
+                }
+                let outcome = run_here(&["update", "a", "--title=X", "--json"]);
+                assert_eq!(outcome.exit_code, 1);
+                assert_eq!(text(&outcome.stdout), envelope("update", "*model.Issue"));
+                let stored =
+                    std::fs::read_to_string(root.join(".luuna/missions/issues.jsonl")).unwrap();
+                assert!(stored.starts_with(r#"{"id":"a","title":"X","#));
+                drop(temp);
+
+                // An `--extensions` patch nested 10000 deep makes the record
+                // deeper than Go writes: nothing is written.
+                let (temp, _, _) = deep_store(1);
+                let root = temp.path();
+                let issues = root.join(".luuna/missions/issues.jsonl");
+                let before = std::fs::read(&issues).unwrap();
+                let patch = format!(
+                    r#"{{"y":{}1{}}}"#,
+                    "[".repeat(9_999),
+                    "]".repeat(9_999)
+                );
+                let outcome = run(&Invocation::new(
+                    root,
+                    ["update", "a", "--extensions", patch.as_str()],
+                ))
+                .unwrap();
+                assert_eq!(
+                    (outcome.exit_code, text(&outcome.stdout), text(&outcome.stderr)),
+                    (
+                        1,
+                        "",
+                        "Error: json: error calling MarshalJSON for type *model.Issue: exceeded max depth\n"
+                    )
+                );
+                assert!(std::fs::read(&issues).unwrap() == before);
             })
             .unwrap()
             .join()

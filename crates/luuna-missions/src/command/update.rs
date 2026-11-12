@@ -192,7 +192,10 @@ pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Fail
     };
     if options.has("json") {
         let record = updated.marshal_json()?;
-        context.json(Envelope::new(true, "update").raw("issue", &record));
+        context.json_with_records(
+            Envelope::new(true, "update").raw("issue", &record),
+            model::GO_TYPE,
+        )?;
     } else {
         context.success(format!("Updated {id}").as_bytes());
     }

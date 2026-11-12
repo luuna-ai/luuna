@@ -20,6 +20,10 @@ use crate::json::{self, Members, UnsupportedValue};
 
 pub use crate::json::Value;
 
+/// The Go type whose `MarshalJSON` method writes a record to the store and
+/// into the `show` and `update` payloads, as Go's errors name it.
+pub(crate) const GO_TYPE: &str = "*model.Issue";
+
 /// The JSON keys of the fields Go's `Issue` type declares, in struct order.
 const KNOWN_KEYS: [&str; 21] = [
     "id",
@@ -148,11 +152,17 @@ impl Ticket {
 
     /// The record line Go's store writes (`json.Marshal`), without the
     /// newline. Literal `<`, `>`, `&`, U+2028 and U+2029 are escaped in every
-    /// string, including raw members kept from the file (SD17).
+    /// string, including raw members kept from the file (SD17). A record
+    /// nested deeper than Go's encoder allows (an `--extensions` patch can
+    /// make one) gives Go's error, and nothing is written.
     pub fn to_json_line(&self) -> Result<Vec<u8>> {
         let merged = self.marshal_json()?;
         json::reformat(&merged, json::Format::MARSHAL).map_err(|error| Error::Encode {
-            message: format!("json: error calling MarshalJSON: {error}"),
+            message: if json::exceeds_max_depth(&merged) {
+                json::marshaler_too_deep(GO_TYPE)
+            } else {
+                format!("json: error calling MarshalJSON: {error}")
+            },
         })
     }
 

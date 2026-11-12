@@ -82,13 +82,29 @@ impl Envelope {
 
     /// What `Context.JSON` prints for the envelope: indented by two spaces,
     /// with a final newline.
-    pub fn render(mut self) -> Vec<u8> {
+    pub fn render(self) -> Vec<u8> {
+        self.try_render()
+            .expect("an envelope without records nests a few levels deep")
+    }
+
+    /// [`render`](Self::render), or [`TooDeep`] when a record added with
+    /// [`raw`](Self::raw) makes the envelope nest deeper than Go's encoder
+    /// allows (10000 levels).
+    pub fn try_render(mut self) -> Result<Vec<u8>, TooDeep> {
         self.compact.push(b'}');
-        // Every part was written as valid JSON, or handed in as compact JSON
-        // by the caller; anything else is a bug in this crate.
-        json::to_output(&self.compact).expect("an envelope is valid JSON")
+        match json::to_output(&self.compact) {
+            Ok(rendered) => Ok(rendered),
+            Err(_) if json::exceeds_max_depth(&self.compact) => Err(TooDeep),
+            // Every part was written as valid JSON, or handed in as compact
+            // JSON by the caller; anything else is a bug in this crate.
+            Err(error) => panic!("an envelope is valid JSON: {error}"),
+        }
     }
 }
+
+/// An envelope nests deeper than Go's encoder allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TooDeep;
 
 /// The output formats of the read commands (`issueFormats`).
 pub(crate) const FORMATS: [&str; 5] = ["markdown", "compact", "plain", "ids", "json"];
@@ -128,6 +144,23 @@ mod tests {
             String::from_utf8(rendered).unwrap(),
             "{\n  \"success\": true,\n  \"command\": \"init\",\n  \"dir\": \"/tmp/a <b> & c\\u2028\",\n  \"count\": 2,\n  \"issue\": {\n    \"title\": \"\\u003ci\\u003e\",\n    \"n\": [\n      1,\n      {}\n    ]\n  }\n}\n"
         );
+    }
+
+    #[test]
+    fn an_envelope_deeper_than_go_allows_is_refused() {
+        // A record nested 9999 deep fits in an envelope (10000 levels); one
+        // level more does not.
+        let record = |depth: usize| {
+            format!(
+                r#"{{"x":{}1{}}}"#,
+                "[".repeat(depth - 1),
+                "]".repeat(depth - 1)
+            )
+        };
+        let fits = Envelope::new(true, "show").raw("issue", record(9_999).as_bytes());
+        assert!(fits.try_render().is_ok());
+        let deeper = Envelope::new(true, "show").raw("issue", record(10_000).as_bytes());
+        assert_eq!(deeper.try_render(), Err(TooDeep));
     }
 
     #[test]

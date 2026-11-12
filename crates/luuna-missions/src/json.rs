@@ -600,6 +600,47 @@ pub(crate) fn is_valid(src: &[u8]) -> bool {
     }
 }
 
+/// Whether the valid JSON `src` nests deeper than `MAX_DEPTH`. Go's encoder
+/// checks the nesting of a whole payload, including the raw JSON that a
+/// `MarshalJSON` method returns inside it, and refuses a payload deeper than
+/// that with "exceeded max depth". The scan is iterative and counts only
+/// brackets outside strings.
+pub(crate) fn exceeds_max_depth(src: &[u8]) -> bool {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for &byte in src {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'[' | b'{' => {
+                depth += 1;
+                if depth > MAX_DEPTH {
+                    return true;
+                }
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Go's error when a value written through the `MarshalJSON` method of
+/// `go_type` makes the payload nest deeper than `MAX_DEPTH`.
+pub(crate) fn marshaler_too_deep(go_type: &str) -> String {
+    format!("json: error calling MarshalJSON for type {go_type}: exceeded max depth")
+}
+
 /// The members of the JSON object `src` as Go's record reader collects them
 /// (`parseObject` in `internal/model/json.go`): keys decoded, raw values as
 /// written (inner whitespace kept), a repeated key keeping its first
@@ -1237,5 +1278,32 @@ mod tests {
         let error = value.encode(&mut out, true).unwrap_err();
         assert_eq!(error.to_string(), "json: unsupported value: +Inf");
         assert_eq!(out, br#"[1,[2,{"k":"#);
+    }
+
+    #[test]
+    fn nesting_beyond_max_depth_is_detected_outside_strings() {
+        for shape in ["array", "object", "mixed"] {
+            let deepest = nested(MAX_DEPTH, shape, "1");
+            assert!(!exceeds_max_depth(deepest.as_bytes()), "{shape}");
+            assert!(reformat(deepest.as_bytes(), Format::OUTPUT).is_ok());
+            let deeper = nested(MAX_DEPTH + 1, shape, "1");
+            assert!(exceeds_max_depth(deeper.as_bytes()), "{shape}");
+            assert!(reformat(deeper.as_bytes(), Format::OUTPUT).is_err());
+        }
+        // Brackets inside strings, after escaped quotes, do not count.
+        let quoted = nested(MAX_DEPTH, "array", r#""\"[{\\""#);
+        assert!(!exceeds_max_depth(quoted.as_bytes()));
+        assert!(reformat(quoted.as_bytes(), Format::OUTPUT).is_ok());
+        // Sibling containers do not add up.
+        let wide = format!(
+            "[{},{}]",
+            nested(9_999, "array", "1"),
+            nested(9_999, "array", "2")
+        );
+        assert!(!exceeds_max_depth(wide.as_bytes()));
+        assert_eq!(
+            marshaler_too_deep("*model.Issue"),
+            "json: error calling MarshalJSON for type *model.Issue: exceeded max depth"
+        );
     }
 }

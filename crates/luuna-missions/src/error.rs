@@ -44,7 +44,9 @@ pub enum Error {
         data_path: PathBuf,
     },
     /// A record holds a value Go cannot encode, such as a number out of
-    /// range. The message is Go's (`json: unsupported value: +Inf`).
+    /// range, or nests deeper than Go's encoder allows. The message is Go's
+    /// (`json: unsupported value: +Inf`, `json: error calling MarshalJSON for
+    /// type *model.Issue: exceeded max depth`).
     #[error("{message}")]
     Encode {
         /// Go's message.
