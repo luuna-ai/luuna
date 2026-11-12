@@ -681,8 +681,8 @@ fn doctor_reports_broken_inheritance_sorted() {
     sorted.sort();
     assert_eq!(details, sorted, "the hook sorts the map-ordered details");
     assert_eq!(details.len(), 5);
-    assert!(details.contains(&"orphan: parent prompt \"ghost\" not found".to_owned()));
-    assert!(details.contains(&"mixed: mixin prompt \"nowhere\" not found".to_owned()));
+    assert!(details.contains(&"orphan: prompt \"ghost\" not found".to_owned()));
+    assert!(details.contains(&"mixed: prompt \"nowhere\" not found".to_owned()));
     assert!(details.iter().any(|detail| detail.starts_with("loop-a: ")));
     assert!(details.iter().any(|detail| detail.starts_with("loop-b: ")));
     let go_details = check(&seen.raw[0], "inheritance")["details"]
