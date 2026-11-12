@@ -10,21 +10,18 @@ This crate is a library only. It has no binary, and nothing in the workspace use
 - **`Ticket`** is one record of `issues.jsonl`. The API calls records tickets; on disk they keep Go's names. A ticket keeps its raw JSON, its key order and any unknown fields.
 - **`command::run`** runs one command as a library call. It takes an `Invocation` (arguments, working directory, stdin, environment, and an optional explicit store directory) and returns an `Outcome` with the stdout, stderr and exit code Go would produce. Errors that Go prints to its user come back as an `Outcome` with exit code 1. `Err` means the library failed, or the request needs behaviour that is not ported yet (`Error::Unsupported`, which names the plan that ports it).
 
-This plan (s4-missions-lib) ports the commands luuna-runtime uses: `init`, `create`, `show`, `list`, `search`, `update` and `block`. Later plans port the rest:
+This plan (s4-missions-lib) ports the commands luuna-runtime uses: `init`, `create`, `show`, `list`, `search`, `update` and `block`. Later plans port the rest. Each has its own notes, which hold what it ports, what stays refused until then, the files it owns and the contract of its check functions:
 
-- **s4-missions-lib-2:** close, ready, blocked, stats, dep, label, unblock, help, version and completions.
-- **s4-missions-lib-3:** config, tpl, doctor, sync, migrate-from-beads, the legacy `.seeds` layout, prime, onboard, setup claude, guard and upgrade.
-- **s4-missions-lib-4:** plans.
+- [s4-missions-lib-2](notes/s4-missions-lib-2/README.md)
+- [s4-missions-lib-3](notes/s4-missions-lib-3/README.md)
+- [s4-missions-lib-4](notes/s4-missions-lib-4/README.md)
 
-Until each one is ported, it returns `Error::Unsupported`. The crate never silently differs from Go.
+Later plans do not edit this README.md; each edits only its own notes. Until each one is ported, it returns `Error::Unsupported`. The crate never silently differs from Go.
 
 ## What callers should know
 
-- **Refused until a later plan:** help and version output (`--help`, `-h`, `--version`, `-v`, or no command at all), unknown commands, and an environment with `LUUNA_MISSIONS_DEBUG=1` or `LUUNA_MISSIONS_LOG_LEVEL` set to `debug` or `trace`. Go writes debug records to stdout in that last case (SD8). All of these return `Error::Unsupported`.
 - **Environment.** `Invocation.env` is the whole environment. Discovery runs `git rev-parse --git-common-dir` with it, and looks git up on its `PATH`. With no `PATH`, git is not found, as in Go, and a linked worktree keeps its own store.
 - **Explicit store directory.** `Invocation::with_store_dir` replaces discovery for every command. `init` never discovers a store: it accepts an explicit directory only when that directory is `<cwd>/.luuna/missions`, and returns `Error::Unsupported` for any other.
-- **Plans.** A status change (`update --status` or `--claim`) on a ticket that has a `plan_id`, that is the seed of a plan or that is one of its children returns `Error::Unsupported` naming s4-missions-lib-4, before anything is written. Go would run its plan transition hook there. Other edits of such a ticket, and a status set to the value it already has, are applied. Reading is refused the same way where the output would print plan context: `show`, `list` and `search` of a ticket whose `plan_id` names a plan in `plans.jsonl`, in the markdown, plain and json formats, and `show pl-<id>` for an id that is not a ticket. The `ids` and `compact` formats print no plan context and are ported for such tickets.
-- **`config.yaml`** is read only in the forms Go writes for top-level values. Nested values, comments and other YAML return `Error::Unsupported` until s4-missions-lib-3.
 - **File system errors** return `Error::Io`. Go would print them with its own wording, which this crate does not copy.
 - **Not verified on this host:** Windows and macOS behaviour, including how git is looked up on Windows.
 
@@ -68,6 +65,12 @@ src/store.rs         Store, DataFile, StoreLock: JSONL, atomic replace, locks
 src/json.rs          Go-compatible JSON writing and raw-value preservation
 src/config.rs        reader for the config.yaml subset Go writes
 src/command/         Invocation, Outcome, run, and one module per command
+src/command/app.rs, workflow/, plan_index.rs   slots owned by s4-missions-lib-2
+src/command/project/, src/config_tree.rs        slots owned by s4-missions-lib-3
+src/command/plans/                              slot owned by s4-missions-lib-4
+notes/<plan>/        README.md and UPSTREAM.md of each later plan
+tests/later_plans/   parity wrappers of the later plans, one file each
+tests/support/fixtures/  fixture groups of the later plans, one file each
 tests/parity.rs      fixture parity and runtime argument shapes
 tests/format_roundtrip.rs  store interoperability with the Go tool
 tests/support/       the comparison harness

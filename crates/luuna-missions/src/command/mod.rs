@@ -26,12 +26,12 @@
 //!   that did not fail.
 //!
 //! This plan ports init, create, show, list, search, update and block.
-//! Returned as [`Error::Unsupported`](crate::Error::Unsupported) naming the
-//! plan that ports them: every other command Go registers; help and version
-//! output (`--help`, `-h`, `--version`, `-v`, and no command at all);
-//! unknown commands (Go's suggestion); and an environment with
-//! `LUUNA_MISSIONS_DEBUG=1` or `LUUNA_MISSIONS_LOG_LEVEL` set to `debug` or
-//! `trace`, under which Go writes debug records to stdout (SD8).
+//! Unported behaviour returns
+//! [`Error::Unsupported`](crate::Error::Unsupported) naming the plan that
+//! ports it. The behaviour of the later plans lives in six slot modules
+//! that dispatch calls and that each later plan fills in without editing
+//! this file: `app` (help, version, unknown commands, logging), `workflow`,
+//! `project`, `plans`, `plan_index` and `config_tree`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
