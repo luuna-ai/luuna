@@ -1,13 +1,17 @@
 //! Project files beside store.json, and the database as a rebuildable index of
-//! them: `<data>/projects/<id>/project.json` holds the registration, the
+//! them: `<data>/project-records/<id>/project.json` holds the registration, the
 //! confirmed manifests and the retention setting; `Store::open` reconciles the
-//! database with those files. Registrations use synthetic observations, so no
-//! test runs git. The new error is matched by its Display text.
+//! database with those files, and a restore sets the folder aside. The store
+//! mode folder `<data>/projects/<id>/store.json` is a different folder.
+//! Registrations use synthetic observations, so no test runs git. The new
+//! error is matched by its Display text.
 use luuna_domain::{
     DirtyState, ExecutionProfile, ManifestCheck, ProjectManifest, ProjectPolicy,
     RepositoryIdentity, RepositoryManifest, RepositoryObservation,
 };
-use luuna_storage::{MemoryRetentionPolicy, StorageError, Store};
+use luuna_storage::{
+    backup_database, inspect_database, restore_database, MemoryRetentionPolicy, StorageError, Store,
+};
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 use serde_json::{json, Map, Value};
 use std::{
@@ -113,7 +117,7 @@ fn database(data: &Path) -> PathBuf {
     data.join("luuna.sqlite3")
 }
 fn project_file(data: &Path, id: &str) -> PathBuf {
-    data.join("projects").join(id).join("project.json")
+    data.join("project-records").join(id).join("project.json")
 }
 fn remove_database(data: &Path) {
     for suffix in ["", "-wal", "-shm"] {
@@ -350,9 +354,18 @@ fn registration_writes_a_readable_project_file() {
     assert!(parsed["memory_retention"]["policy"].is_object());
     assert_eq!(parsed, expected_file(&snapshot(data, true), "alpha"));
     assert!(!path.with_file_name("project.json.tmp").exists());
+    // The store mode folder is reserved for store.json (as the frozen
+    // store_resolver.rs test asserts at the runtime level).
+    assert!(!data.join("projects").exists());
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let records_mode = fs::metadata(data.join("project-records"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(records_mode, 0o700);
         let file_mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         let folder_mode = fs::metadata(path.parent().unwrap())
             .unwrap()
@@ -534,6 +547,15 @@ fn damaged_project_files_fail_closed() {
         assert!(store.get_project("app").unwrap().is_some());
         assert!(store.get_project("solo").unwrap().is_none());
     }
+    // The store mode folder is untouched and holds nothing but store.json; no
+    // project-records folder appears for it.
+    let entries: Vec<_> = fs::read_dir(&solo)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(entries, [std::ffi::OsString::from("store.json")]);
+    assert_eq!(fs::read(solo.join("store.json")).unwrap(), b"{}");
+    assert!(!data.join("project-records").join("solo").exists());
 
     let mut cases: Vec<(&str, Vec<u8>)> = Vec::new();
     cases.push(("not-json", b"not json".to_vec()));
@@ -587,6 +609,30 @@ fn damaged_project_files_fail_closed() {
         assert!(!text.contains(CANARY_NAME), "symlink: {text}");
         assert_eq!(fs::read_link(&path).unwrap(), target);
         assert_eq!(fs::read(&target).unwrap(), bytes);
+        assert!(!project_exists_in_database(&data, "app"));
+    }
+
+    // A link at project-records itself is refused, never followed.
+    #[cfg(unix)]
+    {
+        let data = data_folder(root, "records-link");
+        let target = root.join("records-target");
+        let bytes = serde_json::to_vec_pretty(&handwritten("app", "/srv/app/app")).unwrap();
+        fs::create_dir_all(target.join("app")).unwrap();
+        fs::write(target.join("app").join("project.json"), &bytes).unwrap();
+        let records = data.join("project-records");
+        if records.exists() {
+            fs::remove_dir_all(&records).unwrap();
+        }
+        std::os::unix::fs::symlink(&target, &records).unwrap();
+        let text = error_text(Store::open(database(&data)));
+        assert!(text.starts_with("project file"), "records link: {text}");
+        assert!(!text.contains(CANARY_NAME), "records link: {text}");
+        assert_eq!(fs::read_link(&records).unwrap(), target);
+        assert_eq!(
+            fs::read(target.join("app").join("project.json")).unwrap(),
+            bytes
+        );
         assert!(!project_exists_in_database(&data, "app"));
     }
 }
@@ -672,4 +718,217 @@ fn a_refused_write_leaves_the_project_file_unchanged() {
     );
     assert!(wrong.is_err());
     assert_eq!(fs::read(&path).unwrap(), before);
+}
+
+/// Bytes of every file under `root`, keyed by path relative to it.
+fn files_under(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                out.insert(
+                    path.strip_prefix(root).unwrap().to_path_buf(),
+                    fs::read(&path).unwrap(),
+                );
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(root, root, &mut out);
+    out
+}
+
+/// What a restore must bring back: the tables and reads at backup time.
+struct Scenario {
+    data: PathBuf,
+    snapshot: PathBuf,
+    tables: Value,
+    reads: Value,
+    /// Every file under `<data>/project-records` after the later changes.
+    before: BTreeMap<PathBuf, Vec<u8>>,
+}
+
+/// Project alpha at revision 1 with a retention policy, backed up; then
+/// revision 2, another policy and a rebind. The store is dropped at the end.
+fn restore_scenario(root: &Path) -> Scenario {
+    let data = root.join("data");
+    fs::create_dir_all(&data).unwrap();
+    let snapshot = root.join("snapshot.sqlite3");
+    let mut store = Store::open(database(&data)).unwrap();
+    register(&mut store, "alpha", &["app", "lib"]);
+    confirm(&mut store, "alpha", 0, &["app", "lib"]);
+    store
+        .set_memory_retention("alpha", &policy(30, 90))
+        .unwrap();
+    let tables = snapshot_of_open(&data);
+    let backup_reads = reads(&store, &[("alpha", 1)]);
+    backup_database(&database(&data), &snapshot).unwrap();
+    confirm(&mut store, "alpha", 1, &["app", "lib"]);
+    store.set_memory_retention("alpha", &policy(5, 10)).unwrap();
+    store
+        .rebind_repository("alpha", "app", &observation("/srv/moved/app", "app"))
+        .unwrap()
+        .expect("the rebind changes the path");
+    let before = files_under(&data.join("project-records"));
+    assert!(!before.is_empty());
+    drop(store);
+    Scenario {
+        data,
+        snapshot,
+        tables,
+        reads: backup_reads,
+        before,
+    }
+}
+/// The parsed four-table snapshot of a database a Store still has open.
+fn snapshot_of_open(data: &Path) -> Value {
+    snapshot(data, true)
+}
+fn assert_back_at_backup_time(scenario: &Scenario) {
+    let data = &scenario.data;
+    let store = Store::open(database(data)).expect("the restored database opens");
+    let tables = snapshot(data, true);
+    assert_eq!(tables, scenario.tables);
+    assert_eq!(reads(&store, &[("alpha", 1)]), scenario.reads);
+    assert!(store.get_manifest("alpha", 2).unwrap().is_none());
+    assert_eq!(
+        store.current_manifest("alpha").unwrap().unwrap().revision,
+        1
+    );
+    assert_eq!(store.memory_retention("alpha").unwrap(), policy(30, 90));
+    assert_eq!(read_file(data, "alpha"), expected_file(&tables, "alpha"));
+}
+
+#[test]
+fn restore_sets_project_files_aside_and_rolls_the_four_tables_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let scenario = restore_scenario(dir.path());
+    let data = &scenario.data;
+
+    let report = restore_database(&scenario.snapshot, &database(data)).unwrap();
+    let replaced = report.replaced.expect("a database file was replaced");
+    assert!(!data.join("project-records").exists());
+    assert_eq!(
+        files_under(&replaced.join("project-records")),
+        scenario.before
+    );
+    assert!(replaced.join("luuna.sqlite3").exists());
+
+    assert_back_at_backup_time(&scenario);
+}
+
+/// Stage a restore by hand, as `restore_database` does before it finishes:
+/// the staged copy, the replaced folder with the old database files, and the
+/// intent marker. Project files are left where they are.
+fn stage_interrupted_restore(scenario: &Scenario) -> PathBuf {
+    let data = &scenario.data;
+    let replaced = data.join("backups").join("replaced-test");
+    fs::copy(&scenario.snapshot, data.join("luuna.sqlite3.restore-test")).unwrap();
+    fs::create_dir_all(&replaced).unwrap();
+    let mut files = Vec::new();
+    for suffix in ["", "-wal", "-shm"] {
+        let mut name = database(data).into_os_string();
+        name.push(suffix);
+        let name = PathBuf::from(name);
+        if name.exists() {
+            fs::rename(&name, replaced.join(name.file_name().unwrap())).unwrap();
+            files.push(suffix);
+        }
+    }
+    let schema_version = inspect_database(&scenario.snapshot).unwrap().schema_version;
+    let intent = json!({
+        "staged": "luuna.sqlite3.restore-test",
+        "replaced": "replaced-test",
+        "files": files,
+        "schema_version": schema_version,
+    });
+    fs::write(
+        data.join("luuna.sqlite3.restore-pending"),
+        serde_json::to_vec(&intent).unwrap(),
+    )
+    .unwrap();
+    replaced
+}
+
+#[test]
+fn an_interrupted_restore_sets_project_files_aside_when_it_resumes() {
+    for point in ["A", "B"] {
+        let dir = tempfile::tempdir().unwrap();
+        let scenario = restore_scenario(dir.path());
+        let data = &scenario.data;
+        let replaced = stage_interrupted_restore(&scenario);
+        if point == "B" {
+            fs::rename(
+                data.join("project-records"),
+                replaced.join("project-records"),
+            )
+            .unwrap();
+        }
+        assert_back_at_backup_time(&scenario);
+        assert!(
+            !data.join("luuna.sqlite3.restore-pending").exists(),
+            "{point}"
+        );
+        assert!(!data.join("luuna.sqlite3.restore-test").exists(), "{point}");
+        assert_eq!(
+            files_under(&replaced.join("project-records")),
+            scenario.before,
+            "stop point {point}"
+        );
+    }
+
+    // Stop point C: the files were set aside and new ones appeared at the
+    // original place; the resume refuses to overwrite either.
+    let dir = tempfile::tempdir().unwrap();
+    let scenario = restore_scenario(dir.path());
+    let data = &scenario.data;
+    let replaced = stage_interrupted_restore(&scenario);
+    fs::rename(
+        data.join("project-records"),
+        replaced.join("project-records"),
+    )
+    .unwrap();
+    let again = put(data, "alpha", b"{}");
+    let text = error_text(Store::open(database(data)));
+    assert!(text.contains("both original and preserved"), "{text}");
+    assert!(data.join("luuna.sqlite3.restore-pending").exists());
+    assert!(data.join("luuna.sqlite3.restore-test").exists());
+    assert_eq!(fs::read(&again).unwrap(), b"{}");
+    assert_eq!(
+        files_under(&replaced.join("project-records")),
+        scenario.before
+    );
+    assert!(!database(data).exists());
+}
+
+#[test]
+fn a_restore_without_project_files_sets_nothing_aside() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let source = root.join("source");
+    fs::create_dir_all(&source).unwrap();
+    let snapshot_path = root.join("snapshot.sqlite3");
+    {
+        let mut store = Store::open(database(&source)).unwrap();
+        register(&mut store, "alpha", &["app"]);
+        confirm(&mut store, "alpha", 0, &["app"]);
+        backup_database(&database(&source), &snapshot_path).unwrap();
+    }
+    let data = root.join("data");
+    fs::create_dir_all(&data).unwrap();
+    drop(Store::open(database(&data)).unwrap());
+    assert!(!data.join("project-records").exists());
+
+    let report = restore_database(&snapshot_path, &database(&data)).unwrap();
+    let replaced = report.replaced.expect("the empty database was replaced");
+    assert!(!replaced.join("project-records").exists());
+
+    drop(Store::open(database(&data)).unwrap());
+    assert_eq!(
+        read_file(&data, "alpha"),
+        expected_file(&snapshot(&data, true), "alpha")
+    );
+    assert_eq!(read_file(&data, "alpha"), read_file(&source, "alpha"));
 }
