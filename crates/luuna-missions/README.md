@@ -18,6 +18,15 @@ This plan (s4-missions-lib) ports the commands luuna-runtime uses: `init`, `crea
 
 Until each one is ported, it returns `Error::Unsupported`. The crate never silently differs from Go.
 
+## What callers should know
+
+- **Refused until a later plan:** help and version output (`--help`, `-h`, `--version`, `-v`, or no command at all), unknown commands, and an environment with `LUUNA_MISSIONS_DEBUG=1` or `LUUNA_MISSIONS_LOG_LEVEL` set to `debug` or `trace`. Go writes debug records to stdout in that last case (SD8). All of these return `Error::Unsupported`.
+- **Environment.** `Invocation.env` is the whole environment. Discovery runs `git rev-parse --git-common-dir` with it, and looks git up on its `PATH`. With no `PATH`, git is not found, as in Go, and a linked worktree keeps its own store.
+- **Explicit store directory.** `Invocation::with_store_dir` replaces discovery for every command. `init` never discovers a store: it accepts an explicit directory only when that directory is `<cwd>/.luuna/missions`, and returns `Error::Unsupported` for any other.
+- **`config.yaml`** is read only in the forms Go writes for top-level values. Nested values, comments and other YAML return `Error::Unsupported` until s4-missions-lib-3.
+- **File system errors** return `Error::Io`. Go would print them with its own wording, which this crate does not copy.
+- **Not verified on this host:** Windows and macOS behaviour, including how git is looked up on Windows.
+
 ## Tests
 
 The unit tests and two harness self-checks run with the workspace:

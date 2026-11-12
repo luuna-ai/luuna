@@ -18,10 +18,16 @@
 //!   with a fixed template. [`read_config`] reads the forms those write for
 //!   top-level scalars: `key: value` lines with a plain or double-quoted key
 //!   and a plain, double-quoted, empty, `{}` or `[]` value, resolved as
-//!   yaml.v3 resolves them. Anything else (nested blocks, comments, other
-//!   quoting, values yaml.v3 would read as timestamps or in other bases)
-//!   returns [`Error::Unsupported`] naming s4-missions-lib-3, which ports the
-//!   full `config` command; it is never read differently from Go.
+//!   yaml.v3 resolves them (including its integers in other bases and its
+//!   floats, so a string the emitter writes plain, such as `1e3` or `Null`,
+//!   is not a string when read back, SD20). Anything else (nested blocks,
+//!   sequences, comments, single quotes, a repeated key, an indented or
+//!   CRLF line, a timestamp-shaped plain value) returns
+//!   [`Error::Unsupported`] naming s4-missions-lib-3, which ports the full
+//!   `config` command; it is never read differently from Go.
+//!
+//! Errors from the file system are [`Error::Io`]: their text is not Go's,
+//! so the command layer returns them rather than printing them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -508,8 +514,9 @@ fn parse_value(rest: &str) -> Result<Scalar, String> {
     resolve_plain(value)
 }
 
-/// yaml.v3's `resolve` for an untagged plain scalar, for the forms whose
-/// result can be told exactly; anything else is outside the subset.
+/// yaml.v3's `resolve` for an untagged plain scalar (`resolve.go`). Only a
+/// value shaped like a timestamp (four digits and `-`) is outside the
+/// subset, because whether Go's `time.Parse` accepts it decides its type.
 fn resolve_plain(value: &str) -> Result<Scalar, String> {
     match value {
         "true" | "True" | "TRUE" | "false" | "False" | "FALSE" | "" | "~" | "null" | "Null"
@@ -522,65 +529,121 @@ fn resolve_plain(value: &str) -> Result<Scalar, String> {
         "<<" => return Err("a merge key".to_owned()),
         _ => {}
     }
-    let first = value.as_bytes()[0];
-    let has_digit = value.bytes().any(|byte| byte.is_ascii_digit());
-    let outside = || Err(format!("the plain value {value:?}"));
-    match first {
-        b'.' => {
-            if !has_digit {
-                return Ok(Scalar::Str(value.to_owned()));
-            }
-            if is_float_fraction(value) {
-                return value
-                    .parse()
-                    .map(Scalar::Float)
-                    .map_err(|_| format!("the plain value {value:?}"));
-            }
-            outside()
-        }
+    let string = || Ok(Scalar::Str(value.to_owned()));
+    match value.as_bytes()[0] {
+        // `strconv.ParseFloat(in, 64)`; a failure, including overflow, is a
+        // string.
+        b'.' => match is_yaml_float(value).then(|| value.parse::<f64>()) {
+            Some(Ok(number)) if number.is_finite() => Ok(Scalar::Float(number)),
+            _ => string(),
+        },
         b'+' | b'-' | b'0'..=b'9' => {
-            if !has_digit {
-                return Ok(Scalar::Str(value.to_owned()));
+            let digits = value.bytes().take_while(u8::is_ascii_digit).count();
+            if digits == 4 && value.as_bytes().get(4) == Some(&b'-') {
+                return Err(format!("the timestamp-like value {value:?}"));
             }
-            let unsigned = value.strip_prefix(['+', '-']).unwrap_or(value);
-            let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
-            if digits(unsigned) && (unsigned == "0" || !unsigned.starts_with('0')) {
-                // Too large for Go's int: yaml.v3 gives a uint64 or a
-                // float64 above 2^63, which ReadConfig treats as neither a
-                // string nor an integer.
-                return Ok(value
-                    .trim_start_matches('+')
-                    .parse()
-                    .map(Scalar::Int)
-                    .unwrap_or(Scalar::Other));
-            }
-            if let Some((whole, fraction)) = unsigned.split_once('.') {
-                if digits(whole) && digits(fraction) {
-                    return value
-                        .parse()
-                        .map(Scalar::Float)
-                        .map_err(|_| format!("the plain value {value:?}"));
+            let plain = value.replace('_', "");
+            if let Some(magnitude) = parse_base0(&plain) {
+                let negative = plain.starts_with('-');
+                let limit = (1u128 << 63) - u128::from(!negative);
+                match magnitude {
+                    Some(magnitude) if magnitude <= limit => {
+                        let magnitude = magnitude as i128;
+                        let number = if negative { -magnitude } else { magnitude };
+                        return Ok(Scalar::Int(number as i64));
+                    }
+                    // `strconv.ParseUint` (no sign allowed): a uint64, which
+                    // ReadConfig takes as neither a string nor an int.
+                    Some(magnitude)
+                        if !plain.starts_with(['+', '-']) && magnitude <= u128::from(u64::MAX) =>
+                    {
+                        return Ok(Scalar::Other)
+                    }
+                    _ => {}
                 }
             }
-            outside()
+            if is_yaml_float(&plain) {
+                if let Ok(number) = plain.parse::<f64>() {
+                    if number.is_finite() {
+                        return Ok(Scalar::Float(number));
+                    }
+                }
+            }
+            // yaml.v3's later `0b` and `0o` cases accept nothing that
+            // `ParseInt` with base 0 has not already accepted.
+            string()
         }
-        _ => Ok(Scalar::Str(value.to_owned())),
+        _ => string(),
     }
 }
 
-/// `.` digits, optionally followed by an exponent.
-fn is_float_fraction(value: &str) -> bool {
-    let Some(rest) = value.strip_prefix('.') else {
-        return false;
+/// The syntax of Go's `strconv.ParseInt(text, 0, 64)` for text without
+/// underscores: an optional sign, then `0x`, `0o`, `0b`, a leading `0`
+/// (octal) or decimal digits. `None` is a syntax error; otherwise the
+/// magnitude, `None` inside when it does not fit 128 bits.
+fn parse_base0(text: &str) -> Option<Option<u128>> {
+    let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
+    let lower = unsigned.to_ascii_lowercase();
+    let (radix, digits) = if let Some(rest) = lower.strip_prefix("0x") {
+        (16, rest)
+    } else if let Some(rest) = lower.strip_prefix("0o") {
+        (8, rest)
+    } else if let Some(rest) = lower.strip_prefix("0b") {
+        (2, rest)
+    } else if lower.len() > 1 && lower.starts_with('0') {
+        (8, &lower[1..])
+    } else {
+        (10, lower.as_str())
     };
-    let (fraction, exponent) = match rest.find(['e', 'E']) {
-        Some(at) => (&rest[..at], Some(&rest[at + 1..])),
-        None => (rest, None),
+    if digits.is_empty() || !digits.chars().all(|ch| ch.is_digit(radix)) {
+        return None;
+    }
+    Some(digits.chars().try_fold(0u128, |total, ch| {
+        total
+            .checked_mul(u128::from(radix))?
+            .checked_add(u128::from(ch.to_digit(radix)?))
+    }))
+}
+
+/// yaml.v3's `yamlStyleFloat`:
+/// `^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$`.
+fn is_yaml_float(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut at = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    let run = |from: usize| {
+        bytes[from..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count()
     };
-    let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
-    digits(fraction)
-        && exponent
-            .is_none_or(|exponent| digits(exponent.strip_prefix(['+', '-']).unwrap_or(exponent)))
+    if bytes.get(at) == Some(&b'.') {
+        let fraction = run(at + 1);
+        if fraction == 0 {
+            return false;
+        }
+        at += 1 + fraction;
+    } else {
+        let whole = run(at);
+        if whole == 0 {
+            return false;
+        }
+        at += whole;
+        if bytes.get(at) == Some(&b'.') {
+            at += 1 + run(at + 1);
+        }
+    }
+    if matches!(bytes.get(at), Some(b'e' | b'E')) {
+        at += 1;
+        if matches!(bytes.get(at), Some(b'+' | b'-')) {
+            at += 1;
+        }
+        let exponent = run(at);
+        if exponent == 0 {
+            return false;
+        }
+        at += exponent;
+    }
+    at == bytes.len()
 }
 
 /// A YAML double-quoted scalar on one line, starting at `text[0] == '"'`:
@@ -724,6 +787,46 @@ mod tests {
             parsed("max_plan_depth: 18446744073709551615\n").max_plan_depth,
             None
         );
+        // Go's ParseInt with base 0 after yaml.v3 removes underscores, then
+        // ParseUint, then yaml.v3's float pattern. Each project result was
+        // checked against the Go binary (the id prefix `create` prints).
+        for (text, depth) in [
+            ("0x10", Some(16)),
+            ("0O17", Some(15)),
+            ("-0b101", Some(-5)),
+            ("010", Some(8)),
+            ("08", Some(8)),
+            ("1_000", Some(1000)),
+            ("+7", Some(7)),
+            ("1e3", Some(1000)),
+            ("5.", Some(5)),
+            (".5e1", Some(5)),
+            ("-9223372036854775808", Some(i64::MIN)),
+            ("9223372036854775808", None),
+        ] {
+            let config = parsed(&format!("max_plan_depth: {text}\nproject: {text}\n"));
+            assert_eq!(config.max_plan_depth, depth, "{text}");
+            assert_eq!(config.project, "missions", "{text}");
+        }
+        // These stay strings in yaml.v3: a project, and no depth.
+        for text in [
+            "0x1FFFFFFFFFFFFFFFF",
+            "1e400",
+            "0x",
+            "1e",
+            "1.2.3",
+            "-0xFFFFFFFFFFFFFFFFF",
+            ".5x",
+            "+-1",
+        ] {
+            let config = parsed(&format!("project: {text}\nmax_plan_depth: {text}\n"));
+            assert_eq!(config.project, text, "{text}");
+            assert_eq!(config.max_plan_depth, None, "{text}");
+        }
+        // The emitter writes these plain, and Go reads them back as other
+        // types (SD20).
+        assert_eq!(parsed("project: 1e3\n").project, "missions");
+        assert_eq!(parsed("project: Null\n").project, "missions");
     }
 
     #[test]
@@ -738,9 +841,7 @@ mod tests {
             "project: \"a\"b\"\n",
             "project: [a]\n",
             "project: 2024-01-01\n",
-            "project: 0x10\n",
-            "project: 010\n",
-            "project: 1_000\n",
+            "project: 1999-x\n",
             "project: a: b\n",
             "project:x\n",
             "---\n",
