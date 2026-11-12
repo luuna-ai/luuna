@@ -109,7 +109,8 @@ impl ProjectStoreFile {
             }
         }
         // Serde data errors quote keys from the file; keep messages content-free.
-        let raw: Raw = match serde_json::from_value(value) {
+        // Read the struct from the bytes, not the Value, so a repeated key is refused.
+        let raw: Raw = match serde_json::from_slice(bytes) {
             Ok(raw) => raw,
             Err(_) => return invalid("store file has a missing, unknown or mistyped key"),
         };
