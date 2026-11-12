@@ -4198,6 +4198,130 @@ mod redaction_tests {
         assert!(matches!(&installed, Ok(Some(_))), "{installed:?}");
     }
 
+    /// Makes a directory holding a FIFO at the guard's path, so that the
+    /// guard write blocks until a reader opens it.
+    #[cfg(unix)]
+    fn guard_fifo_dir() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("luuna-scope-guard.js");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        (dir, fifo)
+    }
+
+    #[cfg(unix)]
+    fn open_guard_readers(fifos: &[(tempfile::TempDir, std::path::PathBuf)]) -> Vec<std::fs::File> {
+        use std::os::unix::fs::OpenOptionsExt;
+        fifos
+            .iter()
+            .map(|(_, fifo)| {
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(fifo)
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn healthy_scope_guard_writers_make_a_fifth_install_wait() {
+        static WRITERS: AtomicUsize = AtomicUsize::new(0);
+        let mut fifos = Vec::new();
+        let mut holders = Vec::new();
+        for _ in 0..MAX_GUARD_WRITERS {
+            let (dir, fifo) = guard_fifo_dir();
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+            let mut install = Box::pin(install_guard_with(
+                dir.path().to_path_buf(),
+                deadline,
+                &WRITERS,
+            ));
+            // The first poll takes the slot; the write then blocks on the FIFO.
+            let polled = tokio::time::timeout(Duration::from_millis(20), install.as_mut()).await;
+            assert!(polled.is_err(), "{polled:?}");
+            holders.push(tokio::spawn(install));
+            fifos.push((dir, fifo));
+        }
+        assert!(WRITERS.load(Ordering::Acquire) >= MAX_GUARD_WRITERS);
+        // The callers of the four writes are still waiting, so a fifth install
+        // waits for a slot instead of being refused.
+        let healthy = tempfile::tempdir().unwrap();
+        let far = tokio::time::Instant::now() + Duration::from_secs(10);
+        let mut fifth = Box::pin(install_guard_with(
+            healthy.path().to_path_buf(),
+            far,
+            &WRITERS,
+        ));
+        let early = tokio::time::timeout(Duration::from_millis(200), fifth.as_mut()).await;
+        assert!(early.is_err(), "{early:?}");
+        assert!(!healthy.path().join("luuna-scope-guard.js").exists());
+        let readers = open_guard_readers(&fifos);
+        let installed = fifth.await;
+        assert!(
+            matches!(&installed, Ok(Some(path)) if path.exists()),
+            "{installed:?}"
+        );
+        for holder in holders {
+            let _ = holder.await.unwrap();
+        }
+        let freed = tokio::time::Instant::now() + Duration::from_secs(10);
+        while WRITERS.load(Ordering::Acquire) != 0 {
+            assert!(tokio::time::Instant::now() < freed, "slots not released");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        drop(readers);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn abandoned_scope_guard_writers_still_refuse_a_waiting_install() {
+        static WRITERS: AtomicUsize = AtomicUsize::new(0);
+        let mut fifos = Vec::new();
+        let mut holders = Vec::new();
+        for _ in 0..MAX_GUARD_WRITERS {
+            let (dir, fifo) = guard_fifo_dir();
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+            let mut install = Box::pin(install_guard_with(
+                dir.path().to_path_buf(),
+                deadline,
+                &WRITERS,
+            ));
+            let polled = tokio::time::timeout(Duration::from_millis(20), install.as_mut()).await;
+            assert!(polled.is_err(), "{polled:?}");
+            holders.push(tokio::spawn(install));
+            fifos.push((dir, fifo));
+        }
+        assert!(WRITERS.load(Ordering::Acquire) >= MAX_GUARD_WRITERS);
+        // Once the callers of the stalled writes give up, a waiting install is
+        // refused, and promptly rather than at its own deadline.
+        let healthy = tempfile::tempdir().unwrap();
+        let started = std::time::Instant::now();
+        let far = tokio::time::Instant::now() + Duration::from_secs(10);
+        let refused = install_guard_with(healthy.path().to_path_buf(), far, &WRITERS).await;
+        assert!(
+            refused == Err("too many stalled scope guard writers; session refused".to_string()),
+            "{refused:?}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(!healthy.path().join("luuna-scope-guard.js").exists());
+        for holder in holders {
+            let result = holder.await.unwrap();
+            assert!(matches!(result, Ok(None)), "{result:?}");
+        }
+        let readers = open_guard_readers(&fifos);
+        let freed = tokio::time::Instant::now() + Duration::from_secs(10);
+        while WRITERS.load(Ordering::Acquire) != 0 {
+            assert!(tokio::time::Instant::now() < freed, "slots not released");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        drop(readers);
+    }
+
     #[test]
     fn reasons_reach_models_without_paths() {
         let dir = tempfile::tempdir().unwrap();
