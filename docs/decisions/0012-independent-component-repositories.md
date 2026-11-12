@@ -1,6 +1,6 @@
 # ADR 0012: independent public component repositories and pinned consumption
 
-Date: 2026-10-21. Status: accepted by explicit owner instruction. Supersedes ADR 0002's hosted-extraction deferral; its compatibility and attribution requirements remain.
+Date: 2026-10-21. Status: accepted by explicit owner instruction; superseded by [ADR 0044](0044-one-repository-and-agent-shipping.md) (superseded in whole; the submodules, pins and checks described here stay in place until later migration changes replace them). Supersedes ADR 0002's hosted-extraction deferral; its compatibility and attribution requirements remain.
 
 ## Context
 

@@ -31,7 +31,7 @@ npm run typecheck
 npm run build
 ```
 
-Run `npm run components:setup` with Bun 1.4.3 after cloning, or clone with `--recurse-submodules` and then install frozen component dependencies. `npm run components:verify` checks exact pins; `npm run test:components` exercises real CLI JSON operations on disposable stores. The component sources live in their independent public repositories.
+Run `npm run components:setup` with Bun 1.4.3 after cloning, or clone with `--recurse-submodules` and then install frozen component dependencies. `npm run components:verify` checks exact pins; `npm run test:components` exercises real CLI JSON operations on disposable stores. Until the migration changes of [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md) bring them into this repository, the component sources live in their public `luuna-ai` repositories and are consumed as these pinned submodules.
 
 The remaining checks, each run where its prerequisites exist: `node scripts/check-hygiene.mjs` (no tracked session histories, auth stores, real `.env` files or dependencies); the terminal client against a built runtime, `npm run test:tui-terminal` and `node scripts/tui-interactive-audit.mjs --runtime <path> --components-root .` (tmux on Linux); the native desktop shell, `cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml`, on macOS and Windows.
 
@@ -82,6 +82,8 @@ On Windows, `powershell -NoProfile -File scripts/package-windows.ps1` builds an 
 
 Explain the observable behavior changed, why it matters, and commands actually run. Include meaningful negative cases for authorization, stale state, interrupted work, or protocol failure when those boundaries change. Do not add tests that only restate trivial implementation details.
 
-Review must examine requirements, the diff, current code, and check evidence independently of an implementation chat. Runtime changes must preserve exact-plan approval, candidate-bound checks, private artifacts, bounded retries, and human-controlled merging. A skipped or failed required check is not passing evidence.
+Review must examine requirements, the diff, current code, and check evidence independently of an implementation chat. Runtime changes must preserve exact-plan approval, candidate-bound checks, private artifacts, bounded retries, and, in a developer's own repositories, human-controlled merging: Luuna's runtime has no automatic merge operation in v1. A skipped or failed required check is not passing evidence.
 
 Record material architecture changes in `docs/decisions/` and update `docs/CURRENT-ARCHITECTURE.md`. Package publication requires a deliberate release and verified credentials. New original contributions are MIT licensed; preserve derived components' upstream notices. See [SECURITY.md](SECURITY.md) for sensitive findings.
+
+Changes to this repository itself ship under [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md). During the migration, agents work under a plan audited against the owner's signed migration charter, review the changes, and push, open pull requests and merge only through the ship gate. Agent reviews together with the local check evidence described above are the only gate on a merge until the CI pipeline planned for after the migration exists.

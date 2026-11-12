@@ -5,6 +5,9 @@ compatible data paths), ADR 0012 (primary and legacy aliases, compatible data
 directories) and ADR 0014 and ADR 0024 (the managed store layout they
 describe). The same branch pins the component commits that implement it
 (Missions `bda5f31`, Atlas `3296243`, Beacon `e103e01`).
+ADR 0012, which this record amends, is superseded by
+[ADR 0044](0044-one-repository-and-agent-shipping.md); the layout decided
+here is unchanged.
 
 ## Context
 

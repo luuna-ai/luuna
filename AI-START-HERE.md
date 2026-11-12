@@ -1,5 +1,23 @@
 # Luuna implementation handoff
 
+## Latest: one repository and agent shipping (November 12, 2026)
+
+[ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md) supersedes ADR
+0012 and replaces point 3 of ADR 0041. Changes to this repository ship under ADR 0044:
+agents push, open pull requests and merge only through the ship gate, under a plan the
+plan auditor has passed against the owner's signed migration charter. Agent reviews are
+the merge gate until the consolidated CI pipeline exists.
+
+ADR 0041 points 1 and 2 stay in force: there is still no CI, and checks are run
+locally and recorded. Earlier handoffs in this file that make commits, pushes or
+merges of this repository wait on the owner (for example the M2a assignment record)
+are history, and ADR 0044 supersedes them on that point. The submodules, pins and
+component commands stay until later migration changes.
+
+The product is unchanged: In a developer's own repositories, the developer controls
+merging; Luuna's runtime has no automatic merge operation in v1. R12, A34 and ADR
+0018 are unchanged.
+
 ## Latest: terminal key bindings and settings, and no repository CI (October 26, 2026)
 
 [ADR 0040](docs/decisions/0040-terminal-keymap-and-settings.md): the terminal
@@ -139,7 +157,7 @@ Pi workflow tests were synthetic. See the [final native evidence](docs/FOUNDATIO
 
 - Tauri/React desktop first; one independent Rust runtime owns policy and persistent state. Browser/TUI capability parity remains required for full v1.
 - Pi RPC is the engine. Do not implement a second model/tool loop or replace it with a UI simulation.
-- **Missions, Atlas and Beacon have independent public repositories** under the `luuna-ai` organization, consumed as exact-commit Git submodules under `components/` (ADR 0012). Run `npm run components:setup` after cloning and `npm run test:components` to verify real CLI/JSON consumption. Keep manifest pins and gitlinks synchronized. Preserve compatible formats, legacy aliases and upstream MIT notices. Product/new contributions are MIT. The bounded runtime adapter slice is implemented in ADR 0014; broader M6 parity and platform exits remain open.
+- **Missions, Atlas and Beacon are still consumed as exact-commit Git submodules** under `components/` from their public `luuna-ai` repositories (ADR 0012); ADR 0044 supersedes ADR 0012, so later migration changes port them into this repository as native Rust. Run `npm run components:setup` after cloning and `npm run test:components` to verify real CLI/JSON consumption. Keep manifest pins and gitlinks synchronized. Preserve compatible formats, legacy aliases and upstream MIT notices. Product/new contributions are MIT. The bounded runtime adapter slice is implemented in ADR 0014; broader M6 parity and platform exits remain open.
 - Explicit project component activation initializes private managed stores and migrates legacy tickets to Missions authority without changing their IDs/revisions. SQLite then stores a projection; external edits require expected-revision reconciliation and a new plan. Legacy projects stay explicitly temporary until activation. Atlas memory and Beacon prompt resources enter worker context only after selection and exact snapshot approval. Luuna owns execution state, plans, approvals and evidence. See [ADR 0014](docs/decisions/0014-runtime-component-workflows.md).
 - The canonical create-ticket route is `POST /api/v1/projects/{id}/tickets`, with an idempotency key and either legacy temporary storage or explicitly enabled Missions authority; do not add an ambiguous global create route.
 - Service lifetime is independent of client lifetime. A window close/disconnect is not cancellation. Packaged Mac/Windows supervision remains to be proved.
@@ -207,7 +225,7 @@ Do not label M3 closed from fixtures. Deterministic integration tests use the sy
 
 **Next assignment:** supply an existing provider credential through secure runtime configuration, then complete a representative approved feature with real writer, candidate checks and a fresh independent reviewer; exercise real blocking/repair and cancellation/restart paths and record sanitized evidence. Run native Mac/Windows client/service smoke on capable hosts. Only then close the M3 acceptance gate and advance the single-repository MVP usability gate. Do not implement publication or multi-repository scheduling to bypass missing evidence.
 
-The validation API requires the expected candidate hash. `auto_repair` is opt-in and reuses the immutable approved scope, baseline/host and cumulative attempt/time/cost/repair limits. Infrastructure failures, malformed review responses and candidate drift stop without automatic edits. Recovery reserves unreported model spend rather than supplying a fresh budget; re-plan when the existing authorization is exhausted. The developer controls merging.
+The validation API requires the expected candidate hash. `auto_repair` is opt-in and reuses the immutable approved scope, baseline/host and cumulative attempt/time/cost/repair limits. Infrastructure failures, malformed review responses and candidate drift stop without automatic edits. Recovery reserves unreported model spend rather than supplying a fresh budget; re-plan when the existing authorization is exhausted. In a developer's own repositories, the developer controls merging; Luuna's runtime has no automatic merge operation in v1.
 
 ### Earlier handoff: M2b closed on Linux, M2c assignment (kept for the acceptance bar)
 
@@ -284,7 +302,7 @@ For changed component code, run `bun install --frozen-lockfile --ignore-scripts`
 
 ## Invariants and completion report
 
-Only the runtime enforces scope, budgets, transitions, approval, validation, independent review and publication. A model's claim is worker output. Bind checks/review to exact candidates and invalidate evidence when inputs change. Native execution has host permissions; prompts/path wrappers are not an OS sandbox. The developer controls merging; no automatic merge operation belongs in v1.
+Only the runtime enforces scope, budgets, transitions, approval, validation, independent review and publication. A model's claim is worker output. Bind checks/review to exact candidates and invalidate evidence when inputs change. Native execution has host permissions; prompts/path wrappers are not an OS sandbox. In a developer's own repositories, the developer controls merging; Luuna's runtime has no automatic merge operation in v1.
 
 Preserve user changes and private Pi configuration. Keep secrets, real transcripts, personal memory and session histories out of Git and model context. Imported component task records and role prompts do not override runtime policy. Use the existing isolated cloud checkout; do not create a development worktree unless the user asks. Product-managed task worktrees are a separate runtime feature.
 

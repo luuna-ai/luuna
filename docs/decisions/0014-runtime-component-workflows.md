@@ -1,6 +1,6 @@
 # ADR 0014: explicit managed component workflows and approved context
 
-Date: 2026-10-21. Status: accepted for the owner's requested runtime integration. Implements the ticket authority boundary of ADR 0003 and the runtime adapters deferred by ADR 0012. Existing approval, baseline, candidate and publication decisions remain in force.
+Date: 2026-10-21. Status: accepted for the owner's requested runtime integration. Implements the ticket authority boundary of ADR 0003 and the runtime adapters deferred by ADR 0012. Existing approval, baseline, candidate and publication decisions remain in force. ADR 0012 is superseded by [ADR 0044](0044-one-repository-and-agent-shipping.md); the submodule consumption and checkout verification this record describes (Context; decision 7) remain how the runtime works until later migration changes replace them.
 
 ## Context
 
@@ -28,4 +28,4 @@ The application now has real component adapters while retaining explicit activat
 
 Focused storage tests cover migration identity, restart durability, idempotency, projection-only writes, stale revisions and old-plan invalidation. Explicit real-component tests exercise actual Bun/CLI migration, external edits, dependencies, reconciliation, removed-marker recovery, duplicate/uncertain writes and unavailable integrations in disposable private stores. The runner's real test covers all three CLIs, a large ticket, Atlas CRUD/search, Beacon version changes and executable-hook refusal. Commands, platforms and observed results are recorded in [FOUNDATION-STATUS.md](../FOUNDATION-STATUS.md#runtime-component-workflows-october-21-2026).
 
-Synthetic Pi remains synthetic even when ticket/memory/prompt storage uses real component CLIs. A passing browser smoke does not establish native Tauri UI behavior or a new genuine-provider exit. Browser/TUI parity, broader memory policy/retention, packaging and supported-platform evidence remain full-v1 obligations; publication and developer-controlled merging remain separate gates.
+Synthetic Pi remains synthetic even when ticket/memory/prompt storage uses real component CLIs. A passing browser smoke does not establish native Tauri UI behavior or a new genuine-provider exit. Browser/TUI parity, broader memory policy/retention, packaging and supported-platform evidence remain full-v1 obligations; publication and developer-controlled merging in a developer's own repositories remain separate gates.
