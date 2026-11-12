@@ -98,19 +98,7 @@ impl ServiceSettings {
                 })
                 .transpose()
         };
-        let data_dir = PathBuf::from(var("LUUNA_DATA_DIR").unwrap_or_else(|| ".luuna".into()));
-        let data_dir = if data_dir.is_absolute() {
-            data_dir
-        } else {
-            std::env::current_dir()
-                .map_err(|error| {
-                    StartupError(format!(
-                        "LUUNA_DATA_DIR {} is relative and the current directory cannot be read: {error}",
-                        data_dir.display()
-                    ))
-                })?
-                .join(data_dir)
-        };
+        let data_dir = data_dir::resolve_data_dir(&var, std::env::current_dir)?;
         let token = text("LUUNA_API_TOKEN")?.ok_or_else(|| {
             StartupError(
                 "set LUUNA_API_TOKEN to a random token of at least 32 visible ASCII characters"
@@ -225,6 +213,7 @@ fn restrict_to_owner(directory: &std::path::Path) -> Result<(), Box<dyn std::err
 
 mod baselines;
 mod candidates;
+pub mod data_dir;
 mod dispatch;
 pub mod doctor;
 mod graph;
@@ -235,6 +224,7 @@ mod policy;
 mod projects;
 mod publication;
 mod scaffold;
+pub mod stores;
 mod writer;
 pub use baselines::{ArtifactId, StartBaseline};
 pub use projects::{ConfirmManifest, ProjectView, RegisterProject, RegisterRepository};

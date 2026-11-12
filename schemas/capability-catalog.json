@@ -351,6 +351,7 @@
         "aborted",
         "rejected_token",
         "not_found",
+        "refused",
         "internal"
       ],
       "required_by": [
@@ -391,6 +392,7 @@
         "aborted",
         "rejected_token",
         "not_found",
+        "refused",
         "internal"
       ],
       "required_by": [
@@ -598,6 +600,7 @@
         "aborted",
         "rejected_token",
         "not_found",
+        "refused",
         "internal"
       ],
       "required_by": [
@@ -639,6 +642,7 @@
         "aborted",
         "rejected_token",
         "not_found",
+        "refused",
         "internal",
         "client"
       ],
@@ -723,6 +727,7 @@
         "aborted",
         "rejected_token",
         "not_found",
+        "refused",
         "internal"
       ],
       "required_by": [
