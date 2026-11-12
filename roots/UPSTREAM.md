@@ -1,6 +1,6 @@
 # Upstream provenance
 
-Luuna Roots derives from [jayminwest/roots](https://github.com/jayminwest/roots), cloned at commit `9a7906b` from its `main` branch. The complete upstream Git history is retained in this repository and the `upstream` remote remains configured locally for future comparison.
+Luuna Roots derives from [jayminwest/roots](https://github.com/jayminwest/roots), cloned at commit `9a7906b` from its `main` branch. The complete upstream Git history came into the Luuna repository with Roots' own history when Roots was imported into `roots/`.
 
 The original project and its concepts were created by Jaymin West. Its MIT license and copyright notice remain in `LICENSE`. Luuna-specific changes add suite naming, the `.luuna/roots/` store, Luuna Missions and Atlas paths, and package/CLI branding. This fork should not imply that the upstream author endorses Luuna.
 
