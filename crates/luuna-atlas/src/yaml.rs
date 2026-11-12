@@ -38,9 +38,10 @@
 //! double-quoted and literal styles, its escapes and its block scalar indicators follow
 //! `emitterc.go`.
 //!
-//! Numbers are `f64` here, while the Go tool keeps YAML integers as Go integers. An
-//! integral number below 2^64 in magnitude is written as an integer; any other as yaml.v3
-//! writes a float (`1.5`, `1e+21`, `.inf`, `.nan`).
+//! An integer is read exactly into [`Value::Integer`], as yaml.v3 decodes it to a Go `int`
+//! or `uint64`, and written back as its decimal digits. A float is read into
+//! [`Value::Number`] and written as yaml.v3 writes a Go `float64` (`strconv.FormatFloat`
+//! with format `'g'`: `1.5`, `1e+06`, `1e+21`, `.inf`, `.nan`).
 
 use crate::error::{AtlasError, Result};
 use crate::json::{Object, Value};
@@ -1316,7 +1317,7 @@ fn scalar_value(raw: &str, style: Style) -> Value {
     match scalar_of(raw, style) {
         Scalar::Null => Value::Null,
         Scalar::Bool(b) => Value::Bool(b),
-        Scalar::Int(i) => Value::Number(i as f64),
+        Scalar::Int(i) => Value::Integer(i),
         Scalar::Float(f) => Value::Number(f),
         Scalar::Timestamp(s) | Scalar::Str(s) => Value::String(s),
     }
@@ -2052,21 +2053,13 @@ fn is_bool_like(s: &str) -> bool {
     )
 }
 
-/// A number as yaml.v3 writes the Go value the Go tool would hold for it.
+/// A Go `float64` as yaml.v3 writes it (`encode.go`, `floatv`).
 fn format_number(f: f64) -> String {
     if f.is_nan() {
         return ".nan".to_owned();
     }
     if f.is_infinite() {
         return if f > 0.0 { ".inf" } else { "-.inf" }.to_owned();
-    }
-    if f.fract() == 0.0 {
-        if f.abs() < 9_223_372_036_854_775_808.0 {
-            return (f as i64).to_string();
-        }
-        if f > 0.0 && f < 18_446_744_073_709_551_616.0 {
-            return (f as u64).to_string();
-        }
     }
     // strconv.FormatFloat(f, 'g', -1, 64).
     let exponent_form = format!("{f:e}");
@@ -2137,6 +2130,8 @@ fn scalar_out(value: &Value) -> Result<Out> {
         Value::Null => plain("null".to_owned()),
         Value::Bool(b) => plain(b.to_string()),
         Value::Number(f) => plain(format_number(*f)),
+        // yaml.v3 writes a Go int or uint64 with strconv.FormatInt or FormatUint.
+        Value::Integer(i) => plain(i.to_string()),
         Value::String(s) => string_out(s)?,
         Value::Array(_) | Value::Object(_) => unreachable!("collections are not scalars"),
     })
@@ -2588,6 +2583,26 @@ mod tests {
         );
         // yaml.v3 loses a lone line break.
         assert_eq!(write_json(r#"{"e":"\n"}"#), "e: \"\"\n");
+    }
+
+    #[test]
+    fn keeps_integers_exact() {
+        // yaml.v3 decodes an integer to a Go int or, above that, a uint64, and writes it
+        // with FormatInt or FormatUint, so nothing is rounded to 2^53. An integer beyond
+        // uint64, and every float, is a float64, written with FormatFloat(f, 'g', -1, 64).
+        let yaml = "a: 9007199254740993\nb: 9223372036854775807\nc: -9223372036854775808\nd: 18446744073709551615\ne: 0x7FFFFFFFFFFFFFFF\nf: 1_000\ng: 18446744073709551616\nh: -9223372036854775809\ni: 1000000.0\nj: 1e6\nk: 2.0\nl: 123456.0\nm: 0.00001\ns: [9007199254740993, -0]\n";
+        assert_eq!(
+            read_json(yaml),
+            r#"{"a":9007199254740993,"b":9223372036854775807,"c":-9223372036854775808,"d":18446744073709551615,"e":9223372036854775807,"f":1000,"g":18446744073709552000,"h":-9223372036854776000,"i":1000000,"j":1000000,"k":2,"l":123456,"m":0.00001,"s":[9007199254740993,0]}"#
+        );
+        assert_eq!(
+            read("a: 9007199254740993\n").as_object().unwrap().get("a"),
+            Some(&Value::Integer(9_007_199_254_740_993))
+        );
+        assert_eq!(
+            to_yaml_string(&read(yaml)).unwrap(),
+            "a: 9007199254740993\nb: 9223372036854775807\nc: -9223372036854775808\nd: 18446744073709551615\ne: 9223372036854775807\nf: 1000\ng: 1.8446744073709552e+19\nh: -9.223372036854776e+18\ni: 1e+06\nj: 1e+06\nk: 2\nl: 123456\nm: 1e-05\ns:\n  - 9007199254740993\n  - 0\n"
+        );
     }
 
     #[test]

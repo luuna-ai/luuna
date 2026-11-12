@@ -604,6 +604,8 @@ pub(crate) fn go_text(value: Option<&Value>) -> String {
         Some(Value::String(s)) => s.clone(),
         Some(Value::Bool(b)) => b.to_string(),
         Some(Value::Number(n)) => go_format_float(*n),
+        // strconv.Itoa for an int, fmt.Sprint for a uint64: the decimal digits.
+        Some(Value::Integer(i)) => i.to_string(),
         Some(Value::Array(items)) => items
             .iter()
             .map(|item| go_text(Some(item)))
@@ -634,6 +636,8 @@ pub(crate) fn go_bool(value: Option<&Value>) -> bool {
         Some(Value::Bool(b)) => *b,
         Some(Value::String(s)) => !s.is_empty(),
         Some(Value::Number(n)) => *n != 0.0 && !n.is_nan(),
+        // An int counts when it is not 0; a uint64 (always above the int range) always does.
+        Some(Value::Integer(i)) => *i != 0,
         Some(Value::Array(_) | Value::Object(_)) => true,
     }
 }
@@ -851,5 +855,26 @@ mod tests {
         assert!(!go_bool(Some(&Value::String(String::new()))));
         assert!(!go_bool(Some(&Value::Number(0.0))));
         assert!(go_bool(Some(&Value::Array(Vec::new()))));
+    }
+
+    #[test]
+    fn go_text_and_bool_of_exact_integers() {
+        // strconv.Itoa for an int, fmt.Sprint for a uint64; Bool is n != 0 for an int and
+        // true for a uint64.
+        assert_eq!(
+            go_text(Some(&Value::Integer(9_007_199_254_740_993))),
+            "9007199254740993"
+        );
+        assert_eq!(
+            go_text(Some(&Value::Integer(i128::from(i64::MIN)))),
+            "-9223372036854775808"
+        );
+        assert_eq!(
+            go_text(Some(&Value::Integer(i128::from(u64::MAX)))),
+            "18446744073709551615"
+        );
+        assert!(!go_bool(Some(&Value::Integer(0))));
+        assert!(go_bool(Some(&Value::Integer(-1))));
+        assert!(go_bool(Some(&Value::Integer(i128::from(u64::MAX)))));
     }
 }

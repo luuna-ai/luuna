@@ -140,18 +140,19 @@ pub fn validate_domain_name(domain: &str) -> Result<()> {
     }
 }
 
+// The defaults are Go `int`s in the Go tool (`config.go`), so they are exact integers here.
 fn default_governance() -> Object {
     let mut governance = Object::new();
-    governance.insert("max_entries", 100.0);
-    governance.insert("warn_entries", 150.0);
-    governance.insert("hard_limit", 200.0);
+    governance.insert("max_entries", 100_i64);
+    governance.insert("warn_entries", 150_i64);
+    governance.insert("hard_limit", 200_i64);
     governance
 }
 
 fn default_shelf_life() -> Object {
     let mut shelf_life = Object::new();
-    shelf_life.insert("tactical", 14.0);
-    shelf_life.insert("observational", 30.0);
+    shelf_life.insert("tactical", 14_i64);
+    shelf_life.insert("observational", 30_i64);
     shelf_life
 }
 
@@ -445,6 +446,25 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(dir.path().join(CONFIG_FILE)).unwrap(),
             text
+        );
+    }
+
+    #[test]
+    fn add_keeps_integers_exact() {
+        // Go's ReadConfig keeps YAML integers as int or uint64 and its defaults are ints,
+        // so neither reading nor the rewrite by AddDomain rounds them to f64.
+        let dir = store(Some(
+            "domains: {}\na: 9007199254740993\nb: -9223372036854775808\nc: 18446744073709551615\ngovernance:\n  hard_limit: 9223372036854775807\n",
+        ));
+        let config = read_config(dir.path()).unwrap();
+        assert_eq!(
+            json::to_compact_string(&Value::Object(config)).unwrap(),
+            r#"{"domains":{},"a":9007199254740993,"b":-9223372036854775808,"c":18446744073709551615,"governance":{"max_entries":100,"warn_entries":150,"hard_limit":9223372036854775807},"classification_defaults":{"shelf_life":{"tactical":14,"observational":30}}}"#
+        );
+        add_domain(dir.path(), "newdom").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(CONFIG_FILE)).unwrap(),
+            "domains:\n  newdom: {}\na: 9007199254740993\nb: -9223372036854775808\nc: 18446744073709551615\ngovernance:\n  max_entries: 100\n  warn_entries: 150\n  hard_limit: 9223372036854775807\nclassification_defaults:\n  shelf_life:\n    tactical: 14\n    observational: 30\n"
         );
     }
 

@@ -202,6 +202,56 @@ fn parity_config_show_after_add() {
 
 #[test]
 #[ignore = "needs the luuna-atlas reference clone and Go; run the -- --ignored check"]
+fn parity_config_integers_beyond_2_53() {
+    // yaml.v3 keeps an integer as a Go int or uint64, so neither `config show` nor a
+    // rewrite by `add` may round it to an f64. Integers beyond uint64, and floats, are
+    // Go float64s and are written as yaml.v3 writes those.
+    let config = "domains: {}\n\
+                  a: 9007199254740993\n\
+                  b: 9223372036854775807\n\
+                  c: -9223372036854775808\n\
+                  d: 18446744073709551615\n\
+                  e: 0x7FFFFFFFFFFFFFFF\n\
+                  f: 123456789012345678\n\
+                  g: 18446744073709551616\n\
+                  h: -9223372036854775809\n\
+                  i: 1000000.0\n\
+                  j: 1e6\n\
+                  k: 9007199254740992\n\
+                  l: [9007199254740993, -1]\n\
+                  m: 2.0\n\
+                  n: 123456.0\n\
+                  o: 0.00001\n\
+                  governance:\n  hard_limit: 9223372036854775807\n";
+    let twin = Twin::new(true);
+    twin.steps(&[Step::Init]);
+    twin.prepare(|p: &Project| p.write(".luuna/atlas/config.yaml", config));
+    twin.steps(&[Step::ConfigShow, Step::add("newdom"), Step::ConfigShow]);
+    let shown = twin.go.go_ok(&["config", "show"]);
+    for exact in [
+        "\"a\": 9007199254740993,",
+        "\"b\": 9223372036854775807,",
+        "\"c\": -9223372036854775808,",
+        "\"d\": 18446744073709551615,",
+        "\"hard_limit\": 9223372036854775807",
+    ] {
+        assert!(shown.contains(exact), "{exact} not in {shown}");
+    }
+    let written = twin.go.read(&twin.go.config_path());
+    for exact in [
+        "\na: 9007199254740993\n",
+        "\nb: 9223372036854775807\n",
+        "\nc: -9223372036854775808\n",
+        "\nd: 18446744073709551615\n",
+        "\ne: 9223372036854775807\n",
+        "\n  hard_limit: 9223372036854775807\n",
+    ] {
+        assert!(written.contains(exact), "{exact:?} not in {written}");
+    }
+}
+
+#[test]
+#[ignore = "needs the luuna-atlas reference clone and Go; run the -- --ignored check"]
 fn parity_config_show_without_store() {
     let twin = Twin::new(true);
     twin.steps(&[Step::ConfigShow]);

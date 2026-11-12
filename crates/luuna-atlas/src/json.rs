@@ -31,7 +31,12 @@ use crate::error::{AtlasError, Result};
 /// The deepest nesting of arrays and objects the Go decoder accepts.
 const MAX_DEPTH: usize = 10_000;
 
-/// A JSON value. Numbers are `f64`, as in the Go tool.
+/// A JSON value. Numbers are `f64`, as in the Go tool, which decodes every JSON number
+/// to `float64`; [`parse`] makes only [`Value::Number`].
+///
+/// [`Value::Integer`] holds an integer read from config.yaml. yaml.v3 decodes an untyped
+/// integer to a Go `int` (64-bit) or, above that range, a `uint64`, so the Go tool keeps
+/// every such integer exactly; holding it as `f64` would round it above 2^53.
 ///
 /// Dropping and cloning a value, and both encoders, work with an explicit stack rather than
 /// recursion, so a value nested as deep as the parser accepts ([`MAX_DEPTH`] levels) or
@@ -43,6 +48,8 @@ pub enum Value {
     Null,
     Bool(bool),
     Number(f64),
+    /// An exact integer in the range of Go's `int64` or `uint64`.
+    Integer(i128),
     String(String),
     Array(Vec<Value>),
     Object(Object),
@@ -292,10 +299,12 @@ impl Value {
         }
     }
 
-    /// The number, if this is a number.
+    /// The number, if this is a number. An [`Value::Integer`] is rounded to the nearest
+    /// `f64`, as Go's `float64(n)` conversion of an `int` rounds it.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Number(n) => Some(*n),
+            Value::Integer(i) => Some(*i as f64),
             _ => None,
         }
     }
@@ -355,6 +364,7 @@ impl Value {
             Value::Null => Value::Null,
             Value::Bool(b) => Value::Bool(*b),
             Value::Number(n) => Value::Number(*n),
+            Value::Integer(i) => Value::Integer(*i),
             Value::String(s) => Value::String(s.clone()),
             // Only scalars inside: cloning the elements does not recurse further.
             Value::Array(items) => Value::Array(items.iter().map(Value::clone_flat).collect()),
@@ -492,6 +502,12 @@ impl From<bool> for Value {
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
         Value::Number(value)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        Value::Integer(i128::from(value))
     }
 }
 
@@ -920,6 +936,8 @@ fn write_value(out: &mut String, value: &Value, indent: Option<usize>) -> Result
                 Value::Bool(true) => out.push_str("true"),
                 Value::Bool(false) => out.push_str("false"),
                 Value::Number(n) => write_number(out, *n),
+                // encoding/json writes a Go int or uint64 as its decimal digits.
+                Value::Integer(i) => out.push_str(&i.to_string()),
                 Value::String(s) => write_string(out, s),
                 Value::Array(items) => {
                     out.push('[');
@@ -1176,6 +1194,33 @@ mod tests {
         ]);
         assert_eq!(compact(&value), "[null,null,null]");
         assert_eq!(indented(&value), "[\n  null,\n  null,\n  null\n]");
+    }
+
+    #[test]
+    fn exact_integers_encode_as_decimal_digits() {
+        // Integers from config.yaml (Go int or uint64) are written exactly, as
+        // encoding/json writes them; JSON input still parses to f64, as Go's decoder does.
+        let value = Value::Array(vec![
+            Value::Integer(9_007_199_254_740_993),
+            Value::Integer(i128::from(i64::MAX)),
+            Value::Integer(i128::from(i64::MIN)),
+            Value::Integer(i128::from(u64::MAX)),
+            Value::from(0_i64),
+        ]);
+        assert_eq!(
+            compact(&value),
+            "[9007199254740993,9223372036854775807,-9223372036854775808,18446744073709551615,0]"
+        );
+        assert_eq!(
+            indented(&Value::Array(vec![Value::Integer(-1)])),
+            "[\n  -1\n]"
+        );
+        assert_eq!(
+            parse("9007199254740993").unwrap(),
+            Value::Number(9_007_199_254_740_992.0)
+        );
+        assert_eq!(round_trip("[9223372036854775807]"), "[9223372036854776000]");
+        assert_eq!(value.clone(), value);
     }
 
     #[test]
