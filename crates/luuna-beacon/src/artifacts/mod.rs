@@ -9,15 +9,17 @@
 //! for the constant), `Git` or `Sync`, so the glob re-exports of the two
 //! other library plans in `lib.rs` cannot clash.
 
-// The codec, model and snapshot are used by the commands the later tasks of
-// the plan add; until then only their unit tests call them.
+// The codec and the snapshot are used in part by the commands the later
+// tasks of the plan add; until then only their unit tests call the rest.
 #[allow(dead_code)]
 mod base64;
+mod commands;
 #[allow(dead_code)]
 mod model;
 #[allow(dead_code)]
 mod snapshot;
 
+pub use commands::{ArtifactHistory, ArtifactRead};
 pub use model::{Artifact, ArtifactFile};
 
 use crate::gofmt::quote;
