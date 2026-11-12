@@ -8,6 +8,11 @@
 //! [`AtlasError::UnsupportedYaml`], which carries the line number. The reader never guesses:
 //! anything else it cannot read is a syntax error.
 //!
+//! As in yaml.v3, at most 10000 block collections and, separately, 10000 flow collections
+//! may nest; one more is yaml.v3's "exceeded max depth of 10000" error. Reading, converting,
+//! dropping and writing use explicit stacks rather than recursion, so nesting that deep is
+//! safe on a thread with the default 2 MiB stack.
+//!
 //! # Reading
 //!
 //! Scalars resolve as yaml.v3 resolves them for an untyped Go value (`resolve.go`), and are
@@ -65,11 +70,102 @@ enum Style {
 
 /// A parsed node, before conversion to [`Value`]. Scalars keep their raw text and style so
 /// that resolution happens as in yaml.v3: only plain scalars are resolved.
+///
+/// Nodes nest as deep as yaml.v3 allows (see [`MAX_DEPTH`]), so dropping one uses an
+/// explicit stack rather than recursion; contents are taken out with [`std::mem::take`].
 #[derive(Debug)]
 enum Node {
     Scalar(String, Style),
     Seq(Vec<Node>),
     Map(Vec<(Key, Node)>),
+}
+
+impl Node {
+    fn empty() -> Node {
+        Node::Scalar(String::new(), Style::Plain)
+    }
+}
+
+impl Drop for Node {
+    fn drop(&mut self) {
+        let nested = |n: &Node| matches!(n, Node::Seq(_) | Node::Map(_));
+        let mut stack: Vec<Node> = match self {
+            Node::Seq(items) if items.iter().any(nested) => std::mem::take(items),
+            Node::Map(entries) if entries.iter().any(|(_, n)| nested(n)) => std::mem::take(entries)
+                .into_iter()
+                .map(|(_, n)| n)
+                .collect(),
+            _ => return,
+        };
+        while let Some(mut node) = stack.pop() {
+            match &mut node {
+                Node::Seq(items) => stack.append(items),
+                Node::Map(entries) => stack.extend(entries.drain(..).map(|(_, n)| n)),
+                Node::Scalar(..) => {}
+            }
+            // `node` holds no children now, so dropping it does not recurse.
+        }
+    }
+}
+
+/// yaml.v3's nesting limits (`max_indents` and `max_flow_level` in `scannerc.go`): at most
+/// this many nested block collections, and separately at most this many nested flow
+/// collections. One more is the error "exceeded max depth of 10000".
+const MAX_DEPTH: usize = 10_000;
+
+/// yaml.v3's "exceeded max depth" scanner error. `marks` are the 0-based lines of the
+/// scanner's context mark, then its problem mark; as `parser.fail` does, the first one
+/// that is not line 0 is reported (1-based), and none is reported when both are line 0.
+fn depth_error(marks: [usize; 2]) -> AtlasError {
+    let message = format!("exceeded max depth of {MAX_DEPTH}");
+    match marks.into_iter().find(|&line| line != 0) {
+        Some(line) => syntax(line, &message),
+        None => AtlasError::Message(format!("yaml: {message}")),
+    }
+}
+
+/// A block collection whose entries are being read (the iterative form of the reader's
+/// block recursion).
+enum Block {
+    /// A block mapping at byte `col`, its entries so far and the key whose value is next.
+    Map {
+        col: usize,
+        entries: Vec<(Key, Node)>,
+        key: Option<Key>,
+    },
+    /// A block sequence whose `-` entries are at byte `col`.
+    Seq {
+        col: usize,
+        indentless: bool,
+        items: Vec<Node>,
+    },
+}
+
+/// What the block reader does next.
+enum Step {
+    /// Read the node at byte `col` of `line`; the enclosing indentation is `parent`.
+    Node(usize, usize, isize),
+    /// Open an indentless sequence whose entries are at byte `col` of `line`.
+    Indentless(usize, usize),
+    /// A node is complete.
+    Done(Node),
+}
+
+/// A flow collection whose entries are being read.
+enum Flow {
+    Seq(Vec<Node>),
+    /// The entries so far and the key whose value is being read.
+    Map(Vec<(Key, Node)>, Option<Key>),
+}
+
+/// What the flow reader does next.
+enum FlowStep {
+    /// Read a node at the current byte.
+    Node,
+    /// Read the next entry of the innermost open collection, or its end.
+    Entry,
+    /// A node is complete.
+    Done(Node),
 }
 
 /// A mapping key: always a scalar here (complex keys are refused).
@@ -185,6 +281,11 @@ struct Parser<'a> {
     lines: Vec<Line<'a>>,
     /// The next line not yet consumed.
     pos: usize,
+    /// The 0-based line of the last token that could start a simple key in block context
+    /// (a scalar or the opening bracket of a flow collection): yaml.v3's
+    /// `simple_keys[len-1].mark`, which a block sequence's depth error reports. Line 0
+    /// until there is one, as the stream start's zero mark.
+    simple_key_line: std::cell::Cell<usize>,
 }
 
 impl<'a> Parser<'a> {
@@ -196,7 +297,11 @@ impl<'a> Parser<'a> {
                 return Err(syntax(index, "control characters are not allowed"));
             }
         }
-        Ok(Parser { lines, pos: 0 })
+        Ok(Parser {
+            lines,
+            pos: 0,
+            simple_key_line: std::cell::Cell::new(0),
+        })
     }
 
     fn text(&self, index: usize) -> &'a str {
@@ -304,14 +409,107 @@ impl<'a> Parser<'a> {
     /// A node that starts at byte `col` of line `line`: a block sequence, a block mapping
     /// or an inline value. `parent` is the indentation of the enclosing block collection
     /// (-1 at the root).
+    ///
+    /// Nested block collections are read with an explicit stack of [`Block`]s rather than
+    /// recursion. As in yaml.v3, more than [`MAX_DEPTH`] nested block collections (an
+    /// indentless sequence does not count) is an error.
     fn block(&mut self, line: usize, col: usize, parent: isize) -> Result<Node> {
-        if is_seq_entry(&self.text(line)[col..]) {
-            return self.sequence(line, col, false);
+        let mut open: Vec<Block> = Vec::new();
+        // The block collections yaml.v3 has pushed an indentation level for.
+        let mut depth = 0usize;
+        let mut step = Step::Node(line, col, parent);
+        loop {
+            step = match step {
+                Step::Node(line, col, parent) => {
+                    if is_seq_entry(&self.text(line)[col..]) {
+                        // yaml.v3 checks the depth at the `-`; the context mark is the
+                        // last simple key, the problem mark the `-`.
+                        if depth == MAX_DEPTH {
+                            return Err(depth_error([self.simple_key_line.get(), line]));
+                        }
+                        depth += 1;
+                        open.push(Block::Seq {
+                            col,
+                            indentless: false,
+                            items: Vec::new(),
+                        });
+                        self.sequence_entry(line, col)?
+                    } else if let Some((key, after)) = self.key(line, col)? {
+                        // Checked at the `:`, with the key as the context mark.
+                        if depth == MAX_DEPTH {
+                            return Err(depth_error([key.line - 1, line]));
+                        }
+                        depth += 1;
+                        open.push(Block::Map {
+                            col,
+                            entries: Vec::new(),
+                            key: Some(key),
+                        });
+                        self.mapping_value(line, after, col)?
+                    } else {
+                        Step::Done(self.value(line, col, parent)?)
+                    }
+                }
+                Step::Indentless(line, col) => {
+                    open.push(Block::Seq {
+                        col,
+                        indentless: true,
+                        items: Vec::new(),
+                    });
+                    self.sequence_entry(line, col)?
+                }
+                Step::Done(node) => {
+                    let Some(top) = open.last_mut() else {
+                        return Ok(node);
+                    };
+                    let next = match top {
+                        Block::Map { col, entries, key } => {
+                            entries.push((key.take().expect("a key awaits its value"), node));
+                            match self.next_key(*col)? {
+                                Some((next, found, after)) => {
+                                    let col = *col;
+                                    *key = Some(found);
+                                    Some(self.mapping_value(next, after, col)?)
+                                }
+                                None => None,
+                            }
+                        }
+                        Block::Seq {
+                            col,
+                            indentless,
+                            items,
+                        } => {
+                            items.push(node);
+                            match self.next_entry(*col, *indentless)? {
+                                Some(next) => {
+                                    let col = *col;
+                                    Some(self.sequence_entry(next, col)?)
+                                }
+                                None => None,
+                            }
+                        }
+                    };
+                    match next {
+                        Some(step) => step,
+                        None => match open.pop() {
+                            Some(Block::Map { entries, .. }) => {
+                                depth -= 1;
+                                Step::Done(Node::Map(entries))
+                            }
+                            Some(Block::Seq {
+                                indentless, items, ..
+                            }) => {
+                                if !indentless {
+                                    depth -= 1;
+                                }
+                                Step::Done(Node::Seq(items))
+                            }
+                            None => unreachable!("the top collection was just read"),
+                        },
+                    }
+                }
+            };
         }
-        if let Some(key) = self.key(line, col)? {
-            return self.mapping(line, col, key);
-        }
-        self.value(line, col, parent)
     }
 
     /// The key at byte `col` of `line`, with the byte index after its `:`, if the line holds
@@ -320,6 +518,9 @@ impl<'a> Parser<'a> {
         let text = self.text(line);
         let bytes = text.as_bytes();
         let first = bytes[col];
+        if !matches!(first, b'|' | b'>') {
+            self.simple_key_line.set(line);
+        }
         if let Some(error) = refused_indicator(line, first) {
             return Err(error);
         }
@@ -382,33 +583,27 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn mapping(&mut self, mut line: usize, col: usize, first: (Key, usize)) -> Result<Node> {
-        let mut entries = Vec::new();
-        let mut key = first;
-        loop {
-            let value = self.mapping_value(line, key.1, col)?;
-            entries.push((key.0, value));
-            let Some(next) = self.next_content() else {
-                break;
-            };
-            let indent = self.indent(next)?;
-            if indent < col {
-                break;
-            }
-            if indent > col {
-                return Err(syntax(next, "did not find expected key"));
-            }
-            key = match self.key(next, col)? {
-                Some(key) => key,
-                None => return Err(syntax(next, "did not find expected key")),
-            };
-            line = next;
+    /// After a mapping entry: the next key of the mapping indented `col`, its line and the
+    /// byte after its `:`, or `None` where the mapping ends.
+    fn next_key(&mut self, col: usize) -> Result<Option<(usize, Key, usize)>> {
+        let Some(next) = self.next_content() else {
+            return Ok(None);
+        };
+        let indent = self.indent(next)?;
+        if indent < col {
+            return Ok(None);
         }
-        Ok(Node::Map(entries))
+        if indent > col {
+            return Err(syntax(next, "did not find expected key"));
+        }
+        match self.key(next, col)? {
+            Some((key, after)) => Ok(Some((next, key, after))),
+            None => Err(syntax(next, "did not find expected key")),
+        }
     }
 
     /// The value after a key's `:` at byte `after` of `line`, in a mapping indented `col`.
-    fn mapping_value(&mut self, line: usize, after: usize, col: usize) -> Result<Node> {
+    fn mapping_value(&mut self, line: usize, after: usize, col: usize) -> Result<Step> {
         let text = self.text(line);
         let start = skip_ws(text, after);
         self.pos = line + 1;
@@ -416,13 +611,13 @@ impl<'a> Parser<'a> {
             if let Some(next) = self.next_content() {
                 let indent = self.indent(next)?;
                 if indent > col {
-                    return self.block(next, indent, col as isize);
+                    return Ok(Step::Node(next, indent, col as isize));
                 }
                 if indent == col && is_seq_entry(&self.text(next)[indent..]) {
-                    return self.sequence(next, indent, true);
+                    return Ok(Step::Indentless(next, indent));
                 }
             }
-            return Ok(Node::Scalar(String::new(), Style::Plain));
+            return Ok(Step::Done(Node::empty()));
         }
         if is_seq_entry(&text[start..]) {
             return Err(syntax(
@@ -430,52 +625,52 @@ impl<'a> Parser<'a> {
                 "block sequence entries are not allowed in this context",
             ));
         }
-        self.value(line, start, col as isize)
+        Ok(Step::Done(self.value(line, start, col as isize)?))
     }
 
-    /// A block sequence whose `-` entries are at byte `col`. An indentless sequence (the
-    /// value of a key at the same indentation) ends at the first line that is not an entry.
-    fn sequence(&mut self, mut line: usize, col: usize, indentless: bool) -> Result<Node> {
-        let mut items = Vec::new();
-        loop {
-            let text = self.text(line);
-            let start = skip_ws(text, col + 1);
-            self.pos = line + 1;
-            let item = if start >= text.len() || text.as_bytes()[start] == b'#' {
-                match self.next_content() {
-                    Some(next) => {
-                        let indent = self.indent(next)?;
-                        if indent > col {
-                            self.block(next, indent, col as isize)?
-                        } else {
-                            Node::Scalar(String::new(), Style::Plain)
-                        }
+    /// The entry whose `-` is at byte `col` of `line`, in a block sequence. An indentless
+    /// sequence (the value of a key at the same indentation) ends at the first line that
+    /// is not an entry.
+    fn sequence_entry(&mut self, line: usize, col: usize) -> Result<Step> {
+        let text = self.text(line);
+        let start = skip_ws(text, col + 1);
+        self.pos = line + 1;
+        if start >= text.len() || text.as_bytes()[start] == b'#' {
+            return Ok(match self.next_content() {
+                Some(next) => {
+                    let indent = self.indent(next)?;
+                    if indent > col {
+                        Step::Node(next, indent, col as isize)
+                    } else {
+                        Step::Done(Node::empty())
                     }
-                    None => Node::Scalar(String::new(), Style::Plain),
                 }
-            } else {
-                self.block(line, start, col as isize)?
-            };
-            items.push(item);
-            let Some(next) = self.next_content() else {
-                break;
-            };
-            let indent = self.indent(next)?;
-            if indent < col {
-                break;
-            }
-            if indent > col {
-                return Err(syntax(next, "did not find expected '-' indicator"));
-            }
-            if !is_seq_entry(&self.text(next)[col..]) {
-                if indentless {
-                    break;
-                }
-                return Err(syntax(next, "did not find expected '-' indicator"));
-            }
-            line = next;
+                None => Step::Done(Node::empty()),
+            });
         }
-        Ok(Node::Seq(items))
+        Ok(Step::Node(line, start, col as isize))
+    }
+
+    /// After a sequence entry: the line of the next `-` of the sequence at byte `col`, or
+    /// `None` where the sequence ends.
+    fn next_entry(&mut self, col: usize, indentless: bool) -> Result<Option<usize>> {
+        let Some(next) = self.next_content() else {
+            return Ok(None);
+        };
+        let indent = self.indent(next)?;
+        if indent < col {
+            return Ok(None);
+        }
+        if indent > col {
+            return Err(syntax(next, "did not find expected '-' indicator"));
+        }
+        if !is_seq_entry(&self.text(next)[col..]) {
+            if indentless {
+                return Ok(None);
+            }
+            return Err(syntax(next, "did not find expected '-' indicator"));
+        }
+        Ok(Some(next))
     }
 
     /// An inline value at byte `start` of `line`: a scalar of any style or a flow
@@ -483,6 +678,9 @@ impl<'a> Parser<'a> {
     fn value(&mut self, line: usize, start: usize, parent: isize) -> Result<Node> {
         let text = self.text(line);
         let first = text.as_bytes()[start];
+        if !matches!(first, b'|' | b'>') {
+            self.simple_key_line.set(line);
+        }
         if let Some(error) = refused_indicator(line, first) {
             return Err(error);
         }
@@ -872,7 +1070,149 @@ impl<'a> Parser<'a> {
     }
 
     /// A flow node on one line at byte `*i`, which is advanced past it.
+    ///
+    /// Nested flow collections are read with an explicit stack of [`Flow`]s rather than
+    /// recursion. As in yaml.v3, more than [`MAX_DEPTH`] nested flow collections is an
+    /// error, reported at the line of the bracket that opens one too many.
     fn flow_node(&self, line: usize, i: &mut usize) -> Result<Node> {
+        let text = self.text(line);
+        let bytes = text.as_bytes();
+        let mut open: Vec<Flow> = Vec::new();
+        let mut step = FlowStep::Node;
+        loop {
+            step = match step {
+                FlowStep::Node => {
+                    *i = skip_ws(text, *i);
+                    match bytes.get(*i) {
+                        Some(&bracket @ (b'[' | b'{')) => {
+                            if open.len() == MAX_DEPTH {
+                                return Err(depth_error([line, line]));
+                            }
+                            *i += 1;
+                            open.push(if bracket == b'[' {
+                                Flow::Seq(Vec::new())
+                            } else {
+                                Flow::Map(Vec::new(), None)
+                            });
+                            FlowStep::Entry
+                        }
+                        _ => FlowStep::Done(self.flow_scalar(line, i)?),
+                    }
+                }
+                FlowStep::Entry => {
+                    *i = skip_ws(text, *i);
+                    let depth = open.len();
+                    match open.last_mut().expect("a flow collection is open") {
+                        Flow::Seq(_) => match bytes.get(*i) {
+                            None | Some(b'#') => return Err(multi_line_flow(line)),
+                            Some(b']') => {
+                                *i += 1;
+                                let Some(Flow::Seq(items)) = open.pop() else {
+                                    unreachable!("the innermost collection is a sequence");
+                                };
+                                FlowStep::Done(Node::Seq(items))
+                            }
+                            _ => FlowStep::Node,
+                        },
+                        Flow::Map(_, pending) => match bytes.get(*i) {
+                            None | Some(b'#') => return Err(multi_line_flow(line)),
+                            Some(b'}') => {
+                                *i += 1;
+                                let Some(Flow::Map(entries, _)) = open.pop() else {
+                                    unreachable!("the innermost collection is a mapping");
+                                };
+                                FlowStep::Done(Node::Map(entries))
+                            }
+                            Some(b'[' | b'{') => {
+                                // yaml.v3's scanner counts the bracket before its parser
+                                // sees a collection used as a key.
+                                if depth == MAX_DEPTH {
+                                    return Err(depth_error([line, line]));
+                                }
+                                return Err(unsupported(
+                                    line,
+                                    "flow collections as mapping keys are not supported",
+                                ));
+                            }
+                            Some(b'?') if blank_after(text, *i) => {
+                                return Err(unsupported(
+                                    line,
+                                    "complex mapping keys (?) are not supported",
+                                ));
+                            }
+                            _ => {
+                                let key_start = *i;
+                                let mut scalar = self.flow_scalar(line, i)?;
+                                let Node::Scalar(raw, style) = &mut scalar else {
+                                    unreachable!("only a scalar can start with this character");
+                                };
+                                if *style == Style::Plain && raw == "<<" {
+                                    return Err(unsupported(
+                                        line,
+                                        "merge keys (<<) are not supported",
+                                    ));
+                                }
+                                *pending = Some(Key {
+                                    raw: std::mem::take(raw),
+                                    style: *style,
+                                    line: line + 1,
+                                    column: column_of(text, key_start),
+                                });
+                                *i = skip_ws(text, *i);
+                                if bytes.get(*i) == Some(&b':') {
+                                    *i = skip_ws(text, *i + 1);
+                                    match bytes.get(*i) {
+                                        Some(b',' | b'}') => FlowStep::Done(Node::empty()),
+                                        _ => FlowStep::Node,
+                                    }
+                                } else {
+                                    FlowStep::Done(Node::empty())
+                                }
+                            }
+                        },
+                    }
+                }
+                FlowStep::Done(node) => {
+                    let Some(top) = open.last_mut() else {
+                        return Ok(node);
+                    };
+                    *i = skip_ws(text, *i);
+                    match top {
+                        Flow::Seq(items) => {
+                            items.push(node);
+                            match bytes.get(*i) {
+                                Some(b',') => *i += 1,
+                                Some(b']') => {}
+                                Some(b':') => {
+                                    return Err(unsupported(
+                                        line,
+                                        "mappings inside flow sequences are not supported",
+                                    ));
+                                }
+                                None | Some(b'#') => return Err(multi_line_flow(line)),
+                                _ => return Err(syntax(line, "did not find expected ',' or ']'")),
+                            }
+                        }
+                        Flow::Map(entries, pending) => {
+                            let key = pending.take().expect("a key awaits its value");
+                            entries.push((key, node));
+                            match bytes.get(*i) {
+                                Some(b',') => *i += 1,
+                                Some(b'}') => {}
+                                None | Some(b'#') => return Err(multi_line_flow(line)),
+                                _ => return Err(syntax(line, "did not find expected ',' or '}'")),
+                            }
+                        }
+                    }
+                    FlowStep::Entry
+                }
+            };
+        }
+    }
+
+    /// A flow node at byte `*i` of `line` that is not a collection (a scalar, or an error
+    /// for what cannot start a node), with `*i` advanced past it.
+    fn flow_scalar(&self, line: usize, i: &mut usize) -> Result<Node> {
         let text = self.text(line);
         let bytes = text.as_bytes();
         *i = skip_ws(text, *i);
@@ -883,93 +1223,6 @@ impl<'a> Parser<'a> {
             return Err(error);
         }
         match first {
-            b'[' => {
-                *i += 1;
-                let mut items = Vec::new();
-                loop {
-                    *i = skip_ws(text, *i);
-                    match bytes.get(*i) {
-                        None | Some(b'#') => return Err(multi_line_flow(line)),
-                        Some(b']') => {
-                            *i += 1;
-                            return Ok(Node::Seq(items));
-                        }
-                        _ => {}
-                    }
-                    items.push(self.flow_node(line, i)?);
-                    *i = skip_ws(text, *i);
-                    match bytes.get(*i) {
-                        Some(b',') => *i += 1,
-                        Some(b']') => {}
-                        Some(b':') => {
-                            return Err(unsupported(
-                                line,
-                                "mappings inside flow sequences are not supported",
-                            ));
-                        }
-                        None | Some(b'#') => return Err(multi_line_flow(line)),
-                        _ => return Err(syntax(line, "did not find expected ',' or ']'")),
-                    }
-                }
-            }
-            b'{' => {
-                *i += 1;
-                let mut entries = Vec::new();
-                loop {
-                    *i = skip_ws(text, *i);
-                    match bytes.get(*i) {
-                        None | Some(b'#') => return Err(multi_line_flow(line)),
-                        Some(b'}') => {
-                            *i += 1;
-                            return Ok(Node::Map(entries));
-                        }
-                        Some(b'[' | b'{') => {
-                            return Err(unsupported(
-                                line,
-                                "flow collections as mapping keys are not supported",
-                            ));
-                        }
-                        Some(b'?') if blank_after(text, *i) => {
-                            return Err(unsupported(
-                                line,
-                                "complex mapping keys (?) are not supported",
-                            ));
-                        }
-                        _ => {}
-                    }
-                    let key_start = *i;
-                    let Node::Scalar(raw, style) = self.flow_node(line, i)? else {
-                        unreachable!("only a scalar can start with this character");
-                    };
-                    if style == Style::Plain && raw == "<<" {
-                        return Err(unsupported(line, "merge keys (<<) are not supported"));
-                    }
-                    let key = Key {
-                        raw,
-                        style,
-                        line: line + 1,
-                        column: column_of(text, key_start),
-                    };
-                    *i = skip_ws(text, *i);
-                    let value = if bytes.get(*i) == Some(&b':') {
-                        *i = skip_ws(text, *i + 1);
-                        match bytes.get(*i) {
-                            Some(b',' | b'}') => Node::Scalar(String::new(), Style::Plain),
-                            _ => self.flow_node(line, i)?,
-                        }
-                    } else {
-                        Node::Scalar(String::new(), Style::Plain)
-                    };
-                    entries.push((key, value));
-                    *i = skip_ws(text, *i);
-                    match bytes.get(*i) {
-                        Some(b',') => *i += 1,
-                        Some(b'}') => {}
-                        None | Some(b'#') => return Err(multi_line_flow(line)),
-                        _ => return Err(syntax(line, "did not find expected ',' or '}'")),
-                    }
-                }
-            }
             b'"' | b'\'' => match self.quoted(line, *i, true)? {
                 Some((raw, _, end)) => {
                     *i = end;
@@ -1058,41 +1311,92 @@ fn key_text(scalar: Scalar) -> String {
     }
 }
 
-fn to_value(node: Node, input: &str) -> Result<Value> {
-    Ok(match node {
-        Node::Scalar(raw, style) => match scalar_of(&raw, style) {
-            Scalar::Null => Value::Null,
-            Scalar::Bool(b) => Value::Bool(b),
-            Scalar::Int(i) => Value::Number(i as f64),
-            Scalar::Float(f) => Value::Number(f),
-            Scalar::Timestamp(s) | Scalar::Str(s) => Value::String(s),
-        },
-        Node::Seq(items) => Value::Array(
-            items
-                .into_iter()
-                .map(|item| to_value(item, input))
-                .collect::<Result<_>>()?,
-        ),
-        Node::Map(entries) => {
-            // validateYAMLKeys: each value is checked before its key, then the key against
-            // the keys before it.
-            let mut object = Object::new();
-            for (key, node) in entries {
-                let value = to_value(node, input)?;
-                let name = key_text(scalar_of(&key.raw, key.style));
-                if object.contains_key(&name) {
-                    return Err(AtlasError::Message(source_error(
-                        "duplicated mapping key",
-                        input,
-                        key.line,
-                        key.column,
-                    )));
-                }
-                object.insert(name, value);
+/// The value of a scalar node.
+fn scalar_value(raw: &str, style: Style) -> Value {
+    match scalar_of(raw, style) {
+        Scalar::Null => Value::Null,
+        Scalar::Bool(b) => Value::Bool(b),
+        Scalar::Int(i) => Value::Number(i as f64),
+        Scalar::Float(f) => Value::Number(f),
+        Scalar::Timestamp(s) | Scalar::Str(s) => Value::String(s),
+    }
+}
+
+/// A node collection being converted by [`to_value`]: its remaining children and the
+/// values made so far.
+enum Convert {
+    Seq(std::vec::IntoIter<Node>, Vec<Value>),
+    /// The remaining entries, the object so far and the key of the value being converted.
+    Map(std::vec::IntoIter<(Key, Node)>, Object, Option<Key>),
+}
+
+/// Converts a parsed node into the Go tool's value, with an explicit stack rather than
+/// recursion.
+fn to_value(root: Node, input: &str) -> Result<Value> {
+    let mut open: Vec<Convert> = Vec::new();
+    let mut next = root;
+    loop {
+        let mut done = match &mut next {
+            Node::Scalar(raw, style) => Some(scalar_value(raw, *style)),
+            Node::Seq(items) => {
+                let items = std::mem::take(items);
+                let values = Vec::with_capacity(items.len());
+                open.push(Convert::Seq(items.into_iter(), values));
+                None
             }
-            Value::Object(object)
+            Node::Map(entries) => {
+                open.push(Convert::Map(
+                    std::mem::take(entries).into_iter(),
+                    Object::new(),
+                    None,
+                ));
+                None
+            }
+        };
+        loop {
+            let Some(top) = open.last_mut() else {
+                return Ok(done.expect("the root value is complete"));
+            };
+            let child = match top {
+                Convert::Seq(rest, values) => {
+                    if let Some(value) = done.take() {
+                        values.push(value);
+                    }
+                    rest.next()
+                }
+                Convert::Map(rest, object, pending) => {
+                    // validateYAMLKeys: each value is checked before its key, then the key
+                    // against the keys before it.
+                    if let Some(value) = done.take() {
+                        let key = pending.take().expect("a key awaits its value");
+                        let name = key_text(scalar_of(&key.raw, key.style));
+                        if object.contains_key(&name) {
+                            return Err(AtlasError::Message(source_error(
+                                "duplicated mapping key",
+                                input,
+                                key.line,
+                                key.column,
+                            )));
+                        }
+                        object.insert(name, value);
+                    }
+                    rest.next().map(|(key, node)| {
+                        *pending = Some(key);
+                        node
+                    })
+                }
+            };
+            if let Some(child) = child {
+                next = child;
+                break;
+            }
+            done = Some(match open.pop() {
+                Some(Convert::Seq(_, values)) => Value::Array(values),
+                Some(Convert::Map(_, object, _)) => Value::Object(object),
+                None => unreachable!("the top collection was just read"),
+            });
         }
-    })
+    }
 }
 
 /// The Go tool's `yamlSourceError`: the reason, the position and a snippet of the source
@@ -1804,13 +2108,15 @@ fn string_out(text: &str) -> Result<Out> {
     // starts with a tab), Node.Encode fails, the Go tool ignores the error and the empty
     // node it keeps is written as `null`.
     let read_back = Parser::new(&alone.out).and_then(|mut parser| parser.document());
-    let Ok(Some(Node::Scalar(value, style))) = read_back else {
+    let mut read_back = read_back;
+    let Ok(Some(Node::Scalar(value, style))) = &mut read_back else {
         return Ok(Out {
             value: "null".to_owned(),
             style: Style::Plain,
             merge: false,
         });
     };
+    let (value, style) = (std::mem::take(value), *style);
     let merge = style == Style::Plain && value == "<<";
     let quote =
         !text.contains(['\0', '\t', '\r', '\n']) && (style == Style::Double || is_bool_like(text));
@@ -1834,6 +2140,12 @@ fn scalar_out(value: &Value) -> Result<Out> {
         Value::String(s) => string_out(s)?,
         Value::Array(_) | Value::Object(_) => unreachable!("collections are not scalars"),
     })
+}
+
+/// A mapping or sequence being written by [`Emitter::node`]: its remaining entries.
+enum Emit<'a> {
+    Map(Box<dyn Iterator<Item = (&'a str, &'a Value)> + 'a>),
+    Seq(std::slice::Iter<'a, Value>),
 }
 
 /// A port of the parts of yaml.v3's emitter that `MarshalYAML` reaches: block collections,
@@ -1923,48 +2235,72 @@ impl Emitter {
         self.write_indent();
     }
 
+    /// Writes `value`. Nested mappings and sequences are walked with an explicit stack, so
+    /// the depth of `value` does not use the thread's stack.
     fn node(&mut self, value: &Value, in_sequence_item: bool) -> Result<()> {
-        match value {
-            Value::Object(object) if object.is_empty() => {
-                self.write_indicator("{", true, true, false);
-                self.write_indicator("}", false, false, false);
-            }
-            Value::Array(items) if items.is_empty() => {
-                self.write_indicator("[", true, true, false);
-                self.write_indicator("]", false, false, false);
-            }
-            Value::Object(object) => {
-                self.increase_indent(false, in_sequence_item);
-                for (key, value) in object.iter() {
-                    self.write_indent();
-                    let key = string_out(key)?;
-                    let analysis = analyze(&key.value);
-                    let length = key.value.len() + if key.merge { 7 } else { 0 };
-                    if !analysis.multiline && length <= 128 {
-                        self.scalar(&key, false, true)?;
-                        self.write_indicator(":", false, false, false);
-                    } else {
-                        self.write_indicator("?", true, false, true);
-                        self.scalar(&key, false, false)?;
-                        self.write_indent();
-                        self.write_indicator(":", true, false, true);
+        let mut open: Vec<Emit<'_>> = Vec::new();
+        let mut next = Some((value, in_sequence_item));
+        loop {
+            if let Some((value, in_sequence_item)) = next.take() {
+                match value {
+                    Value::Object(object) if object.is_empty() => {
+                        self.write_indicator("{", true, true, false);
+                        self.write_indicator("}", false, false, false);
                     }
-                    self.node(value, false)?;
+                    Value::Array(items) if items.is_empty() => {
+                        self.write_indicator("[", true, true, false);
+                        self.write_indicator("]", false, false, false);
+                    }
+                    Value::Object(object) => {
+                        self.increase_indent(false, in_sequence_item);
+                        open.push(Emit::Map(Box::new(object.iter())));
+                    }
+                    Value::Array(items) => {
+                        self.increase_indent(false, in_sequence_item);
+                        open.push(Emit::Seq(items.iter()));
+                    }
+                    _ => self.scalar(&scalar_out(value)?, in_sequence_item, false)?,
                 }
-                self.pop_indent();
             }
-            Value::Array(items) => {
-                self.increase_indent(false, in_sequence_item);
-                for item in items {
-                    self.write_indent();
-                    self.write_indicator("-", true, false, true);
-                    self.node(item, true)?;
-                }
-                self.pop_indent();
+            let Some(top) = open.last_mut() else {
+                return Ok(());
+            };
+            match top {
+                Emit::Map(entries) => match entries.next() {
+                    Some((key, value)) => {
+                        self.write_indent();
+                        let key = string_out(key)?;
+                        let analysis = analyze(&key.value);
+                        let length = key.value.len() + if key.merge { 7 } else { 0 };
+                        if !analysis.multiline && length <= 128 {
+                            self.scalar(&key, false, true)?;
+                            self.write_indicator(":", false, false, false);
+                        } else {
+                            self.write_indicator("?", true, false, true);
+                            self.scalar(&key, false, false)?;
+                            self.write_indent();
+                            self.write_indicator(":", true, false, true);
+                        }
+                        next = Some((value, false));
+                    }
+                    None => {
+                        self.pop_indent();
+                        open.pop();
+                    }
+                },
+                Emit::Seq(items) => match items.next() {
+                    Some(item) => {
+                        self.write_indent();
+                        self.write_indicator("-", true, false, true);
+                        next = Some((item, true));
+                    }
+                    None => {
+                        self.pop_indent();
+                        open.pop();
+                    }
+                },
             }
-            _ => self.scalar(&scalar_out(value)?, in_sequence_item, false)?,
         }
-        Ok(())
     }
 
     fn scalar(&mut self, out: &Out, in_sequence_item: bool, simple_key: bool) -> Result<()> {
@@ -2333,5 +2669,142 @@ mod tests {
         );
         assert_eq!(write_json(r#""x""#), "x\n");
         assert_eq!(write_json("[]"), "[]\n");
+    }
+
+    // The depth tests run on the default test thread (2 MiB unless RUST_MIN_STACK says
+    // otherwise). Their messages are the Go tool's, checked against the reference build.
+
+    /// The message of the error `parse` gives for `text`.
+    fn error_message(text: &str) -> String {
+        match parse(text) {
+            Err(AtlasError::Message(message)) => message,
+            Err(other) => panic!("expected a YAML error, got {other}"),
+            Ok(_) => panic!("expected a YAML error, got a value"),
+        }
+    }
+
+    const TOO_DEEP: &str = "exceeded max depth of 10000";
+
+    #[test]
+    fn deep_flow_nesting_is_limited_as_in_go() {
+        let seqs = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
+        let value = read(&format!("version: '1'\ndomains: {}\n", seqs(MAX_DEPTH)));
+        let domains = value.as_object().unwrap().get("domains").unwrap();
+        assert_eq!(json::to_compact_string(domains).unwrap(), seqs(MAX_DEPTH));
+        assert_eq!(
+            error_message(&format!("version: '1'\ndomains: {}\n", seqs(MAX_DEPTH + 1))),
+            format!("yaml: line 2: {TOO_DEEP}")
+        );
+        // On the first line yaml.v3 reports no line.
+        read(&seqs(MAX_DEPTH));
+        assert_eq!(
+            error_message(&seqs(MAX_DEPTH + 1)),
+            format!("yaml: {TOO_DEEP}")
+        );
+        // Flow mappings count the same way.
+        let maps = |n: usize| format!("{}b{}", "{a: ".repeat(n), "}".repeat(n));
+        let value = read(&format!("version: '1'\nx: {}\n", maps(MAX_DEPTH)));
+        let mut node = value.as_object().unwrap().get("x").unwrap();
+        for _ in 0..MAX_DEPTH {
+            node = node.as_object().unwrap().get("a").unwrap();
+        }
+        assert_eq!(node.as_str(), Some("b"));
+        assert_eq!(
+            error_message(&format!("version: '1'\nx: {}\n", maps(MAX_DEPTH + 1))),
+            format!("yaml: line 2: {TOO_DEEP}")
+        );
+        // Far deeper input is the same error, not a stack overflow.
+        assert_eq!(
+            error_message(&format!("version: '1'\ndomains: {}\n", seqs(100_000))),
+            format!("yaml: line 2: {TOO_DEEP}")
+        );
+    }
+
+    #[test]
+    fn deep_block_nesting_is_limited_as_in_go() {
+        let entries = |n: usize| format!("{}x\n", "- ".repeat(n));
+        let value = read(&entries(MAX_DEPTH));
+        let mut node = &value;
+        for _ in 0..MAX_DEPTH {
+            node = &node.as_array().unwrap()[0];
+        }
+        assert_eq!(node.as_str(), Some("x"));
+        // A sequence's error reports the line of the last simple key before it, or the
+        // line of its `-` when that is line 1, or no line.
+        assert_eq!(
+            error_message(&entries(MAX_DEPTH + 1)),
+            format!("yaml: {TOO_DEEP}")
+        );
+        let under_key = |n: usize| format!("version: '1'\nfoo: bar\ndomains:\n  {}", entries(n));
+        read(&under_key(MAX_DEPTH - 1));
+        assert_eq!(
+            error_message(&under_key(MAX_DEPTH)),
+            format!("yaml: line 3: {TOO_DEEP}")
+        );
+        // An indentless sequence opens no indentation level.
+        let indentless = |n: usize| format!("a:\n{}", entries(n));
+        read(&indentless(MAX_DEPTH));
+        assert_eq!(
+            error_message(&indentless(MAX_DEPTH + 1)),
+            format!("yaml: line 2: {TOO_DEEP}")
+        );
+        // A mapping's error reports the line of its first key.
+        let maps = |seqs: usize| {
+            let col = 2 * seqs;
+            format!(
+                "{}k0:\n{}k1:\n{}k2: v\n",
+                "- ".repeat(seqs),
+                " ".repeat(col + 2),
+                " ".repeat(col + 4)
+            )
+        };
+        read(&maps(MAX_DEPTH - 3));
+        assert_eq!(
+            error_message(&maps(MAX_DEPTH - 2)),
+            format!("yaml: line 3: {TOO_DEEP}")
+        );
+        // Mappings nested one line at a time, as far as yaml.v3 allows and one more.
+        let nested = |n: usize| {
+            let mut text = String::from("version: '1'\ndomains:\n");
+            for i in 1..n {
+                text.push_str(&" ".repeat(i));
+                text.push_str("k:\n");
+            }
+            text.push_str(&" ".repeat(n));
+            text.push_str("v: 1\n");
+            text
+        };
+        read(&nested(MAX_DEPTH - 1));
+        assert_eq!(
+            error_message(&nested(MAX_DEPTH)),
+            format!("yaml: line {}: {TOO_DEEP}", MAX_DEPTH + 2)
+        );
+        // Far deeper input is the same error, not a stack overflow.
+        assert_eq!(
+            error_message(&entries(100_000)),
+            format!("yaml: {TOO_DEEP}")
+        );
+    }
+
+    #[test]
+    fn deep_values_convert_drop_and_write_on_a_default_stack() {
+        // A deep subtree is complete when a later error discards it.
+        let text = format!(
+            "a: {}{}\na: 1\n",
+            "[".repeat(MAX_DEPTH),
+            "]".repeat(MAX_DEPTH)
+        );
+        assert!(error_message(&text).starts_with("duplicated mapping key (2:1)"));
+        // A deep value is written as yaml.v3 writes it: the sequence that was indentless
+        // is indented, so it opens one more level when read back (in the Go tool too).
+        let value = read(&format!("a:\n{}x\n", "- ".repeat(MAX_DEPTH)));
+        let written = to_yaml_string(&value).unwrap();
+        assert_eq!(written, format!("a:\n  {}x\n", "- ".repeat(MAX_DEPTH)));
+        assert_eq!(error_message(&written), format!("yaml: line 2: {TOO_DEEP}"));
+        let value = read(&format!("a:\n{}x\n", "- ".repeat(MAX_DEPTH - 1)));
+        assert_eq!(
+            json::to_compact_string(&read(&to_yaml_string(&value).unwrap())).unwrap(),
+            json::to_compact_string(&value).unwrap()
+        );
     }
 }

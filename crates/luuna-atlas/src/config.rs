@@ -447,4 +447,41 @@ mod tests {
             text
         );
     }
+
+    #[test]
+    fn too_deep_config_is_the_go_error() {
+        // On the default test thread: the reader returns yaml.v3's depth error, wrapped
+        // as the Go tool wraps it, instead of overflowing the stack.
+        let deep = |n: usize| {
+            format!(
+                "version: '1'\ndomains: {}{}\n",
+                "[".repeat(n),
+                "]".repeat(n)
+            )
+        };
+        let dir = store(Some(&deep(10_001)));
+        match read_config(dir.path()) {
+            Err(AtlasError::Message(message)) => assert_eq!(
+                message,
+                "Failed to parse config.yaml: yaml: line 2: exceeded max depth of 10000. Check the YAML syntax."
+            ),
+            other => panic!("expected the depth error, got {:?}", other.map(|_| ())),
+        }
+        // As deep as yaml.v3 allows reads; a list of non-strings gives no domains.
+        assert_eq!(
+            read_json(&deep(10_000)),
+            format!(r#"{{"version":"1","domains":{{}},{DEFAULT_TAIL}}}"#)
+        );
+        let maps = format!(
+            "domains: {}{{}}{}\n",
+            "{a: ".repeat(9_999),
+            "}".repeat(9_999)
+        );
+        let config = read_json(&maps);
+        assert!(
+            config.starts_with(r#"{"domains":{"a":{"a":"#),
+            "{}",
+            &config[..40]
+        );
+    }
 }
