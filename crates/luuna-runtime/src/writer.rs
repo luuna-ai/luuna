@@ -2248,15 +2248,23 @@ fn credential_parameter(name: &str) -> bool {
 
 const MAX_GUARD_WRITERS: usize = 4;
 static GUARD_WRITERS: AtomicUsize = AtomicUsize::new(0);
+/// One caller still waiting on a live guard-writer thread, counted in the high
+/// half of a writer counter; the low half counts the live threads themselves.
+const GUARD_WAITER: usize = 1 << (usize::BITS / 2);
+/// Woken whenever either half of any writer counter falls.
+static GUARD_WRITERS_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 /// Installs the scope guard under `deadline`. The installation is synchronous
 /// file I/O that a deadline cannot interrupt, so it runs on its own detached
 /// thread (which, like an abandoned feedback read, cannot hold up runtime
 /// shutdown); when the deadline passes first, `Ok(None)` is returned and the
 /// write is left to finish or fail on its own. At most `MAX_GUARD_WRITERS`
-/// such threads exist at once, so writes abandoned on a permanently stalled
-/// mount cannot accumulate threads without bound; once the cap is reached the
-/// session is refused, since Pi never starts without its guard.
+/// such threads exist at once, healthy and abandoned together, so writes
+/// abandoned on a permanently stalled mount cannot accumulate threads without
+/// bound. While the cap is held by writes whose callers are still waiting on
+/// them, an install waits, within its deadline, for a slot; once every held
+/// slot belongs to a write abandoned after its deadline or cancellation, the
+/// session is refused at once, since Pi never starts without its guard.
 pub(crate) async fn install_guard_by(
     directory: PathBuf,
     deadline: tokio::time::Instant,
@@ -2269,27 +2277,57 @@ async fn install_guard_with(
     deadline: tokio::time::Instant,
     writers: &'static AtomicUsize,
 ) -> Result<Option<PathBuf>, String> {
+    // `writers` holds two counts: its low half the live guard-writer threads,
+    // its high half (in units of `GUARD_WAITER`) the callers still waiting on
+    // one of them. With no caller waiting it equals the number of live threads.
     struct Slot(&'static AtomicUsize);
     impl Drop for Slot {
         fn drop(&mut self) {
             self.0.fetch_sub(1, Ordering::AcqRel);
+            GUARD_WRITERS_CHANGED.notify_waiters();
         }
     }
-    if writers
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-            (n < MAX_GUARD_WRITERS).then_some(n + 1)
-        })
-        .is_err()
-    {
-        return Err("too many stalled scope guard writers; session refused".into());
+    // Lowers the waiting half on every way out once a slot is taken: result
+    // received, deadline passed, thread start failed or the future dropped.
+    struct Waiting(&'static AtomicUsize);
+    impl Drop for Waiting {
+        fn drop(&mut self) {
+            self.0.fetch_sub(GUARD_WAITER, Ordering::AcqRel);
+            GUARD_WRITERS_CHANGED.notify_waiters();
+        }
     }
+    loop {
+        // Registered before the counter is read, so a fall in between still
+        // wakes this caller.
+        let changed = GUARD_WRITERS_CHANGED.notified();
+        let mut changed = std::pin::pin!(changed);
+        changed.as_mut().enable();
+        match writers.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            (n & (GUARD_WAITER - 1) < MAX_GUARD_WRITERS).then_some(n + 1 + GUARD_WAITER)
+        }) {
+            Ok(_) => break,
+            // Every live write was abandoned by its caller.
+            Err(n) if n < GUARD_WAITER => {
+                return Err("too many stalled scope guard writers; session refused".into());
+            }
+            Err(_) => {
+                if tokio::time::timeout_at(deadline, changed).await.is_err() {
+                    return Ok(None);
+                }
+            }
+        }
+    }
+    let _waiting = Waiting(writers);
     let slot = Slot(writers);
     let (sender, receiver) = tokio::sync::oneshot::channel();
     std::thread::Builder::new()
         .name("luuna-scope-guard".into())
         .spawn(move || {
-            let _slot = slot;
-            let _ = sender.send(install_scope_guard(&directory));
+            let installed = install_scope_guard(&directory);
+            // Released before the result is sent, so a caller holding its
+            // result never leaves its thread counted.
+            drop(slot);
+            let _ = sender.send(installed);
         })
         .map_err(|e| format!("cannot start the scope guard writer: {e}"))?;
     match tokio::time::timeout_at(deadline, receiver).await {
