@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "command": "propose",
+  "id": "<PROPOSAL_ID>",
+  "proposal": {
+    "id": "<PROPOSAL_ID>",
+    "kind": "edge",
+    "from": "r-bb76",
+    "to": "r-e724",
+    "rel": "tension",
+    "reason": "The interface and offline mode trade off.",
+    "cites": [
+      {
+        "node": "r-bb76",
+        "quote": "The interface remains comprehensible."
+      },
+      {
+        "node": "r-e724",
+        "quote": "Offline mode depends on durable sync."
+      }
+    ],
+    "by": "agent:fixture",
+    "status": "pending",
+    "createdAt": "<CREATED_AT>",
+    "expiresAt": "<EXPIRES_AT>"
+  }
+}

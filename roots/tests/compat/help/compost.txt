@@ -1,0 +1,11 @@
+Usage: luuna-roots compost <id> [--reason <t>]
+
+Retire an idea
+
+Options:
+      --reason <text>  Why it is retired
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

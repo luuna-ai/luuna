@@ -1,0 +1,11 @@
+Usage: luuna-roots init
+
+Initialize .luuna/roots/ in the current directory
+
+Creates .luuna/roots/ (config.yaml, JSONL stores, human/ and agent/ trees) and adds
+`.luuna/roots/*.jsonl merge=union` to .gitattributes. Fails if already initialized.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

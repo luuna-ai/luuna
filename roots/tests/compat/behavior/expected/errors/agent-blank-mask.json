@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "command": "ask",
+  "error": "agent commands need an identity: pass --as agent:<model> or set LUUNA_ROOTS_AGENT",
+  "code": "guard"
+}

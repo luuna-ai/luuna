@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "command": "commit",
+  "error": "r-7528 is only planted; shape it with `luuna-roots think r-7528` before committing",
+  "code": "conflict",
+  "from": "planted",
+  "to": "committed"
+}

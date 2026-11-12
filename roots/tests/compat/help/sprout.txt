@@ -1,0 +1,20 @@
+Usage: luuna-roots sprout <statement> [--file <md>]
+
+Propose a new idea in the agent tree (tier ≥ 2)
+
+The statement is one claim in one line. --file adds prose after it (Markdown).
+A sprout never becomes an idea: a human may adopt it (they rewrite it in their own
+words) or reject it, in `luuna-roots tend`. Refused below tier 2, at limits.sprouts open
+sprouts, or when the statement matches an idea, an open or adopted sprout, or a
+rejected one (rejections are permanent). Open sprouts expire after
+limits.sproutTtlDays.
+
+Options:
+      --file <md>         Prose after the statement
+      --slug <slug>       Slug (default: from statement)
+      --as agent:<model>  Agent identity (default: $ROOTS_AGENT)
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

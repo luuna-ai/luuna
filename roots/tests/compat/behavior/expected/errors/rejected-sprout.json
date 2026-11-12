@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "command": "sprout",
+  "error": "duplicate sprout: the human rejected it (<SPROUT_ID>: \"Already covered by the tension.\"); rejections are permanent",
+  "code": "validation",
+  "duplicate": "<SPROUT_ID>"
+}

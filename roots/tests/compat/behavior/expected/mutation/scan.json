@@ -1,0 +1,64 @@
+{
+  "success": true,
+  "command": "scan",
+  "ideas": [
+    {
+      "node": "r-7528",
+      "slug": "durable-sync",
+      "changed": false,
+      "scanned": true,
+      "mentions": [],
+      "filed": [],
+      "skipped": []
+    },
+    {
+      "node": "r-e724",
+      "slug": "resilient-offline",
+      "changed": false,
+      "scanned": true,
+      "mentions": [
+        {
+          "target": "r-7528",
+          "line": 1,
+          "text": "Offline mode depends on durable sync.",
+          "via": "slug",
+          "match": "durable sync"
+        }
+      ],
+      "filed": [
+        {
+          "id": "<MENTION_PROPOSAL_ID>",
+          "kind": "edge",
+          "from": "r-e724",
+          "to": "r-7528",
+          "rel": null,
+          "reason": "mentions durable-sync (slug: \"durable sync\")",
+          "cites": [
+            {
+              "node": "r-e724",
+              "quote": "Offline mode depends on durable sync."
+            },
+            {
+              "node": "r-7528",
+              "quote": "Durable sync preserves local work."
+            }
+          ],
+          "by": "roots:mention",
+          "status": "pending",
+          "createdAt": "<CREATED_AT>",
+          "expiresAt": "<EXPIRES_AT>"
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "node": "r-bb76",
+      "slug": "interface",
+      "changed": false,
+      "scanned": true,
+      "mentions": [],
+      "filed": [],
+      "skipped": []
+    }
+  ]
+}

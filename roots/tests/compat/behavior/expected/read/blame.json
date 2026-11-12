@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "command": "blame",
+  "node": "r-7528",
+  "slug": "durable-sync",
+  "path": ".luuna\\roots\\human\\7528-durable-sync\\idea.md",
+  "lines": [
+    {
+      "n": 1,
+      "text": "Durable sync preserves local work.",
+      "question": null
+    }
+  ],
+  "answers": [],
+  "untracked": 0
+}

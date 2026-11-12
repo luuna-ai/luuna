@@ -1,0 +1,20 @@
+Usage: luuna-roots setup claude [--project|--user] [--remove] [--dry-run]
+
+Install harness hooks (claude): prime on start, guard on edits
+
+Merges roots hooks into .claude/settings.json (project, default) or
+~/.claude/settings.json (--user): SessionStart `luuna-roots prime --hook`, PreToolUse
+`luuna-roots guard` on Write|Edit|MultiEdit|NotebookEdit|Bash, and at tier 3 a Stop hook
+`luuna-roots drift --diff HEAD` (when available). Re-running is a no-op; other settings
+and hooks are kept. --remove takes out only roots hooks.
+
+Options:
+      --project  Edit <project>/.claude/settings.json (default)
+      --user     Edit ~/.claude/settings.json
+      --remove   Remove roots hooks
+      --dry-run  Show the result; write nothing
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

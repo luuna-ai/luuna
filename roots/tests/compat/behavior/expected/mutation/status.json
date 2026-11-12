@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "command": "status",
+  "id": "r-bb76",
+  "changed": true,
+  "from": "planted",
+  "to": "composted"
+}

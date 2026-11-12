@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "command": "link",
+  "error": "cannot tell who you are: set LUUNA_ROOTS_USER or `git config user.name` (human commands need a name)",
+  "code": "guard"
+}

@@ -1,0 +1,20 @@
+{"type":"init","by":"roots","at":"2026-10-23T02:12:09Z","project":"fixture-project"}
+{"type":"plant","by":"human:fixture-human","at":"2026-10-23T02:12:09Z","node":"r-7528","slug":"durable-sync","hash":"sha256:5a8feab32cb7e7325ab63239bf3530a6df331bf24761f624005ac26f0b77596a"}
+{"type":"plant","by":"human:fixture-human","at":"2026-10-23T02:12:09Z","node":"r-e724","slug":"offline-mode","hash":"sha256:daf7e32cf2383efcb144ab7a3c26aa7186e6fca1b5ffa9217a346c9440ebc9dc"}
+{"type":"plant","by":"human:fixture-human","at":"2026-10-23T02:12:09Z","node":"r-bb76","slug":"interface","hash":"sha256:4da6febf6189013e71e966a7243dfe71440ff2ad017da3e6e3c9e8e33ac06bb8"}
+{"type":"mv","by":"human:fixture-human","at":"2026-10-23T02:12:10Z","node":"r-e724","oldSlug":"offline-mode","newSlug":"resilient-offline"}
+{"type":"link","by":"human:fixture-human","at":"2026-10-23T02:12:10Z","node":"r-7528","refs":["r-e724"],"edge":"e-029e","rel":"serves"}
+{"type":"unlink","by":"human:fixture-human","at":"2026-10-23T02:12:10Z","node":"r-7528","refs":["r-e724"],"edge":"e-029e","rel":"serves"}
+{"type":"tier","by":"human:fixture-human","at":"2026-10-23T02:12:10Z","node":"r-7528","from":null,"to":1}
+{"type":"ask","by":"agent:fixture","at":"2026-10-23T02:12:10Z","node":"r-7528","question":"q-3d57"}
+{"type":"note","by":"agent:fixture","at":"2026-10-23T02:12:10Z","node":"r-7528","file":".luuna\\roots\\agent\\notes\\7528\\2026-10-23-evidence.txt","bytes":40,"hash":"sha256:d59fd1ac8927e9ee3ccff984cd56fd07f2a82518bfe4cbbea7a012bc30f69d46"}
+{"type":"propose","by":"agent:fixture","at":"2026-10-23T02:12:11Z","node":"r-bb76","refs":["r-e724"],"proposal":"p-70c9","kind":"edge","rel":"tension"}
+{"type":"accept","by":"human:fixture-human","at":"2026-10-23T02:12:11Z","node":"r-bb76","refs":["r-e724"],"proposal":"p-70c9","kind":"edge","rel":"tension","edge":"e-5543","edgeRel":"tension"}
+{"type":"sprout","by":"agent:fixture","at":"2026-10-23T02:12:11Z","node":"s-c752","slug":"add-reconciliation-model","hash":"sha256:036787801d10b614b24a06d348b36c3c589977c5cd18c392266ad82621306b8f","expiresAt":"2026-11-22T02:12:11Z"}
+{"type":"reject","by":"human:fixture-human","at":"2026-10-23T02:12:11Z","node":"s-c752","sprout":"s-c752","kind":"sprout","reason":"Already covered by the tension."}
+{"type":"flow.start","by":"human:fixture-human","at":"2026-10-23T02:13:34Z","flow":"fl-fixture"}
+{"type":"heading","by":"agent:fixture","at":"2026-10-23T02:13:34Z","refs":["r-7528","r-e724"],"heading":"h-a608","flow":"fl-fixture"}
+{"type":"propose","by":"roots:mention","at":"2026-10-23T02:13:34Z","node":"r-e724","refs":["r-7528"],"proposal":"p-c38e","kind":"edge","rel":null}
+{"type":"scan","by":"human:fixture-human","at":"2026-10-23T02:13:34Z","node":"r-e724","scannedHash":"sha256:daf7e32cf2383efcb144ab7a3c26aa7186e6fca1b5ffa9217a346c9440ebc9dc","proposals":["p-c38e"]}
+{"type":"compost","by":"human:fixture-human","at":"2026-10-23T02:13:35Z","node":"r-bb76","from":"planted","to":"composted"}
+{"type":"compost","by":"human:fixture-human","at":"2026-10-23T02:13:35Z","node":"r-e724","from":"planted","to":"composted","reason":"Replaced by the focused tension."}

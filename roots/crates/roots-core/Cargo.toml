@@ -1,0 +1,17 @@
+[package]
+name = "roots-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+rand.workspace = true
+time.workspace = true
+unicode-normalization.workspace = true

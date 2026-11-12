@@ -1,0 +1,12 @@
+Usage: luuna-roots tier <id> [<0-3>|default]
+
+Per-idea agent tier override
+
+Tiers: 0 off, 1 ask, 2 propose, 3 observe. `luuna-roots tier <id> 0` keeps agents out of an
+idea you want to think about alone; `default` removes the override so the idea
+follows `tier:` in .luuna/roots/config.yaml. With no tier, prints the effective tier.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

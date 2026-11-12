@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "command": "note",
+  "id": "r-7528",
+  "note": {
+    "name": "<NOTE_DATE>-evidence.txt",
+    "path": ".luuna\\roots\\agent\\notes\\7528\\<NOTE_DATE>-evidence.txt",
+    "bytes": 40
+  },
+  "question": null
+}

@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "command": "prime",
+  "project": "fixture-project",
+  "tier": {
+    "tier": 2,
+    "name": "propose",
+    "source": "config"
+  },
+  "questionsPerSession": 3,
+  "scope": "r-7528",
+  "ideas": 1,
+  "committed": 0,
+  "serves": [],
+  "tree": [
+    {
+      "id": "r-7528",
+      "slug": "durable-sync",
+      "status": "planted",
+      "statement": "Durable sync preserves local work.",
+      "tier": 1,
+      "children": []
+    }
+  ],
+  "tensions": [],
+  "overrides": [
+    {
+      "id": "r-7528",
+      "slug": "durable-sync",
+      "tier": 1
+    }
+  ]
+}

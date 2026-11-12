@@ -1,0 +1,14 @@
+Usage: luuna-roots reject <p-id|s-id> [--reason <t>]
+
+Reject a proposal or sprout; remembered permanently
+
+Agents can never file the same proposal (or sprout statement) again. The reason
+goes into their context packet, so say what was wrong.
+
+Options:
+      --reason <text>  Why (agents see this)
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

@@ -1,0 +1,54 @@
+{
+  "success": true,
+  "command": "context",
+  "project": "fixture-project",
+  "node": {
+    "id": "r-7528",
+    "kind": "idea",
+    "slug": "durable-sync",
+    "status": "planted",
+    "author": "human:fixture-human",
+    "createdAt": "2026-10-23T02:12:09Z",
+    "updatedAt": "2026-10-23T02:12:10Z"
+  },
+  "statement": "Durable sync preserves local work.",
+  "body": "",
+  "endorsed": null,
+  "thoughts": null,
+  "path": ".luuna\\roots\\human\\7528-durable-sync\\idea.md",
+  "tier": {
+    "tier": 1,
+    "name": "ask",
+    "source": "idea",
+    "config": 2
+  },
+  "session": null,
+  "neighbors": [],
+  "questions": [
+    {
+      "id": "q-3d57",
+      "text": "Who owns conflict resolution?",
+      "by": "agent:fixture",
+      "status": "open",
+      "createdAt": "2026-10-23T02:12:10Z",
+      "findings": []
+    }
+  ],
+  "rejectedProposals": [],
+  "notes": [
+    {
+      "name": "<NOTE_DATE>-evidence.txt",
+      "path": ".luuna\\roots\\agent\\notes\\7528\\<NOTE_DATE>-evidence.txt",
+      "bytes": 40
+    }
+  ],
+  "seeds": [],
+  "mulch": [],
+  "limits": {
+    "questionsPerSession": 3,
+    "agentQuestionsOpen": 1,
+    "asksRemaining": 2,
+    "questionMaxLength": 280
+  },
+  "repo": null
+}

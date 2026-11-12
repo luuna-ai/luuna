@@ -1,0 +1,61 @@
+luuna-roots v0.0.0: human-owned intent for Luuna projects
+
+Usage: luuna-roots <command> [options]
+
+Setup
+  init                          Initialize .luuna/roots/ in the current directory
+  setup claude [--project|--user] [--remove] [--dry-run]
+                                Install harness hooks (claude): prime on start, guard on edits
+  guard                         PreToolUse hook: deny agent edits to .luuna/roots/human/ (reads hook JSON on stdin)
+
+Capture and think (human)
+  plant [<statement>]           Create an idea. With no argument, opens $EDITOR
+  think [<id>]                  Run a think session. With no id, picks from the queue
+  flow [<id>]                   Think, review and plant in one session; the agent works in the background
+  adopt <sprout-id>             Create a new idea from a sprout (rewrite it, or --endorse it with your thoughts)
+  mv <id> <new-slug>            Rename an idea or sprout (the id is stable)
+
+Structure (human)
+  tend                          Interactive review: proposals, sprouts, expiring items
+  accept <p-id|s-id>            Accept a proposal (s-: adopt a sprout)
+  reject <p-id|s-id> [--reason <t>]
+                                Reject a proposal or sprout; remembered permanently
+  link <a> <b> <rel>            Add an edge directly
+  scan [<id>]                   Find mentions in edits made outside a session
+  unlink <edge-id>              Remove an edge
+  commit <id>                   Set status to committed
+  status <id> <status>          Change an idea's status
+  compost <id> [--reason <t>]   Retire an idea
+  tier <id> [<0-3>|default]     Per-idea agent tier override
+
+Agent-facing (agent)
+  context <id>                  Context packet for one idea (prose, neighbors, history)
+  prime [--scope <id>]          Accepted graph as agent context (anchors → committed ideas)
+  drift [--diff <rev>]          Ideas a repo change touches (tier 3; the Stop hook)
+  ask <id> <question>           Queue a question about an idea (tier ≥ 1)
+  note <id> --file <path>       Attach an artifact to an idea under agent/notes (tier ≥ 1)
+  propose edge|split|merge|compost ...
+                                Propose an edge, split, merge or compost (tier ≥ 2)
+  sprout <statement> [--file <md>]
+                                Propose a new idea in the agent tree (tier ≥ 2)
+  heading <text> --cite <id>:<quote> ... [--next <id>]
+                                Say where a flow session is going (tier ≥ 1)
+
+Read (anyone)
+  show <id>                     Show an idea or sprout with edges, questions and history
+  blame <id>                    Show which question each line of an idea answered
+  list [--status <s>] [--kind idea|sprout] [--orphans] [--anchors]
+                                List ideas and sprouts
+  queue                         What needs attention: open questions, pending proposals, sprouts
+  log [<id>]                    Event history (all, or for one node)
+  view [--from <id>] [--sprouts] [--html] [--out <file>]
+                                Compiled culmination: anchors, what serves them, tensions, questions
+  verify                        Check the human/agent boundary + graph invariants
+
+Global options:
+      --json     Machine-readable JSON output
+  -q, --quiet    Suppress non-essential output
+  -h, --help     Show help for this command
+  -v, --version  Print the version
+
+Run `luuna-roots <command> --help` for details. Every command accepts --json.

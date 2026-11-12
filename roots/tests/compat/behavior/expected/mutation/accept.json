@@ -1,0 +1,45 @@
+{
+  "success": true,
+  "command": "accept",
+  "id": "<PROPOSAL_ID>",
+  "action": "accept",
+  "proposals": [
+    {
+      "id": "<PROPOSAL_ID>",
+      "kind": "edge",
+      "from": "r-bb76",
+      "to": "r-e724",
+      "rel": "tension",
+      "reason": "The interface and offline mode trade off.",
+      "cites": [
+        {
+          "node": "r-bb76",
+          "quote": "The interface remains comprehensible."
+        },
+        {
+          "node": "r-e724",
+          "quote": "Offline mode depends on durable sync."
+        }
+      ],
+      "by": "agent:fixture",
+      "status": "accepted",
+      "createdAt": "<CREATED_AT>",
+      "expiresAt": "<EXPIRES_AT>",
+      "decidedBy": "human:fixture-human",
+      "decidedAt": "<CREATED_AT>"
+    }
+  ],
+  "edge": {
+    "type": "edge",
+    "id": "<ACCEPTED_EDGE_ID>",
+    "from": "r-bb76",
+    "to": "r-e724",
+    "rel": "tension",
+    "by": "human:fixture-human",
+    "proposedBy": "agent:fixture",
+    "proposal": "<PROPOSAL_ID>",
+    "createdAt": "<CREATED_AT>"
+  },
+  "statusChanges": [],
+  "think": null
+}

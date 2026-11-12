@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "command": "list",
+  "error": "not a roots project (no .luuna/roots/ found from <ROOT>); run `luuna-roots init`",
+  "code": "not_initialized"
+}

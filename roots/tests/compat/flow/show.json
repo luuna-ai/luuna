@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "command": "show",
+  "node": {
+    "type": "node",
+    "id": "<SPROUT_ID>",
+    "kind": "sprout",
+    "slug": "agent-candidate",
+    "status": "open",
+    "author": "agent:fixture",
+    "createdAt": "<CREATED_AT>",
+    "updatedAt": "<CREATED_AT>",
+    "expiresAt": "<EXPIRES_AT>"
+  },
+  "statement": "Agent candidate",
+  "body": "",
+  "endorsed": null,
+  "thoughts": null,
+  "path": ".luuna\\roots\\agent\\sprouts\\<SPROUT_HEX>-agent-candidate\\sprout.md",
+  "missing": false,
+  "edges": [],
+  "questions": [],
+  "proposals": [],
+  "contributors": [
+    "agent:fixture"
+  ],
+  "notes": [],
+  "seeds": [],
+  "mulch": []
+}

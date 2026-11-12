@@ -1,0 +1,18 @@
+Usage: luuna-roots drift [--diff <rev>]
+
+Ideas a repo change touches (tier 3; the Stop hook)
+
+Read-only. Lists live ideas touched by changes since <rev> (default HEAD: uncommitted
+and untracked files): slug words in a changed path, idea/notes or a linked seeds issue
+naming a changed file, or a commit in <rev>..HEAD citing the r- id; plus the ideas they
+serve. The agent may then `luuna-roots ask <id>` whether the idea still holds.
+Hook-safe: never exits non-zero for git/tier/project reasons; below project tier 3
+(or with nothing touched) it prints nothing. --json always explains (`skipped`).
+
+Options:
+      --diff <rev>  Compare the working tree against <rev> (default HEAD)
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

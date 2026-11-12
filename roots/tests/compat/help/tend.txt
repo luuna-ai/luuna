@@ -1,0 +1,19 @@
+Usage: luuna-roots tend
+
+Interactive review: proposals, sprouts, expiring items
+
+One card per proposal (a mention and an agent proposal for the same pair share a
+card), soonest expiry first. Keys: [y] accept  [n] reject  [r] reject with a reason
+[s] skip  [q] quit. Mention cards: [1] serves [2] tension [3] replaces. Merge cards:
+[1]/[2] pick the idea that survives. Accepting a split opens a think session on the
+idea with the split shown as guidance. Sprout cards: [y] adopts it (you write the
+idea yourself in $EDITOR; nothing is copied), [n]/[r] reject it for good.
+--json lists the cards and decides nothing.
+
+Options:
+      --no-split  No split panes (think after a split; the sprout while adopting)
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

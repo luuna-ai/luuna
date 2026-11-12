@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "command": "heading",
+  "id": "<HEADING_ID>",
+  "heading": {
+    "id": "<HEADING_ID>",
+    "flow": "fl-heading",
+    "text": "Clarify r-7528 ownership.",
+    "cites": [
+      {
+        "node": "r-7528",
+        "quote": "Durable sync"
+      }
+    ],
+    "next": "r-e724",
+    "by": "agent:fixture",
+    "status": "active",
+    "createdAt": "<CREATED_AT>"
+  }
+}

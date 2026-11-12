@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Native Cargo pre-commit gate. Keep this aligned with the CI quality contract.
+set -eu
+
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo build --workspace --release --locked

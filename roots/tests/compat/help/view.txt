@@ -1,0 +1,21 @@
+Usage: luuna-roots view [--from <id>] [--sprouts] [--html] [--out <file>]
+
+Compiled culmination: anchors, what serves them, tensions, questions
+
+Anchors (committed/shaping ideas that serve nothing) with the ideas that serve them,
+depth-first; an idea serving several anchors is printed once, then referenced. Then
+tensions and open questions. Composted ideas and sprouts are left out; planted ideas
+not under an anchor are listed in one line each. Only human prose and human-accepted
+structure. --sprouts adds a separate [agent] section. With view.write: true in
+config.yaml, ROOTS.md at the repo root is refreshed with the default view.
+
+Options:
+      --from <id>   Start from this idea
+      --sprouts     Append "Agent proposals (not accepted)"
+      --html        A static page with a graph and timelines
+      --out <file>  Write to a file, not stdout
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

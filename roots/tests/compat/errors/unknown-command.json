@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "command": "plnt",
+  "error": "unknown command: plnt. Did you mean `roots plant`?",
+  "code": "usage",
+  "suggestion": "plant"
+}

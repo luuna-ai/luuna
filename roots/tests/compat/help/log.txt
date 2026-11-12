@@ -1,0 +1,11 @@
+Usage: luuna-roots log [<id>]
+
+Event history (all, or for one node)
+
+Options:
+  -n, --limit <n>  Only the most recent n events
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

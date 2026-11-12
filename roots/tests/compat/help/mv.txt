@@ -1,0 +1,10 @@
+Usage: luuna-roots mv <id> <new-slug>
+
+Rename an idea or sprout (the id is stable)
+
+Renames the directory and updates the slug. Edges reference ids, so no link breaks.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

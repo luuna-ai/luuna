@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "command": "setup",
+  "error": "`roots setup claude --remove` is a human command, but ROOTS_AGENT is set (agent:fixture); unset ROOTS_AGENT to run it yourself",
+  "code": "guard"
+}

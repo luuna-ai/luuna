@@ -1,0 +1,10 @@
+Usage: luuna-roots commit <id>
+
+Set status to committed
+
+You stand behind this idea. Only a shaping idea (thought about at least once) commits.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

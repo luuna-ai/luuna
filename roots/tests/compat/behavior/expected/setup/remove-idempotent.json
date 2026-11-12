@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "command": "setup",
+  "target": "claude",
+  "scope": "project",
+  "path": "<ROOT>\\setup\\.claude\\settings.json",
+  "action": "remove",
+  "changed": false,
+  "dryRun": false,
+  "hooks": []
+}

@@ -1,0 +1,16 @@
+Usage: luuna-roots prime [--scope <id>]
+
+Accepted graph as agent context (anchors → committed ideas)
+
+Prints anchors (top-level goals) with the ideas that serve them, tensions, the agent
+tier and a short command guide. Sprouts, proposals and composted ideas are left out.
+--scope limits the tree to one idea, what serves it, and what it serves.
+
+Options:
+      --scope <id>  Only this idea's subtree
+      --hook        Harness hook mode: print nothing (exit 0) outside a roots project
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

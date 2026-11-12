@@ -1,0 +1,15 @@
+Usage: luuna-roots verify
+
+Check the human/agent boundary + graph invariants
+
+Checks: files under .luuna/roots/human/ that are not an idea's idea.md or assets/, symlinks
+leaving human/, idea.md edits outside a think session and not in a human commit (hash
+ledger), authors (ideas human:*, sprouts agent:*, edges human:*, proposals agent:*/roots),
+graph invariants, dangling references, missing/orphan directories, malformed JSONL
+lines, events without `by`; warns when a built idea has linked seeds issues still open.
+Exits 6 on errors; warnings are listed but pass.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "command": "show",
+  "node": {
+    "type": "node",
+    "id": "r-7528",
+    "kind": "idea",
+    "slug": "durable-sync",
+    "status": "planted",
+    "author": "human:fixture-human",
+    "createdAt": "2026-10-23T02:12:09Z",
+    "updatedAt": "2026-10-23T02:12:10Z",
+    "tier": 1
+  },
+  "statement": "Durable sync preserves local work.",
+  "body": "",
+  "endorsed": null,
+  "thoughts": null,
+  "path": ".luuna\\roots\\human\\7528-durable-sync\\idea.md",
+  "missing": false,
+  "edges": [],
+  "questions": [
+    {
+      "id": "q-3d57",
+      "node": "r-7528",
+      "text": "Who owns conflict resolution?",
+      "by": "agent:fixture",
+      "status": "open",
+      "createdAt": "2026-10-23T02:12:10Z"
+    }
+  ],
+  "proposals": [],
+  "contributors": [
+    "human:fixture-human",
+    "agent:fixture"
+  ],
+  "notes": [
+    {
+      "name": "<NOTE_DATE>-evidence.txt",
+      "path": ".luuna\\roots\\agent\\notes\\7528\\<NOTE_DATE>-evidence.txt",
+      "bytes": 40
+    }
+  ],
+  "seeds": [],
+  "mulch": []
+}

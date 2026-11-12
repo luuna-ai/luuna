@@ -1,0 +1,14 @@
+Usage: luuna-roots queue
+
+What needs attention: open questions, pending proposals, sprouts
+
+Think next: ideas with open questions or questions the rules would ask, in the
+order `luuna-roots think` picks them. Then open questions, pending proposals and open
+sprouts (soonest expiry first). With seeds in the repo, committed ideas whose linked
+issues are all closed come first under "Ready to mark built" (roots never changes
+status itself).
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

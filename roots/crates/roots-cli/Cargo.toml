@@ -1,0 +1,25 @@
+[package]
+name = "roots-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "roots_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "luuna-roots"
+path = "src/bin/luuna-roots.rs"
+
+[[bin]]
+name = "lrt"
+path = "src/bin/lrt.rs"
+
+[dependencies]
+roots-core = { path = "../roots-core" }
+serde.workspace = true
+time.workspace = true

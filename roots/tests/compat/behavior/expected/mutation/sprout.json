@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "command": "sprout",
+  "id": "<SPROUT_ID>",
+  "slug": "add-reconciliation-model",
+  "status": "open",
+  "author": "agent:fixture",
+  "path": ".luuna\\roots\\agent\\sprouts\\<SPROUT_HEX>-add-reconciliation-model\\sprout.md",
+  "statement": "Add a reconciliation model.",
+  "expiresAt": "<EXPIRES_AT>"
+}

@@ -1,0 +1,42 @@
+{
+  "success": true,
+  "command": "view",
+  "project": "fixture-project",
+  "from": null,
+  "tree": [],
+  "unanchored": [
+    {
+      "id": "r-7528",
+      "slug": "durable-sync",
+      "status": "planted",
+      "statement": "Durable sync preserves local work.",
+      "body": "",
+      "blocks": []
+    }
+  ],
+  "tensions": [],
+  "questions": [
+    {
+      "id": "q-3d57",
+      "node": "r-7528",
+      "text": "Who owns conflict resolution?",
+      "by": "agent:fixture",
+      "agent": true
+    }
+  ],
+  "sprouts": null,
+  "ideas": {
+    "r-7528": {
+      "id": "r-7528",
+      "slug": "durable-sync",
+      "status": "planted",
+      "statement": "Durable sync preserves local work.",
+      "body": "",
+      "blocks": []
+    }
+  },
+  "edges": [],
+  "format": "markdown",
+  "out": "<ROOT>\\read\\report.md",
+  "rootsMd": null
+}

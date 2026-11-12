@@ -1,0 +1,19 @@
+Usage: luuna-roots flow [<id>]
+
+Think, review and plant in one session; the agent works in the background
+
+Moves from idea to idea without dropping to the shell. Between think sessions a card
+shows what this flow did (trail), the agent's heading ([agent], cited, never in views),
+agent work still running, the inbox and the next idea. Keys: [enter] the recommended
+step (review the inbox, else think the next idea)  [n] think the next idea  [o] other
+idea  [p] plant  [x] dismiss the heading  [q] end the flow. Agent questions arrive
+while you write; links and the heading are worked out after each session. Under tmux
+with vim/nvim one editor pane follows the flow. With an id, starts by thinking it.
+
+Options:
+      --no-split  Do not open $EDITOR in a split pane
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command
