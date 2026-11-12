@@ -3,10 +3,11 @@
 //!
 //! The mode is read from `<data_dir>/projects/<id>/store.json` on every
 //! resolution (no file means runtime). Runtime mode resolves to the managed
-//! workspace under the data directory, exactly as before. Repository and both
-//! modes are recorded but not built in this version, and a store file that
-//! cannot be used is never treated as runtime: both refuse before any
-//! component data is read or written. User memory belongs to no project and
+//! workspace under the data directory, exactly as before. A repository or both
+//! file must name a repository registered for the project, otherwise it is
+//! refused. Repository and both modes are still refused in this version, and a
+//! store file that cannot be used is never treated as runtime: all of these
+//! refuse before any component data is read or written. User memory belongs to no project and
 //! always lives in the single runtime user store. This module does no file
 //! I/O itself; luuna_storage reads the mode file.
 use crate::{internal, not_found, ApiError, AppState};
@@ -67,8 +68,10 @@ pub fn user_store_path(data_dir: &Path) -> PathBuf {
 
 /// The component store of a registered project, checked in this order: an
 /// invalid or unregistered id is not found; a store file that cannot be used
-/// is refused; a recorded mode other than runtime is refused. A refusal never
-/// falls back to the runtime store.
+/// is refused; a repository named by the file that is not registered for the
+/// project is refused; a recorded mode other than runtime is refused. A
+/// refusal never falls back to the runtime store. The registry check reads
+/// only the registrations, never a checkout or a path.
 pub(crate) fn project_store(state: &AppState, project_id: &str) -> Result<PathBuf, ApiError> {
     if !valid_project_id(project_id) {
         return Err(not_found());
@@ -94,6 +97,22 @@ pub(crate) fn project_store(state: &AppState, project_id: &str) -> Result<PathBu
         }
         Err(error) => return Err(internal(error)),
     };
+    if let Some(name) = mode.repository() {
+        // The guard is a temporary of this statement and is dropped before
+        // anything else is locked.
+        let registrations = state
+            .store
+            .lock()
+            .map_err(internal)?
+            .repositories(project_id)
+            .map_err(internal)?;
+        if !registrations.iter().any(|r| r.repository_id == name) {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                "This project's store mode file names a repository that is not registered for this project; fix or remove the file. No component data was read or written".into(),
+            ));
+        }
+    }
     match resolve_project_store(&state.config.data_dir, project_id, &mode) {
         Ok(path) => Ok(path),
         Err(StoreRefusal::InvalidProject) => Err(not_found()),
