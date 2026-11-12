@@ -152,7 +152,21 @@ fn source_hash(issue: &Value, all: &[Value]) -> Result<String, ApiError> {
                 .unwrap_or_else(|| json!({"id":id,"missing":true}))
         })
         .collect();
-    let bytes = serde_json::to_vec(&json!({"issue":issue,"dependencies":dependencies}))
+    // Hash the key-sorted form, so the digest does not depend on serde_json's map type.
+    fn sorted(value: &Value) -> Value {
+        match value {
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(key, value)| (key.clone(), sorted(value)))
+                    .collect::<std::collections::BTreeMap<_, _>>()
+                    .into_iter()
+                    .collect(),
+            ),
+            Value::Array(items) => Value::Array(items.iter().map(sorted).collect()),
+            other => other.clone(),
+        }
+    }
+    let bytes = serde_json::to_vec(&sorted(&json!({"issue":issue,"dependencies":dependencies})))
         .map_err(internal)?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
@@ -988,3 +1002,7 @@ mod tests {
         assert_eq!(issues(&state, &original.project_id).await.unwrap().len(), 2);
     }
 }
+
+#[cfg(test)]
+#[path = "missions_source_hash_tests.rs"]
+mod source_hash_tests;

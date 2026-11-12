@@ -223,6 +223,7 @@ mod orbit;
 mod policy;
 mod projects;
 mod publication;
+pub mod roots;
 mod scaffold;
 pub mod stores;
 mod writer;
