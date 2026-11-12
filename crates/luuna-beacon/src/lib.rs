@@ -9,18 +9,25 @@ mod beacon;
 mod config;
 mod error;
 mod gofmt;
-// Helpers used by the schema and render code of the next task.
+// `write_any` is kept for the frontmatter emitter of a later plan.
 #[allow(dead_code)]
 mod gojson;
 mod gotime;
 mod model;
+// `artifacts_file` is kept for the artifact commands of a later plan.
 #[allow(dead_code)]
 mod paths;
+mod payload;
 mod prompts;
+mod re2;
+mod resolve;
+mod schemas;
 mod store;
 
 pub use beacon::{Beacon, Init};
 pub use error::BeaconError;
 pub use gotime::{Clock, SystemClock};
 pub use model::{Atlas, AtlasPrime, Prompt, Rule, Schema, Section};
+pub use payload::{Rendered, Validation};
 pub use prompts::{CreatePrompt, ListFilter, UpdatePrompt};
+pub use schemas::CreateSchema;

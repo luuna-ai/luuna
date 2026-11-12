@@ -199,13 +199,16 @@ pub fn set_mtime(path: &str, seconds_ago: u64) -> Step {
 
 // ---- lowering ---------------------------------------------------------------
 
+/// The library call of a step.
+pub type LibCall<'a> = Box<dyn Fn(&Beacon) -> Result<Done, BeaconError> + 'a>;
+
 /// A step lowered to its two sides.
 pub struct Lowered<'a> {
     /// The Go argv without `--json` (the harness appends it); `None` for the
     /// raw file steps, which run on the files directly.
     pub argv: Option<Vec<String>>,
     /// The library call for the step.
-    pub call: Box<dyn Fn(&Beacon) -> Result<Done, BeaconError> + 'a>,
+    pub call: LibCall<'a>,
 }
 
 /// A flag value. Go's `option()` ignores a value that starts with `--`, so
