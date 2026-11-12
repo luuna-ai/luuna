@@ -618,8 +618,10 @@ async fn automatic_repair_reports_the_repair_writers_own_failure() {
 
 #[tokio::test]
 async fn a_restart_before_the_reviewer_was_prompted_reserves_no_provider_spend() {
-    // A launcher that holds every reviewer before its handshake while a
-    // `stall` file exists, and otherwise runs the synthetic fixture.
+    // A launcher that recognises the reviewer by its system-prompt file (the
+    // runtime passes `--system-prompt <path>`, never the text itself) and holds
+    // it before its get_state handshake while a `stall` file exists, and
+    // otherwise runs the synthetic fixture.
     let launcher = tempfile::tempdir().unwrap();
     let script = launcher.path().join("pi.py");
     fs::write(
@@ -627,7 +629,14 @@ async fn a_restart_before_the_reviewer_was_prompted_reserves_no_provider_spend()
         format!(
             "import os, runpy, sys, time\n\
              here = os.path.dirname(os.path.abspath(__file__))\n\
-             if '--version' not in sys.argv and 'luuna independent reviewer' in ' '.join(sys.argv).lower():\n\
+             text = ''\n\
+             if '--version' not in sys.argv and '--system-prompt' in sys.argv:\n\
+             \x20   i = sys.argv.index('--system-prompt')\n\
+             \x20   if i + 1 < len(sys.argv) and os.path.isfile(sys.argv[i + 1]):\n\
+             \x20       with open(sys.argv[i + 1], encoding='utf-8') as handle:\n\
+             \x20           text = handle.read().lower()\n\
+             if 'luuna independent reviewer' in text and os.path.exists(os.path.join(here, 'stall')):\n\
+             \x20   open(os.path.join(here, 'held'), 'w').close()\n\
              \x20   while os.path.exists(os.path.join(here, 'stall')):\n\
              \x20       time.sleep(0.05)\n\
              sys.argv[0] = {mock:?}\n\
@@ -643,6 +652,16 @@ async fn a_restart_before_the_reviewer_was_prompted_reserves_no_provider_spend()
     let id = harness.implemented("write_in_scope", json!({})).await;
     assert_eq!(harness.validate(&id, false).await.0, StatusCode::ACCEPTED);
     harness.wait_for_event(&id, "review.started").await;
+    // The test's premise: the launcher really holds the reviewer.
+    let mut held = false;
+    for _ in 0..600 {
+        if launcher.path().join("held").exists() {
+            held = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(held, "the reviewer was never held before its handshake");
     // The runtime dies while its reviewer is still starting up.
     let mut store = harness.store();
     assert_eq!(store.interrupt_active_runs().unwrap(), 1);
