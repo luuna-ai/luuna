@@ -36,6 +36,35 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+    /// The lock of a data file could not be taken within 30 s. The message
+    /// is Go's (`internal/store/store.go`, `WithLock`).
+    #[error("Timeout acquiring lock for {}", data_path.display())]
+    LockTimeout {
+        /// The data file whose lock was wanted.
+        data_path: PathBuf,
+    },
+    /// A record holds a value Go cannot encode, such as a number out of
+    /// range. The message is Go's (`json: unsupported value: +Inf`).
+    #[error("{message}")]
+    Encode {
+        /// Go's message.
+        message: String,
+    },
+}
+
+impl Error {
+    /// An [`Error::Io`] for `operation` on `path`.
+    pub(crate) fn io(
+        operation: &'static str,
+        path: impl Into<PathBuf>,
+        source: std::io::Error,
+    ) -> Self {
+        Self::Io {
+            operation,
+            path: path.into(),
+            source,
+        }
+    }
 }
 
 impl Error {
