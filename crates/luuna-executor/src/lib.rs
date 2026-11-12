@@ -2722,3 +2722,6 @@ mod legacy_artifact_tests {
         assert_eq!(std::fs::read(&legacy).unwrap(), b"old evidence");
     }
 }
+
+#[cfg(test)]
+mod fingerprint_pin_tests;

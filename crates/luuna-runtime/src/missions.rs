@@ -988,3 +988,7 @@ mod tests {
         assert_eq!(issues(&state, &original.project_id).await.unwrap().len(), 2);
     }
 }
+
+#[cfg(test)]
+#[path = "missions_source_hash_tests.rs"]
+mod source_hash_tests;
