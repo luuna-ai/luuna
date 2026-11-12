@@ -12,11 +12,12 @@
 //!   executable (ADR 0018). It exits 1 when a required item (Git, Pi, a
 //!   writable data directory) is missing.
 //!
-//! Each accepts `--data-dir <dir>`; the default is the runtime's own
-//! (`LUUNA_DATA_DIR`, else `.luuna` in the current directory). The snapshot
-//! covers the database (projects, plans, approvals, runs, events and evidence
-//! records); check artifacts and worktrees are files in the data directory,
-//! so a complete backup is a copy of the whole directory while it is stopped.
+//! Each accepts `--data-dir <dir>`; the default comes from the
+//! service's own resolver (`LUUNA_DATA_DIR`, else `.luuna` in the current
+//! directory). The snapshot covers the database (projects, plans, approvals,
+//! runs, events and evidence records); check artifacts and
+//! worktrees are files in the data directory, so a complete backup is a copy of
+//! the whole directory while it is stopped.
 use fs2::FileExt;
 use luuna_runtime::doctor::{doctor_report, host_probes, Host, Port};
 use sha2::{Digest, Sha256};
@@ -76,8 +77,9 @@ struct Options {
 }
 
 fn parse(arguments: Vec<OsString>) -> Result<Options, Box<dyn std::error::Error>> {
+    let mut data_dir = None;
     let mut options = Options {
-        data_dir: default_data_dir()?,
+        data_dir: PathBuf::new(),
         output: None,
         input: None,
         json: false,
@@ -95,7 +97,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Options, Box<dyn std::error::Error>
                 .ok_or_else(|| format!("{} needs a value\n{USAGE}", flag.to_string_lossy()))
         };
         match flag.to_str() {
-            Some("--data-dir") => options.data_dir = absolute(value()?)?,
+            Some("--data-dir") => data_dir = Some(absolute(value()?)?),
             Some("--output") => options.output = Some(absolute(value()?)?),
             Some("--input") => options.input = Some(absolute(value()?)?),
             _ => {
@@ -103,14 +105,15 @@ fn parse(arguments: Vec<OsString>) -> Result<Options, Box<dyn std::error::Error>
             }
         }
     }
+    // Without `--data-dir`, the default is the service's own resolver.
+    options.data_dir = match data_dir {
+        Some(data_dir) => data_dir,
+        None => luuna_runtime::data_dir::resolve_data_dir(
+            |name| std::env::var_os(name),
+            std::env::current_dir,
+        )?,
+    };
     Ok(options)
-}
-
-/// The same data directory the service uses.
-fn default_data_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    absolute(PathBuf::from(
-        std::env::var("LUUNA_DATA_DIR").unwrap_or_else(|_| ".luuna".into()),
-    ))
 }
 
 fn absolute(path: PathBuf) -> Result<PathBuf, Box<dyn std::error::Error>> {
