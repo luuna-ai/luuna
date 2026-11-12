@@ -71,7 +71,10 @@ pub fn init(project_root: &Path) -> Result<InitResult> {
     if !readme.exists() {
         write_file(&readme, ATLAS_README.as_bytes())?;
     }
-    Ok(InitResult { created, path: dir })
+    Ok(InitResult {
+        created,
+        path: clean_path(&dir),
+    })
 }
 
 /// Adds a domain to an existing store.
@@ -151,7 +154,7 @@ pub fn run_config_show(project_root: &Path) -> CommandOutput {
     let output = match early {
         Some(output) => output,
         None => match config_show(project_root) {
-            Ok(config) => CommandOutput::json(&Value::Object(config)),
+            Ok(config) => CommandOutput::emit(&config),
             // The Go tool prints this one as plain text, even with --json.
             Err(error) => CommandOutput::plain_failure(&error.to_string()),
         },
@@ -181,6 +184,35 @@ fn with_notice(notice: Option<String>, output: CommandOutput) -> CommandOutput {
         Some(text) => output.with_stderr_prefix(&text),
         None => output,
     }
+}
+
+/// Go's `filepath.Clean` (what `filepath.Join` applies), done on the text alone: runs of
+/// separators collapse, `.` elements go, `..` removes the element before it (and is
+/// dropped at the root), and an empty result is `.`. Nothing is read from the disk and
+/// symbolic links are not resolved.
+fn clean_path(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    let rooted = text.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for part in text.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.last().is_some_and(|last| *last != "..") {
+                    parts.pop();
+                } else if !rooted {
+                    parts.push("..");
+                }
+            }
+            other => parts.push(other),
+        }
+    }
+    let joined = parts.join("/");
+    PathBuf::from(match (rooted, joined.is_empty()) {
+        (true, _) => format!("/{joined}"),
+        (false, true) => ".".to_owned(),
+        (false, false) => joined,
+    })
 }
 
 /// Go's `os.WriteFile(path, data, 0666)`.
@@ -279,3 +311,73 @@ search:
                            # `luuna-atlas search --no-boost`.
 ```
 "##;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json;
+
+    #[test]
+    fn clean_path_is_lexical_like_filepath_clean() {
+        let cases = [
+            ("/a/b/.luuna/atlas", "/a/b/.luuna/atlas"),
+            ("/a//b/./c/", "/a/b/c"),
+            ("/a/b/../c", "/a/c"),
+            ("/../a", "/a"),
+            ("/", "/"),
+            ("", "."),
+            (".", "."),
+            ("a/..", "."),
+            ("../a/../../b", "../../b"),
+            ("a/./b//", "a/b"),
+        ];
+        for (input, want) in cases {
+            assert_eq!(clean_path(Path::new(input)), Path::new(want), "{input}");
+        }
+    }
+
+    #[test]
+    fn init_reports_a_cleaned_path_without_resolving_links() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join("proj");
+        fs::create_dir_all(root.join("sub")).expect("mkdir");
+        let messy = root.join("sub").join("..").join(".").join("");
+        let result = init(&messy).expect("init");
+        assert_eq!(result.path, root.join(".luuna").join("atlas"));
+        let output = run_init(&root.join("x").join("..").join("."));
+        assert!(
+            output.stdout.contains(&format!(
+                "\"path\": {}",
+                json::to_compact_string(&Value::from(
+                    root.join(".luuna/atlas").to_string_lossy().into_owned()
+                ))
+                .expect("json")
+            )),
+            "{}",
+            output.stdout
+        );
+    }
+
+    #[test]
+    fn config_show_orders_a_config_with_its_own_command_key() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        init(root).expect("init");
+        let path = root.join(".luuna/atlas/config.yaml");
+        let mut yaml = fs::read_to_string(&path).expect("read");
+        yaml.push_str("command: init\npath: p\nzzz: 1\n");
+        fs::write(&path, yaml).expect("write");
+        let output = run_config_show(root);
+        assert_eq!(output.exit_code, 0, "{}", output.stderr);
+        let value = json::parse(&output.stdout).expect("json");
+        let keys: Vec<&str> = value.as_object().expect("object").keys().collect();
+        let command = keys.iter().position(|k| *k == "command").expect("command");
+        let path = keys.iter().position(|k| *k == "path").expect("path");
+        assert_eq!(command, 0, "{keys:?}");
+        assert_eq!(path, 1, "{keys:?}");
+        let rest = &keys[2..];
+        let mut sorted = rest.to_vec();
+        sorted.sort_unstable();
+        assert_eq!(rest, sorted.as_slice(), "{keys:?}");
+    }
+}
