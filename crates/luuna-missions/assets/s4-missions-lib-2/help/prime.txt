@@ -1,0 +1,9 @@
+Usage: luuna-missions prime [options]
+
+Output AI agent context
+
+Options:
+  --compact   Condensed quick-reference output
+  --export    Output the default template
+  --json      Output as JSON
+  -h, --help  display help for command

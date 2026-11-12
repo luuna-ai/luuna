@@ -1,0 +1,10 @@
+Usage: luuna-missions plan outcome [options] <id>
+
+Record a plan outcome (storage-only; not a state transition; accepts plan id or
+seed id)
+
+Options:
+  --result <value>  One of: success, partial, failure
+  --note <text>     Optional free-form note
+  --json            Output as JSON
+  -h, --help        display help for command

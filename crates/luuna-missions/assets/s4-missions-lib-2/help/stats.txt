@@ -1,0 +1,8 @@
+Usage: luuna-missions stats [options]
+
+Project statistics
+
+Options:
+  --format <mode>  Output format (markdown|compact|plain|ids|json)
+  --json           Output as JSON (alias for --format json)
+  -h, --help       display help for command

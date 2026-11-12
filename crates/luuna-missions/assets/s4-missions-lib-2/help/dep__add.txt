@@ -1,0 +1,7 @@
+Usage: luuna-missions dep add [options] <issue> <depends-on>
+
+Add a dependency (issue depends on depends-on)
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

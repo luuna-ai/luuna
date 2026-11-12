@@ -1,0 +1,8 @@
+Usage: luuna-missions upgrade [options]
+
+Update Luuna Missions through a reviewed checkout
+
+Options:
+  --check     Check for updates without installing
+  --json      Output as JSON
+  -h, --help  display help for command

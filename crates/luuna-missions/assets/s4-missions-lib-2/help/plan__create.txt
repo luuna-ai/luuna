@@ -1,0 +1,10 @@
+Usage: luuna-missions plan create [options] <seed-id>
+
+Create an adopt-only plan with zero spawned children (populate via
+'luuna-missions plan adopt')
+
+Options:
+  --name <text>      Human-readable plan label (defaults to the seed title)
+  --template <name>  Plan template name (defaults to the seed type's default)
+  --json             Output as JSON
+  -h, --help         display help for command

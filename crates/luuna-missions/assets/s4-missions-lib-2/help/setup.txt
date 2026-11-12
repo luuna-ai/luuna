@@ -1,0 +1,12 @@
+Usage: luuna-missions setup [options] <target>
+
+Install Claude Code hooks: prime on session start, guard .luuna/missions/*.jsonl
+edits
+
+Arguments:
+  target      Harness to wire up (claude)
+
+Options:
+  --remove    Remove missions hooks
+  --json      Output as JSON
+  -h, --help  display help for command

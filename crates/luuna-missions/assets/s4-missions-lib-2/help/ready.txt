@@ -1,0 +1,20 @@
+Usage: luuna-missions ready [options]
+
+Show open issues with no unresolved blockers
+
+Options:
+  --type <type>         Filter by type (task|bug|feature|epic)
+  --assignee <name>     Filter by assignee
+  --label <labels>      Filter: must have ALL labels (comma-separated, AND)
+  --label-any <labels>  Filter: must have any label (comma-separated, OR)
+  --unlabeled           Filter: issues with no labels
+  --priority <levels>   Filter by priority (comma-separated, e.g. 0,1 or P0,P1)
+  --priority-max <n>    Filter to priority <= n (e.g. --priority-max 1 = P0+P1)
+  --limit <n>           Max issues to show (default: "50")
+  --sort <mode>         Sort order (priority|created|updated|id) (default:
+                        "priority")
+  --format <mode>       Output format (markdown|compact|plain|ids|json)
+  --json                Output as JSON (alias for --format json)
+  --respect-schedule    Exclude issues with extensions.queued=true or future
+                        extensions.scheduledFor
+  -h, --help            display help for command

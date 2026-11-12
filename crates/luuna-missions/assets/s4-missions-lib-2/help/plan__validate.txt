@@ -1,0 +1,8 @@
+Usage: luuna-missions plan validate [options] <id>
+
+Re-run validation against the current template definition (accepts plan id or
+seed id)
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

@@ -1,0 +1,9 @@
+Usage: luuna-missions plan review [options] <id>
+
+Record a reviewer (informational; not a state transition; accepts plan id or
+seed id)
+
+Options:
+  --by <name>  Reviewer name
+  --json       Output as JSON
+  -h, --help   display help for command

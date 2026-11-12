@@ -1,0 +1,21 @@
+Usage: luuna-missions plan [options] [command]
+
+Plan management
+
+Options:
+  -h, --help                                 display help for command
+
+Commands:
+  templates [options]                        List available plan templates
+  prompt [options] <seed-id>                 Emit structured planning prompt JSON for a seed
+  submit [options] <seed-id>                 Validate a plan, spawn children, write plans.jsonl row
+  show [options] <id>                        Show a plan with sections, children, and status (accepts plan id or seed id)
+  validate [options] <id>                    Re-run validation against the current template definition (accepts plan id or seed id)
+  outcome [options] <id>                     Record a plan outcome (storage-only; not a state transition; accepts plan id or seed id)
+  review [options] <id>                      Record a reviewer (informational; not a state transition; accepts plan id or seed id)
+  edit [options] <id>                        Edit plan fields in place (accepts plan id or seed id); bumps revision
+  create [options] <seed-id>                 Create an adopt-only plan with zero spawned children (populate via 'luuna-missions plan adopt')
+  adopt [options] <plan-id> <seed-ids...>    Adopt existing open missions into a plan (link-only; bumps plan revision)
+  reorder [options] <plan-id> <seed-ids...>  Set the exact order of plan.children (must be a permutation of current children)
+  release [options] <plan-id> <seed-ids...>  Release missions from a plan (link-only; missions stay open; bumps plan revision)
+  list [options]                             List plans with optional filters

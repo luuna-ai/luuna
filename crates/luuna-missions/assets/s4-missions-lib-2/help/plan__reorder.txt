@@ -1,0 +1,7 @@
+Usage: luuna-missions plan reorder [options] <plan-id> <seed-ids...>
+
+Set the exact order of plan.children (must be a permutation of current children)
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

@@ -1,0 +1,7 @@
+Usage: luuna-missions config schema [options]
+
+Emit the JSON Schema for .luuna/missions/config.yaml
+
+Options:
+  --json      Compact single-line JSON (default is pretty-printed)
+  -h, --help  display help for command
