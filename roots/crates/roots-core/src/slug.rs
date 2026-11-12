@@ -85,7 +85,7 @@ pub fn is_valid_slug(value: &str) -> bool {
     let Some(hex) = pieces.next() else {
         return true;
     };
-    if !pieces.next().is_none() || !matches!(prefix, "r" | "s" | "p" | "q" | "e" | "ss") {
+    if pieces.next().is_some() || !matches!(prefix, "r" | "s" | "p" | "q" | "e" | "ss") {
         return true;
     }
     !(4..=8).contains(&hex.len()) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit())
