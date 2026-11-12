@@ -11,6 +11,8 @@
 
 use crate::error::PLAN_2;
 
+pub(in crate::command) mod lossy;
+
 /// `ready`.
 pub(super) const READY: super::Entry = super::Entry::Deferred(PLAN_2);
 /// `close`.
