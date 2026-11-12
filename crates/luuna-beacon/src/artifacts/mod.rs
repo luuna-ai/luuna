@@ -22,6 +22,7 @@ mod onboard;
 mod prime;
 #[allow(dead_code)]
 mod snapshot;
+mod sync;
 
 pub use commands::{ArtifactHistory, ArtifactRead};
 pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
@@ -29,6 +30,7 @@ pub use export::{ArtifactExport, ArtifactExported};
 pub use model::{Artifact, ArtifactFile};
 pub use onboard::{OnboardAction, OnboardMode, OnboardStatus, Onboarded, ONBOARD_SNIPPET};
 pub use prime::{Prime, PrimeOptions};
+pub use sync::{GitEnvironment, GitRunner, SyncOptions, Synced};
 
 use crate::gofmt::quote;
 use std::path::PathBuf;
