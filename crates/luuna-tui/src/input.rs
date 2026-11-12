@@ -1,8 +1,14 @@
 //! Dedicated blocking terminal-input thread. It is the sole consumer of crossterm's
 //! global event source. A thread was chosen over `EventStream` because that needs the
-//! `event-stream` feature and a stream-extension dependency, which would change
-//! `Cargo.lock`. Dropping `Input` stops and joins the thread so no input is consumed
-//! after the terminal is restored.
+//! `event-stream` feature and a stream-extension dependency.
+//!
+//! crossterm's `use-dev-tty` feature is turned on in `Cargo.toml` because, on Unix, its
+//! event source then polls the terminal on every call and reads it before the resize
+//! signal, so a key typed during a resize is delivered at once instead of waiting for
+//! the next key.
+//!
+//! Dropping `Input` stops and joins the thread so no input is consumed after the
+//! terminal is restored.
 
 use crossterm::event::{self, Event, KeyEventKind};
 use std::{
