@@ -14,12 +14,14 @@
 #[allow(dead_code)]
 mod base64;
 mod commands;
+mod export;
 #[allow(dead_code)]
 mod model;
 #[allow(dead_code)]
 mod snapshot;
 
 pub use commands::{ArtifactHistory, ArtifactRead};
+pub use export::{ArtifactExport, ArtifactExported};
 pub use model::{Artifact, ArtifactFile};
 
 use crate::gofmt::quote;
