@@ -33,6 +33,18 @@ npm run build
 
 Run `npm run components:setup` with Bun 1.4.3 after cloning, or clone with `--recurse-submodules` and then install frozen component dependencies. `npm run components:verify` checks exact pins; `npm run test:components` exercises real CLI JSON operations on disposable stores. Until the migration changes of [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md) bring them into this repository, the component sources live in their public `luuna-ai` repositories and are consumed as these pinned submodules.
 
+Luuna Roots lives in `roots/` as its own Cargo workspace, separate from the root one. Run its checks from the repository root:
+
+```sh
+RUSTUP_TOOLCHAIN=1.90.0 cargo fmt --manifest-path roots/Cargo.toml --all -- --check
+RUSTUP_TOOLCHAIN=1.90.0 cargo clippy --manifest-path roots/Cargo.toml --workspace --all-targets --all-features --locked -- -D warnings
+RUSTUP_TOOLCHAIN=1.90.0 cargo test --manifest-path roots/Cargo.toml --workspace --all-features --locked
+RUSTUP_TOOLCHAIN=1.90.0 cargo test --manifest-path roots/Cargo.toml -p roots-cli --test compat --locked
+RUSTUP_TOOLCHAIN=1.90.0 cargo build --manifest-path roots/Cargo.toml --workspace --release --locked
+```
+
+The `compat` and `behavior_fixtures` tests of `roots-cli` run only on Windows; on other hosts they compile to zero tests. `roots/rust-toolchain.toml` pins 1.99.1, which these commands do not use: they set `RUSTUP_TOOLCHAIN=1.90.0`, Luuna's pinned toolchain, and results on 1.99.1 are not verified.
+
 The remaining checks, each run where its prerequisites exist: `node scripts/check-hygiene.mjs` (no tracked session histories, auth stores, real `.env` files or dependencies); the terminal client against a built runtime, `npm run test:tui-terminal` and `node scripts/tui-interactive-audit.mjs --runtime <path> --components-root .` (tmux on Linux); the native desktop shell, `cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml`, on macOS and Windows.
 
 `npm test` includes component pin rejection tests, JSON-schema fixtures and API-client tests. These are separate from the Rust tests and component CLI suites. Each maintained CLI has its own Bun lockfile and package scripts; follow its package README rather than running its hook installer against the root repository.
