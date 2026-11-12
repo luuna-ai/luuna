@@ -14,15 +14,21 @@
 #[allow(dead_code)]
 mod base64;
 mod commands;
+mod doctor;
 mod export;
 #[allow(dead_code)]
 mod model;
+mod onboard;
+mod prime;
 #[allow(dead_code)]
 mod snapshot;
 
 pub use commands::{ArtifactHistory, ArtifactRead};
+pub use doctor::{DoctorCheck, DoctorReport, DoctorStatus, DoctorSummary};
 pub use export::{ArtifactExport, ArtifactExported};
 pub use model::{Artifact, ArtifactFile};
+pub use onboard::{OnboardAction, OnboardMode, OnboardStatus, Onboarded, ONBOARD_SNIPPET};
+pub use prime::{Prime, PrimeOptions};
 
 use crate::gofmt::quote;
 use std::path::PathBuf;
