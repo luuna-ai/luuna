@@ -599,8 +599,35 @@ impl<'a> Parser<'a> {
         }
         match self.key(next, col)? {
             Some((key, after)) => Ok(Some((next, key, after))),
-            None => Err(syntax(next, "did not find expected key")),
+            None => {
+                self.refuse_flow_key(next, col)?;
+                Err(syntax(next, "did not find expected key"))
+            }
         }
+    }
+
+    /// Refuses a one-line flow collection followed by `:` at byte `col` of `line`, where a
+    /// later key of a block mapping is expected. yaml.v3 reads it as a mapping key (as it
+    /// does for a mapping's first key, which [`Parser::line_end`] refuses), so it is
+    /// unsupported, not a syntax error. Anything else, including a flow collection that
+    /// does not parse on its line, is left to the caller's syntax error.
+    fn refuse_flow_key(&self, line: usize, col: usize) -> Result<()> {
+        if !matches!(self.text(line).as_bytes()[col], b'[' | b'{') {
+            return Ok(());
+        }
+        let mut i = col;
+        if self.flow_node(line, &mut i).is_err() {
+            return Ok(());
+        }
+        let text = self.text(line);
+        let rest = skip_ws(text, i);
+        if text.as_bytes().get(rest) == Some(&b':') {
+            return Err(unsupported(
+                line,
+                "flow collections as mapping keys are not supported",
+            ));
+        }
+        Ok(())
     }
 
     /// The value after a key's `:` at byte `after` of `line`, in a mapping indented `col`.
@@ -2603,6 +2630,32 @@ mod tests {
             to_yaml_string(&read(yaml)).unwrap(),
             "a: 9007199254740993\nb: 9223372036854775807\nc: -9223372036854775808\nd: 18446744073709551615\ne: 9223372036854775807\nf: 1000\ng: 1.8446744073709552e+19\nh: -9.223372036854776e+18\ni: 1e+06\nj: 1e+06\nk: 2\nl: 123456\nm: 1e-05\ns:\n  - 9007199254740993\n  - 0\n"
         );
+    }
+
+    #[test]
+    fn refuses_flow_collection_as_later_block_key() {
+        // yaml.v3 reads a flow collection before `:` as a mapping key; like the first key
+        // of a mapping, a later one is refused as unsupported, not as a syntax error.
+        assert_eq!(unsupported_line("[a]: d\n"), 1);
+        assert_eq!(unsupported_line("domains: {}\n[a]: d\n"), 2);
+        assert_eq!(unsupported_line("domains: {}\n{a: 1}: d\n"), 2);
+        assert_eq!(unsupported_line("m:\n  a: 1\n\n  [b, c] : 2\n"), 4);
+        assert_eq!(unsupported_line("- a: 1\n  {b: 2}: 3\n"), 2);
+        let message = parse("x: 1\n[a]: d\n").unwrap_err().to_string();
+        assert_eq!(
+            message,
+            "unsupported YAML at line 2: flow collections as mapping keys are not supported"
+        );
+        // Without a `:` after it, a flow collection where a key belongs is invalid YAML,
+        // which yaml.v3 also rejects: it stays a syntax error, not an unsupported construct.
+        for text in ["a: 1\n[b]\n", "a: 1\n[b] x: 2\n", "a: 1\n[b\n"] {
+            match parse(text) {
+                Err(AtlasError::Message(message)) => {
+                    assert!(message.starts_with("yaml: line "), "{text:?}: {message}");
+                }
+                other => panic!("{text:?}: expected a syntax error, got {other:?}"),
+            }
+        }
     }
 
     #[test]
