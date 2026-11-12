@@ -57,6 +57,17 @@ pub enum Error {
     /// (`internal/config/config.go:50`, `FindDir`).
     #[error("Not in a missions project. Run `luuna-missions init` first.")]
     NotInProject,
+    /// A command error whose text is Go's, raised below the command layer
+    /// where no command failure is available (for example yaml.v3's alias
+    /// errors, `LoadPlanTemplates`' errors and the legacy migration's
+    /// refusals). The command layer prints it as Go prints a command error:
+    /// the JSON error envelope with the literal `--json` token, `Error:
+    /// <message>` on stderr otherwise.
+    #[error("{message}")]
+    Command {
+        /// Go's message.
+        message: String,
+    },
 }
 
 impl Error {
@@ -87,12 +98,24 @@ impl Error {
 /// The plan that ports close, ready, blocked, stats, dep, label, unblock,
 /// help and version output, unknown-command suggestions, the logging
 /// variables and completions.
+#[allow(
+    dead_code,
+    reason = "s4-missions-lib-2 removes its last use outside tests; error.rs stays unedited"
+)]
 pub(crate) const PLAN_2: &str = "s4-missions-lib-2";
 /// The plan that ports config and the full config.yaml, tpl, doctor, sync,
 /// migrate-from-beads, the legacy `.seeds` migration, prime, onboard, setup,
 /// guard and upgrade.
+#[allow(
+    dead_code,
+    reason = "s4-missions-lib-3 removes its last use outside tests; error.rs stays unedited"
+)]
 pub(crate) const PLAN_3: &str = "s4-missions-lib-3";
 /// The plan that ports plans.
+#[allow(
+    dead_code,
+    reason = "s4-missions-lib-4 removes its last use outside tests; error.rs stays unedited"
+)]
 pub(crate) const PLAN_4: &str = "s4-missions-lib-4";
 
 #[cfg(test)]

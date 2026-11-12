@@ -26,30 +26,35 @@
 //!   that did not fail.
 //!
 //! This plan ports init, create, show, list, search, update and block.
-//! Returned as [`Error::Unsupported`](crate::Error::Unsupported) naming the
-//! plan that ports them: every other command Go registers; help and version
-//! output (`--help`, `-h`, `--version`, `-v`, and no command at all);
-//! unknown commands (Go's suggestion); and an environment with
-//! `LUUNA_MISSIONS_DEBUG=1` or `LUUNA_MISSIONS_LOG_LEVEL` set to `debug` or
-//! `trace`, under which Go writes debug records to stdout (SD8).
+//! Unported behaviour returns
+//! [`Error::Unsupported`](crate::Error::Unsupported) naming the plan that
+//! ports it. The behaviour of the later plans lives in six slot modules
+//! that dispatch calls and that each later plan fills in without editing
+//! this file: `app` (help, version, unknown commands, logging), `workflow`,
+//! `project`, `plans`, `plan_index` and `config_tree`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::config::ProcessEnv;
-use crate::error::{Error, Result, PLAN_2, PLAN_3, PLAN_4};
+use crate::error::{Error, Result};
 use crate::gopath;
 use crate::store::Store;
 
+mod app;
 mod block;
 mod create;
 mod init;
 mod options;
 mod output;
+mod plan_index;
+mod plans;
+mod project;
 mod read;
 mod shared;
 mod update;
+mod workflow;
 
 use options::OptionError;
 use output::Envelope;
@@ -269,9 +274,10 @@ impl From<Error> for Failure {
     /// returned from [`run`].
     fn from(error: Error) -> Self {
         match error {
-            Error::NotInProject | Error::LockTimeout { .. } | Error::Encode { .. } => {
-                Self::Message(error.to_string())
-            }
+            Error::NotInProject
+            | Error::LockTimeout { .. }
+            | Error::Encode { .. }
+            | Error::Command { .. } => Self::Message(error.to_string()),
             other => Self::Library(other),
         }
     }
@@ -296,28 +302,28 @@ const COMMANDS: &[(&str, Entry)] = &[
     ("create", Entry::Ported(create::run)),
     ("show", Entry::Ported(read::show)),
     ("list", Entry::Ported(read::list)),
-    ("ready", Entry::Deferred(PLAN_2)),
+    ("ready", workflow::READY),
     ("search", Entry::Ported(read::search)),
     ("update", Entry::Ported(update::run)),
-    ("close", Entry::Deferred(PLAN_2)),
-    ("dep", Entry::Deferred(PLAN_2)),
-    ("label", Entry::Deferred(PLAN_2)),
-    ("blocked", Entry::Deferred(PLAN_2)),
-    ("stats", Entry::Deferred(PLAN_2)),
-    ("sync", Entry::Deferred(PLAN_3)),
-    ("doctor", Entry::Deferred(PLAN_3)),
-    ("tpl", Entry::Deferred(PLAN_3)),
-    ("migrate-from-beads", Entry::Deferred(PLAN_3)),
-    ("prime", Entry::Deferred(PLAN_3)),
-    ("onboard", Entry::Deferred(PLAN_3)),
-    ("upgrade", Entry::Deferred(PLAN_3)),
-    ("completions", Entry::Deferred(PLAN_2)),
+    ("close", workflow::CLOSE),
+    ("dep", workflow::DEP),
+    ("label", workflow::LABEL),
+    ("blocked", workflow::BLOCKED),
+    ("stats", workflow::STATS),
+    ("sync", project::SYNC),
+    ("doctor", project::DOCTOR),
+    ("tpl", project::TPL),
+    ("migrate-from-beads", project::MIGRATE_FROM_BEADS),
+    ("prime", project::PRIME),
+    ("onboard", project::ONBOARD),
+    ("upgrade", project::UPGRADE),
+    ("completions", workflow::COMPLETIONS),
     ("block", Entry::Ported(block::run)),
-    ("unblock", Entry::Deferred(PLAN_2)),
-    ("plan", Entry::Deferred(PLAN_4)),
-    ("config", Entry::Deferred(PLAN_3)),
-    ("setup", Entry::Deferred(PLAN_3)),
-    ("guard", Entry::Deferred(PLAN_3)),
+    ("unblock", workflow::UNBLOCK),
+    ("plan", plans::PLAN),
+    ("config", project::CONFIG),
+    ("setup", project::SETUP),
+    ("guard", project::GUARD),
 ];
 
 fn find(name: &str) -> Option<Entry> {
@@ -334,38 +340,17 @@ fn contains(args: &[String], value: &str) -> bool {
 
 /// Runs one command as the Go tool would.
 pub fn run(invocation: &Invocation) -> Result<Outcome> {
-    dispatch(invocation, find)
-}
-
-/// Refuses the logging environment (SD8), ported in s4-missions-lib-2.
-fn refuse_debug_logging(env: &BTreeMap<String, String>) -> Result<()> {
-    let debug = env
-        .get("LUUNA_MISSIONS_DEBUG")
-        .is_some_and(|value| value == "1");
-    let level = env
-        .get("LUUNA_MISSIONS_LOG_LEVEL")
-        .filter(|value| matches!(value.as_str(), "debug" | "trace"));
-    if debug || level.is_some() {
-        return Err(Error::unsupported(
-            "debug logging (LUUNA_MISSIONS_DEBUG=1 or LUUNA_MISSIONS_LOG_LEVEL=debug|trace, \
-             which writes debug records to stdout, SD8)",
-            PLAN_2,
-        ));
-    }
-    Ok(())
+    crate::config_tree::with_stderr_notices(|| dispatch(invocation, find))
 }
 
 /// Go's `App.Run` with the command table `find`.
 fn dispatch(invocation: &Invocation, find: fn(&str) -> Option<Entry>) -> Result<Outcome> {
-    refuse_debug_logging(&invocation.env)?;
+    app::refuse_debug_logging(&invocation.env)?;
     let raw = invocation.args.as_slice();
     let json_mode = contains(raw, "--json");
     let version = contains(raw, "--version") || contains(raw, "-v");
     if version && json_mode {
-        return Err(Error::unsupported(
-            "--version --json (version output)",
-            PLAN_2,
-        ));
+        return app::version_json();
     }
     let mut args = raw;
     while let Some(first) = args.first() {
@@ -375,20 +360,17 @@ fn dispatch(invocation: &Invocation, find: fn(&str) -> Option<Entry>) -> Result<
         args = &args[1..];
     }
     let Some(name) = args.first() else {
-        return Err(Error::unsupported(
-            "help output (no command was given)",
-            PLAN_2,
-        ));
+        return app::help_without_command();
     };
     let entry = find(name);
     if version && (name.starts_with('-') || entry.is_some()) {
-        return Err(Error::unsupported("--version (version output)", PLAN_2));
+        return app::version();
     }
     if name == "--help"
         || name == "-h"
         || (name.starts_with('-') && (contains(args, "--help") || contains(args, "-h")))
     {
-        return Err(Error::unsupported("--help (help output)", PLAN_2));
+        return app::help();
     }
     let mut outcome = Outcome::default();
     if name.starts_with('-') {
@@ -399,16 +381,10 @@ fn dispatch(invocation: &Invocation, find: fn(&str) -> Option<Entry>) -> Result<
         }
     }
     let Some(entry) = entry else {
-        return Err(Error::unsupported(
-            format!("the unknown command {name:?} (Go's unknown-command message and suggestion)"),
-            PLAN_2,
-        ));
+        return app::unknown_command(name, json_mode);
     };
     if contains(&args[1..], "--help") || contains(&args[1..], "-h") {
-        return Err(Error::unsupported(
-            format!("{name} --help (command help output)"),
-            PLAN_2,
-        ));
+        return app::command_help(args);
     }
     let handler = match entry {
         Entry::Ported(handler) => handler,
@@ -445,6 +421,9 @@ fn dispatch(invocation: &Invocation, find: fn(&str) -> Option<Entry>) -> Result<
 /// Go's `commandError`: the JSON error envelope on stdout when the literal
 /// `--json` token was given, `Error: <message>` on stderr otherwise (SD5).
 fn command_error(context: &mut Context<'_>, name: &str, json_mode: bool, message: &str) {
+    context
+        .stdout
+        .extend(app::debug_error_record(context, name, message));
     if json_mode {
         context.json(Envelope::new(false, name).string("error", message));
     } else {
@@ -468,6 +447,7 @@ fn elapsed(duration: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::{PLAN_2, PLAN_3, PLAN_4};
 
     fn invocation(args: &[&str]) -> Invocation {
         Invocation::new(std::env::temp_dir(), args.iter().copied())
@@ -649,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn every_other_go_command_is_unsupported_naming_its_plan() {
+    fn every_other_go_command_answers_as_its_plan_states() {
         let expected = [
             ("ready", PLAN_2),
             ("close", PLAN_2),
@@ -673,13 +653,18 @@ mod tests {
         ];
         assert_eq!(COMMANDS.len(), expected.len() + 7);
         for (name, plan) in expected {
-            let error = run(&invocation(&[name, "--json"])).unwrap_err();
-            assert_eq!(plan_of(error), plan, "{name}");
+            assert!(find(name).is_some(), "{name}");
+            match plan {
+                PLAN_2 => workflow::checks::command(name),
+                PLAN_3 => project::checks::command(name),
+                PLAN_4 => plans::checks::command(name),
+                other => panic!("{name}: no module of {other}"),
+            }
         }
     }
 
     #[test]
-    fn deferred_options_and_unknown_commands_are_unsupported() {
+    fn help_version_and_unknown_commands_answer_as_app_states() {
         for args in [
             &[][..],
             &["-q"],
@@ -697,22 +682,19 @@ mod tests {
             &["inti", "--json"],
             &["--"],
         ] {
-            let error = run(&invocation(args)).unwrap_err();
-            assert_eq!(plan_of(error), PLAN_2, "{args:?}");
+            app::checks::answer(args);
         }
     }
 
     #[test]
-    fn debug_logging_environments_are_unsupported() {
-        // SD8, deferred to s4-missions-lib-2.
+    fn debug_logging_environments_answer_as_app_states() {
+        // SD8, ported in s4-missions-lib-2.
         for (key, value) in [
             ("LUUNA_MISSIONS_DEBUG", "1"),
             ("LUUNA_MISSIONS_LOG_LEVEL", "debug"),
             ("LUUNA_MISSIONS_LOG_LEVEL", "trace"),
         ] {
-            let env = BTreeMap::from([(key.to_owned(), value.to_owned())]);
-            let error = run(&invocation(&["init", "--json"]).with_env(env)).unwrap_err();
-            assert_eq!(plan_of(error), PLAN_2, "{key}={value}");
+            app::checks::debug_environment(key, value);
         }
         // Other values do not log in Go and are accepted.
         for (key, value) in [
@@ -723,6 +705,59 @@ mod tests {
             let outcome = dispatch(&invocation(&["fails"]).with_env(env), test_find).unwrap();
             assert_eq!(outcome.exit_code, 1, "{key}={value}");
         }
+    }
+
+    #[test]
+    fn the_plan_index_answers_as_its_owner_states() {
+        plan_index::checks::plans_file();
+    }
+
+    #[test]
+    fn the_status_change_seams_answer_as_their_owner_states() {
+        plans::checks::status_change_seams();
+    }
+
+    #[test]
+    fn go_command_errors_print_as_go_prints_them() {
+        let failure = Failure::from(Error::Command {
+            message: "m".into(),
+        });
+        assert!(matches!(&failure, Failure::Message(message) if message == "m"));
+        assert_eq!(
+            Error::Command {
+                message: "m".into()
+            }
+            .to_string(),
+            "m"
+        );
+        // Through the dispatcher: Go's command error, as for any other.
+        fn command_error_find(name: &str) -> Option<Entry> {
+            fn raises(_: &mut Context<'_>, _: &[String]) -> std::result::Result<(), Failure> {
+                Err(Error::Command {
+                    message: "it <failed>".into(),
+                }
+                .into())
+            }
+            (name == "raises").then_some(Entry::Ported(raises))
+        }
+        let outcome = dispatch(&invocation(&["raises"]), command_error_find).unwrap();
+        assert_eq!(
+            (
+                outcome.exit_code,
+                text(&outcome.stdout),
+                text(&outcome.stderr)
+            ),
+            (1, "", "Error: it <failed>\n")
+        );
+        let outcome = dispatch(&invocation(&["raises", "--json"]), command_error_find).unwrap();
+        assert_eq!(
+            (outcome.exit_code, text(&outcome.stdout), text(&outcome.stderr)),
+            (
+                1,
+                "{\n  \"success\": false,\n  \"command\": \"raises\",\n  \"error\": \"it <failed>\"\n}\n",
+                ""
+            )
+        );
     }
 
     #[test]

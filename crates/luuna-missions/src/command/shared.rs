@@ -73,7 +73,7 @@ pub(super) fn parse_intent(values: &[String]) -> Result<Option<Value>, String> {
 }
 
 /// `^r-[0-9a-f]{4,8}$`.
-fn is_intent_id(id: &str) -> bool {
+pub(super) fn is_intent_id(id: &str) -> bool {
     id.strip_prefix("r-").is_some_and(|hex| {
         (4..=8).contains(&hex.len())
             && hex

@@ -35,7 +35,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::error::{Error, Result, PLAN_3};
+use crate::config_tree;
+use crate::error::{Error, Result};
 use crate::gopath;
 
 /// `model.MissionsDir`.
@@ -45,7 +46,7 @@ pub(crate) const CONFIG_FILE: &str = "config.yaml";
 /// `model.DefaultMaxPlanDepth`.
 pub(crate) const DEFAULT_MAX_PLAN_DEPTH: i64 = 3;
 /// The legacy store folder (`legacyDir`).
-const LEGACY_DIR: &str = ".seeds";
+pub(crate) const LEGACY_DIR: &str = ".seeds";
 
 /// The lines `init` keeps in the project's `.gitattributes`
 /// (`mergeUnionLines`).
@@ -240,13 +241,7 @@ pub(crate) fn refuse_legacy_layout(project_root: &Path) -> Result<()> {
     if left_alone {
         return Ok(());
     }
-    Err(Error::unsupported(
-        format!(
-            "the legacy {LEGACY_DIR}/ layout (found {})",
-            legacy.display()
-        ),
-        PLAN_3,
-    ))
+    config_tree::migrate_legacy_layout(project_root, &legacy)
 }
 
 fn lstat(path: &Path) -> Result<Option<fs::Metadata>> {
@@ -376,21 +371,14 @@ impl Default for Config {
 pub(crate) fn read_config(missions_dir: &Path) -> Result<Config> {
     let path = missions_dir.join(CONFIG_FILE);
     let content = fs::read(&path).map_err(|error| Error::io("read", &path, error))?;
-    parse_config(&content).map_err(|reason| {
-        Error::unsupported(
-            format!(
-                "reading {} outside the config.yaml subset Go writes ({reason})",
-                path.display()
-            ),
-            PLAN_3,
-        )
-    })
+    parse_config(&content)
+        .or_else(|reason| config_tree::read_outside_subset(&path, &content, reason))
 }
 
 /// A top-level value as yaml.v3 decodes it into `any`, as far as
 /// `ReadConfig` tells the kinds apart.
 #[derive(Debug, Clone, PartialEq)]
-enum Scalar {
+pub(crate) enum Scalar {
     /// `!!str`.
     Str(String),
     /// `!!int` that fits Go's `int`.
@@ -516,7 +504,7 @@ fn parse_value(rest: &str) -> Result<Scalar, String> {
 /// yaml.v3's `resolve` for an untagged plain scalar (`resolve.go`). Only a
 /// value shaped like a timestamp (four digits and `-`) is outside the
 /// subset, because whether Go's `time.Parse` accepts it decides its type.
-fn resolve_plain(value: &str) -> Result<Scalar, String> {
+pub(crate) fn resolve_plain(value: &str) -> Result<Scalar, String> {
     match value {
         "true" | "True" | "TRUE" | "false" | "False" | "FALSE" | "" | "~" | "null" | "Null"
         | "NULL" => return Ok(Scalar::Other),
@@ -860,14 +848,10 @@ mod tests {
     }
 
     #[test]
-    fn reading_outside_the_subset_is_unsupported() {
+    fn reading_outside_the_subset_answers_as_config_tree_states() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(CONFIG_FILE), "project:\n  nested: x\n").unwrap();
-        let error = read_config(dir.path()).unwrap_err();
-        assert!(
-            matches!(&error, Error::Unsupported { plan, .. } if plan == PLAN_3),
-            "{error}"
-        );
+        crate::config_tree::checks::outside_subset(dir.path());
         fs::write(dir.path().join(CONFIG_FILE), "project: parity\n").unwrap();
         assert_eq!(read_config(dir.path()).unwrap().project, "parity");
     }
@@ -988,34 +972,26 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_legacy_seeds_folder_is_refused_as_unsupported() {
-        let refused = |root: &Path| match find_dir(root, ProcessEnv::Inherit) {
-            Err(Error::Unsupported { plan, feature }) => {
-                assert_eq!(plan, PLAN_3);
-                assert!(feature.contains(".seeds"), "{feature}");
-            }
-            other => panic!("expected Unsupported, got {other:?}"),
-        };
+    fn a_legacy_seeds_entry_answers_as_config_tree_states() {
         // A folder Go would migrate.
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir(temp.path().join(LEGACY_DIR)).unwrap();
-        refused(temp.path());
-        assert!(temp.path().join(LEGACY_DIR).is_dir(), "nothing was moved");
+        crate::config_tree::checks::legacy_found(temp.path(), temp.path());
         // Both layouts, which Go refuses.
         let temp = tempfile::tempdir().unwrap();
         initialised(temp.path());
         fs::create_dir(temp.path().join(LEGACY_DIR)).unwrap();
-        refused(temp.path());
+        crate::config_tree::checks::legacy_found(temp.path(), temp.path());
         // A symbolic link, which Go refuses.
         let temp = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("elsewhere", temp.path().join(LEGACY_DIR)).unwrap();
-        refused(temp.path());
+        crate::config_tree::checks::legacy_found(temp.path(), temp.path());
         // In a parent directory visited on the way up.
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir(temp.path().join(LEGACY_DIR)).unwrap();
         let child = temp.path().join("child");
         fs::create_dir(&child).unwrap();
-        refused(&child);
+        crate::config_tree::checks::legacy_found(temp.path(), &child);
         // A plain file Go leaves alone is left alone.
         let temp = tempfile::tempdir().unwrap();
         let store = initialised(&temp.path().join("p"));

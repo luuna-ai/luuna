@@ -1065,11 +1065,13 @@ name = "luuna-missions"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "uuid",
+ "yaml-rust2",
 ]
 
 [[package]]
