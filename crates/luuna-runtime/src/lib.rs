@@ -235,6 +235,7 @@ mod policy;
 mod projects;
 mod publication;
 mod scaffold;
+pub mod stores;
 mod writer;
 pub use baselines::{ArtifactId, StartBaseline};
 pub use projects::{ConfirmManifest, ProjectView, RegisterProject, RegisterRepository};

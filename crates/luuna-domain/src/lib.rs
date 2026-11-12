@@ -7,10 +7,12 @@ use thiserror::Error;
 
 mod baseline;
 mod project;
+mod store_mode;
 mod validation;
 mod writer;
 pub use baseline::*;
 pub use project::*;
+pub use store_mode::*;
 pub use validation::*;
 pub use writer::*;
 

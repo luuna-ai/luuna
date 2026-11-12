@@ -12,6 +12,7 @@ mod baselines;
 mod components;
 mod history;
 mod missions;
+mod project_files;
 mod projects;
 mod publication;
 mod validation;
@@ -22,6 +23,7 @@ pub use backup::{
 };
 pub use components::*;
 pub use missions::MissionsBinding;
+pub use project_files::*;
 pub use projects::*;
 pub use publication::*;
 pub use validation::{
