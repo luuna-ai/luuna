@@ -1,0 +1,71 @@
+//! A native port of the Luuna Atlas store (`.luuna/atlas/`), derived from Luuna Atlas and
+//! Mulch under the MIT license (see `LICENSE` in this crate).
+//!
+//! The crate reads and writes the store byte for byte as the Go tool at reference commit
+//! `c4db80c3f2e622afbdd84f09077fd73b2a92d199` does, and implements `init`, `add` and
+//! `config show`. It takes the project root as a parameter: it never runs git and never
+//! reads the environment to find a store. Nothing here is wired into the runtime.
+
+pub mod commands;
+pub mod config;
+pub mod error;
+pub mod json;
+pub mod legacy;
+pub mod output;
+pub mod registry;
+pub mod store;
+pub mod yaml;
+
+use std::path::{Path, PathBuf};
+
+pub use error::{AtlasError, Result};
+pub use output::CommandOutput;
+
+/// A store located at `<project_root>/.luuna/atlas`.
+#[derive(Debug, Clone)]
+pub struct AtlasStore {
+    project_root: PathBuf,
+}
+
+impl AtlasStore {
+    /// Opens the store of `project_root`, running the legacy `.mulch/` migration first as
+    /// the Go tool does. The store directory need not exist yet.
+    pub fn open(_project_root: impl Into<PathBuf>) -> Result<AtlasStore> {
+        Err(AtlasError::NotImplemented {
+            feature: "AtlasStore::open (task t5)",
+        })
+    }
+
+    /// The project root the store belongs to.
+    pub fn project_root(&self) -> &Path {
+        &self.project_root
+    }
+
+    /// `<project_root>/.luuna/atlas`.
+    pub fn atlas_dir(&self) -> PathBuf {
+        self.project_root.join(".luuna").join("atlas")
+    }
+
+    /// `<project_root>/.luuna/atlas/config.yaml`.
+    pub fn config_path(&self) -> PathBuf {
+        self.atlas_dir().join("config.yaml")
+    }
+
+    /// `<project_root>/.luuna/atlas/expertise/<domain>.jsonl`, after checking the name.
+    pub fn expertise_path(&self, domain: &str) -> Result<PathBuf> {
+        config::validate_domain_name(domain)?;
+        Ok(self
+            .atlas_dir()
+            .join("expertise")
+            .join(format!("{domain}.jsonl")))
+    }
+
+    /// `<project_root>/.luuna/atlas/archive/<domain>.jsonl`, after checking the name.
+    pub fn archive_path(&self, domain: &str) -> Result<PathBuf> {
+        config::validate_domain_name(domain)?;
+        Ok(self
+            .atlas_dir()
+            .join("archive")
+            .join(format!("{domain}.jsonl")))
+    }
+}
