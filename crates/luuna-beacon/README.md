@@ -23,7 +23,8 @@ run the Go tool as a black box.
 
 ## Reference tests
 
-Three test files compare this crate with the Go tool. They are marked
+The test files listed below compare this crate with the Go tool; each later
+plan's notes file lists any further ones. They are marked
 `#[ignore]` because they need a checkout of the reference and a Go toolchain.
 Set these variables:
 
@@ -40,6 +41,8 @@ into the reference checkout. Run each file:
 cargo test -p luuna-beacon --locked --test go_reference -- --ignored
 cargo test -p luuna-beacon --locked --test parity -- --ignored
 cargo test -p luuna-beacon --locked --test format -- --ignored
+cargo test -p luuna-beacon --locked --test parity_authoring -- --ignored
+cargo test -p luuna-beacon --locked --test parity_artifacts -- --ignored
 ```
 
 ## Differences from the Go tool
@@ -124,3 +127,16 @@ does not fix them, and the tests pin each one.
 - GD6: in schema rule patterns, `\d`, `\w`, `\s` and `\b` match ASCII only,
   as in Go's `regexp`. This may surprise someone writing rules for
   non-ASCII text.
+
+## Notes of the later library plans
+
+Each later library plan records its own differences from the Go tool, its
+refusals where the Go tool loses data (A8) and its suspected Go defects in a
+notes file of its own:
+
+- `notes/s3-beacon-lib-2.md`: differences RD3 to RD49, suspected Go defects
+  GD7 to GD49.
+- `notes/s3-beacon-lib-3.md`: differences RD50 to RD99, suspected Go defects
+  GD50 to GD99.
+
+GD1 to GD6 stay in this file.

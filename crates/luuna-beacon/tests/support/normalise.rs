@@ -59,10 +59,38 @@ fn map_ordered_key(command: &str) -> Option<&'static str> {
     }
 }
 
+/// The `command` values of the foundation's documents, including `schema`,
+/// the `args[0]` of its error documents. Documents of any other command are
+/// left to the hooks of the later library plans.
+pub const FOUNDATION_COMMANDS: [&str; 14] = [
+    "init",
+    "create",
+    "update",
+    "archive",
+    "list",
+    "show",
+    "history",
+    "render",
+    "validate",
+    "schema",
+    "schema create",
+    "schema list",
+    "schema show",
+    "schema rule add",
+];
+
 /// Sorts the map-ordered array of a document by each entry's `name`.
 /// Entries with equal names are ordered by their content with ids and
 /// timestamps blanked, so the order does not depend on Go's map iteration.
 pub fn sort_map_ordered_arrays(doc: &mut Value, project: &str) {
+    if let Some(command) = doc.get("command").and_then(Value::as_str) {
+        if !FOUNDATION_COMMANDS.contains(&command) {
+            let command = command.to_owned();
+            super::authoring::sort_map_ordered(&command, doc, project);
+            super::artifacts::sort_map_ordered(&command, doc, project);
+            return;
+        }
+    }
     let Some(key) = doc
         .get("command")
         .and_then(Value::as_str)

@@ -113,6 +113,14 @@ pub enum BeaconError {
     /// pattern compiler's own.
     #[error("invalid rule pattern: {0}")]
     InvalidRulePattern(String),
+
+    // ---- Later library plans: one variant per plan, its type in the plan's own folder ----
+    /// An error of the authoring commands (plan s3-beacon-lib-2).
+    #[error(transparent)]
+    Authoring(crate::authoring::AuthoringError),
+    /// An error of the artifact commands (plan s3-beacon-lib-3).
+    #[error(transparent)]
+    Artifacts(crate::artifacts::ArtifactsError),
 }
 
 impl BeaconError {
