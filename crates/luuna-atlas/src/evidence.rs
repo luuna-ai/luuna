@@ -6,8 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::git;
 use crate::json::{Object, Value};
 use crate::options::Context;
+use crate::records::obj;
 
 /// The legacy evidence key read when `missions` is absent or null.
 pub const LEGACY_EVIDENCE_KEY: &str = "seeds";
@@ -32,17 +34,32 @@ pub struct EvidenceFlags {
 /// to the legacy key only when `missions` is absent or null; only a non-empty string
 /// counts, anything else is `""`.
 pub fn evidence_missions(evidence: Option<&Value>) -> String {
-    // stub until t6
-    let _ = evidence;
-    String::new()
+    let ev = obj(evidence);
+    let value = match ev.get("missions") {
+        None | Some(Value::Null) => ev.get(LEGACY_EVIDENCE_KEY),
+        present => present,
+    };
+    match value {
+        Some(Value::String(s)) if !s.is_empty() => s.clone(),
+        _ => String::new(),
+    }
 }
 
 /// `ResolveMissionsDir(cwd)`: `<cwd>/.luuna/missions` if it exists (as `os.Lstat` sees
 /// it, so a dangling symbolic link counts), else the legacy `<cwd>/.seeds` if that
 /// exists, else `<cwd>/.luuna/missions`.
 pub fn resolve_missions_dir(cwd: &Path) -> PathBuf {
-    // stub until t6: the current layout's path.
-    cwd.join(".luuna").join("missions")
+    // Go's `lexists`: `os.Lstat` succeeds.
+    let lexists = |path: &Path| std::fs::symlink_metadata(path).is_ok();
+    let current = cwd.join(".luuna").join("missions");
+    if lexists(&current) {
+        return current;
+    }
+    let legacy = cwd.join(LEGACY_MISSIONS_DIR);
+    if lexists(&legacy) {
+        return legacy;
+    }
+    current
 }
 
 /// The evidence object `record` builds (`record.go:306-325`): the given flags in Go's
@@ -52,9 +69,36 @@ pub fn resolve_missions_dir(cwd: &Path) -> PathBuf {
 /// `None` when it would be empty (Go then sets no `evidence` field), and whether the
 /// commit was filled automatically (`autoCommit`).
 pub fn build_record_evidence(ctx: &Context, flags: &EvidenceFlags) -> (Option<Object>, bool) {
-    // stub until t6
-    let _ = (ctx, flags);
-    (None, false)
+    // Go's fixed flag order (record.go:308). The literal key names are the stored
+    // evidence keys; nothing here starts a process other than git.
+    let given: [(&str, &str); 7] = [
+        ("commit", &flags.commit),
+        ("issue", &flags.issue),
+        ("file", &flags.file),
+        ("bead", &flags.bead),
+        ("missions", &flags.missions),
+        ("gh", &flags.gh),
+        ("linear", &flags.linear),
+    ];
+    let mut evidence = Object::new();
+    for (key, value) in given {
+        if !value.is_empty() {
+            evidence.insert(key, value);
+        }
+    }
+    let mut auto_commit = false;
+    if flags.commit.is_empty() {
+        let commit = git::get_current_commit(&ctx.cwd, &ctx.env);
+        if !commit.is_empty() {
+            evidence.insert("commit", commit);
+            auto_commit = true;
+        }
+    }
+    if evidence.is_empty() {
+        (None, auto_commit)
+    } else {
+        (Some(evidence), auto_commit)
+    }
 }
 
 #[cfg(test)]

@@ -6,77 +6,184 @@
 //! (`hooks_inject.go:26-39`).
 //!
 //! `git` is found with [`Env::look_path`] on the given environment's `PATH` (P25) and runs
-//! with exactly that environment's variables (D2). Git failures are errors here; the
-//! helpers swallow them as the Go tool does. Output is read without `-z`, so git quotes
-//! unusual paths (a suspected Go defect, kept).
+//! with exactly that environment's variables (D2), plus the `PWD` that Go's `os/exec` adds
+//! when the environment is inherited and a working directory is set (`Cmd.environ`).
+//! Git failures are errors here; the helpers swallow them as the Go tool does. Output is
+//! read without `-z`, so git quotes unusual paths (a suspected Go defect, kept).
+//!
+//! Paths are handled as text, as Go's `filepath` does; a path that is not UTF-8 is read
+//! with U+FFFD in place of its invalid bytes.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use crate::error::{AtlasError, Result};
 use crate::options::Env;
+use crate::records::{list, unique};
 use crate::store::Record;
 
 /// `Git(cwd, args...)`: runs `git args` in `cwd` with stdin from the null device, stdout
 /// captured (non-UTF-8 bytes replaced by U+FFFD), stderr captured and dropped, no
 /// timeout, and a child environment of exactly `env`'s variables. Git not found on
 /// `env`'s `PATH`, a start failure or a non-zero exit is an error.
+///
+/// As Go's `exec.Cmd` with an inherited environment and a working directory, the child
+/// also gets `PWD` set to the absolute `cwd` (the last value wins over `env`'s own `PWD`),
+/// and its `argv[0]` is `git`.
 pub fn git(cwd: &Path, env: &Env, args: &[&str]) -> Result<String> {
-    // stub until t6
-    let _ = (cwd, env, args);
-    Err(AtlasError::Message("not implemented: git::git".to_owned()))
+    let Some(program) = env.look_path("git") else {
+        return Err(AtlasError::Message(
+            "exec: \"git\": executable file not found in $PATH".to_owned(),
+        ));
+    };
+    let mut cmd = Command::new(&program);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.arg0("git");
+    }
+    cmd.args(args)
+        .env_clear()
+        .envs(env.vars().iter().map(|(k, v)| (k, v)))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if !cwd.as_os_str().is_empty() {
+        cmd.current_dir(cwd);
+        #[cfg(unix)]
+        cmd.env("PWD", go_abs(&cwd.to_string_lossy()));
+    }
+    let output = cmd
+        .output()
+        .map_err(|e| AtlasError::Message(format!("exec: git: {e}")))?;
+    if !output.status.success() {
+        return Err(AtlasError::Message(match output.status.code() {
+            Some(code) => format!("exit status {code}"),
+            None => "git was stopped by a signal".to_owned(),
+        }));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// `IsGitRepo`: `git rev-parse --is-inside-work-tree` succeeds.
 pub fn is_git_repo(cwd: &Path, env: &Env) -> bool {
-    // stub until t6
-    let _ = (cwd, env);
-    false
+    git(cwd, env, &["rev-parse", "--is-inside-work-tree"]).is_ok()
 }
 
 /// `GetCurrentCommit`: the trimmed `git rev-parse HEAD`, or `""` on any failure.
 pub fn get_current_commit(cwd: &Path, env: &Env) -> String {
-    // stub until t6
-    let _ = (cwd, env);
-    String::new()
+    match git(cwd, env, &["rev-parse", "HEAD"]) {
+        Ok(out) => out.trim().to_owned(),
+        Err(_) => String::new(),
+    }
+}
+
+/// The non-empty lines of each successful `git args` in turn (Go: `TrimSpace`, then split
+/// on `\n`), de-duplicated in order and sorted by bytes.
+fn name_lists(cwd: &Path, env: &Env, calls: &[&[&str]]) -> Vec<String> {
+    let mut files: Vec<String> = Vec::new();
+    for args in calls {
+        let Ok(raw) = git(cwd, env, args) else {
+            continue;
+        };
+        files.extend(
+            raw.trim()
+                .split('\n')
+                .filter(|f| !f.is_empty())
+                .map(str::to_owned),
+        );
+    }
+    let mut files = unique(&files);
+    files.sort();
+    files
 }
 
 /// `GetChangedFiles(cwd, since)`: the files of `git diff --name-only --end-of-options
 /// <since>`, `--cached` and the working tree, de-duplicated and sorted by bytes; a failing
 /// git call contributes nothing.
 pub fn get_changed_files(cwd: &Path, env: &Env, since: &str) -> Vec<String> {
-    // stub until t6
-    let _ = (cwd, env, since);
-    Vec::new()
+    name_lists(
+        cwd,
+        env,
+        &[
+            &["diff", "--name-only", "--end-of-options", since],
+            &["diff", "--name-only", "--cached"],
+            &["diff", "--name-only"],
+        ],
+    )
 }
 
 /// `GetContextFiles`: staged and unstaged changed files, de-duplicated and sorted.
 pub fn get_context_files(cwd: &Path, env: &Env) -> Vec<String> {
-    // stub until t6
-    let _ = (cwd, env);
-    Vec::new()
+    name_lists(
+        cwd,
+        env,
+        &[
+            &["diff", "--name-only", "--cached"],
+            &["diff", "--name-only"],
+        ],
+    )
 }
 
 /// `GetActiveFiles`: the paths of `git status --porcelain -uall` (the new name of a
 /// rename), de-duplicated and sorted; empty on failure.
 pub fn get_active_files(cwd: &Path, env: &Env) -> Vec<String> {
-    // stub until t6
-    let _ = (cwd, env);
-    Vec::new()
+    let Ok(out) = git(cwd, env, &["status", "--porcelain", "-uall"]) else {
+        return Vec::new();
+    };
+    let mut files: Vec<String> = Vec::new();
+    for line in out.split('\n') {
+        let bytes = line.as_bytes();
+        if bytes.len() < 4 {
+            continue;
+        }
+        let mut path = String::from_utf8_lossy(&bytes[3..]).into_owned();
+        if let Some(idx) = path.find(" -> ") {
+            path = path[idx + 4..].to_owned();
+        }
+        if !path.is_empty() {
+            files.push(path);
+        }
+    }
+    let mut files = unique(&files);
+    files.sort();
+    files
+}
+
+/// `gitCommonDir` as text: the absolute `git rev-parse --git-common-dir` (joined to `cwd`
+/// when relative), or `""` on failure or empty output.
+fn git_common_dir_text(cwd: &Path, env: &Env) -> String {
+    let Ok(raw) = git(cwd, env, &["rev-parse", "--git-common-dir"]) else {
+        return String::new();
+    };
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    let joined = if raw.starts_with('/') {
+        raw.to_owned()
+    } else {
+        go_join(&cwd.to_string_lossy(), raw)
+    };
+    go_abs(&joined)
 }
 
 /// `gitCommonDir`: the absolute `git rev-parse --git-common-dir` (joined to `cwd` when
 /// relative), or `None` on failure or empty output.
 pub fn git_common_dir(cwd: &Path, env: &Env) -> Option<PathBuf> {
-    // stub until t6
-    let _ = (cwd, env);
-    None
+    let common = git_common_dir_text(cwd, env);
+    (!common.is_empty()).then(|| PathBuf::from(common))
 }
 
 /// `IsInsideWorktree`: the common directory ends in `.git` and its parent is not `cwd`.
 pub fn is_inside_worktree(cwd: &Path, env: &Env) -> bool {
-    // stub until t6
-    let _ = (cwd, env);
-    false
+    let common = git_common_dir_text(cwd, env);
+    if common.is_empty() || !common.ends_with(".git") {
+        return false;
+    }
+    let abs = go_abs(&cwd.to_string_lossy());
+    filepath_clean(&go_dir(&common)) != filepath_clean(&abs)
 }
 
 /// `resolveStoreRoot(cwd)`: from a linked worktree, the main checkout when it holds a
@@ -84,85 +191,264 @@ pub fn is_inside_worktree(cwd: &Path, env: &Env) -> bool {
 /// end (D1: commands take the root as a parameter). A crafted `.git` can redirect it (a
 /// suspected Go defect, kept).
 pub fn resolve_store_root(cwd: &Path, env: &Env) -> PathBuf {
-    // stub until t6: cwd, as Go returns when git fails.
-    let _ = env;
+    let common = git_common_dir_text(cwd, env);
+    if common.is_empty() {
+        return cwd.to_owned();
+    }
+    let mut root = go_dir(&common);
+    if !common.ends_with(".git") {
+        root = go_dir(&root);
+    }
+    let abs = go_abs(&cwd.to_string_lossy());
+    if filepath_clean(&root) == filepath_clean(&abs) {
+        return cwd.to_owned();
+    }
+    let root_path = PathBuf::from(&root);
+    // Go's `exists` is `os.Stat` (symbolic links followed); `HasLegacyStore` is an
+    // `os.Lstat` of `.mulch` that is a directory or a symbolic link.
+    let has_config =
+        std::fs::metadata(root_path.join(".luuna").join("atlas").join("config.yaml")).is_ok();
+    let has_legacy = std::fs::symlink_metadata(root_path.join(crate::legacy::LEGACY_STORE_DIR))
+        .is_ok_and(|st| st.is_dir() || st.file_type().is_symlink());
+    if has_config || has_legacy {
+        return root_path;
+    }
     cwd.to_owned()
 }
 
 /// `FindRepoRoot(cwd)`: the nearest of the absolute `cwd` and its ancestors where
 /// [`is_git_repo`] holds, else the absolute `cwd`.
 pub fn find_repo_root(cwd: &Path, env: &Env) -> PathBuf {
-    // stub until t6
-    let _ = env;
-    cwd.to_owned()
+    let abs = go_abs(&cwd.to_string_lossy());
+    let mut dir = abs.clone();
+    loop {
+        if is_git_repo(Path::new(&dir), env) {
+            return PathBuf::from(dir);
+        }
+        let parent = go_dir(&dir);
+        if parent == dir {
+            return PathBuf::from(abs);
+        }
+        dir = parent;
+    }
 }
 
 /// `FileMatchesAny(file, changed)`: equal, or one ends with `/` plus the other.
 pub fn file_matches_any(file: &str, changed: &[String]) -> bool {
-    // stub until t6
-    let _ = (file, changed);
-    false
+    // Go: len(longer) > len(shorter) && strings.HasSuffix(longer, "/"+shorter).
+    let suffix = |longer: &str, shorter: &str| {
+        longer.len() > shorter.len()
+            && longer.ends_with(shorter)
+            && longer.as_bytes()[longer.len() - shorter.len() - 1] == b'/'
+    };
+    changed
+        .iter()
+        .any(|f| f == file || suffix(f, file) || suffix(file, f))
+}
+
+/// Go's `regexp.MustCompile(`\\+`).ReplaceAllString(v, "/")`: every run of backslashes
+/// becomes one `/`.
+fn backslash_runs_to_slash(v: &str) -> String {
+    let mut out = String::with_capacity(v.len());
+    let mut in_run = false;
+    for c in v.chars() {
+        if c == '\\' {
+            if !in_run {
+                out.push('/');
+            }
+            in_run = true;
+        } else {
+            out.push(c);
+            in_run = false;
+        }
+    }
+    out
+}
+
+/// `normalizeDirAnchor` (the unexported one, without the checks).
+fn normalize_dir_anchor_text(input: &str) -> String {
+    let v = input.trim();
+    if v.is_empty() || v == "." {
+        return String::new();
+    }
+    let v = backslash_runs_to_slash(v);
+    let v = v.trim_end_matches('/');
+    let v = v.strip_prefix("./").unwrap_or(v);
+    let v = v.trim_end_matches('/');
+    if v == "." {
+        return String::new();
+    }
+    v.to_owned()
+}
+
+/// Go's `^[a-zA-Z]:[\\/]`.
+fn has_drive_prefix(v: &str) -> bool {
+    let b = v.as_bytes();
+    b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
 }
 
 /// `FileLivesUnderDir(file, dir)`: with backslash runs in `file` turned into `/` and
 /// `dir` normalised, `dir` is empty, equals `file` or is a `/`-bounded prefix of it.
 pub fn file_lives_under_dir(file: &str, dir: &str) -> bool {
-    // stub until t6
-    let _ = (file, dir);
-    false
+    let f = backslash_runs_to_slash(file);
+    let d = normalize_dir_anchor_text(dir);
+    d.is_empty()
+        || f == d
+        || (f.len() > d.len() && f.starts_with(&d) && f.as_bytes()[d.len()] == b'/')
 }
 
 /// `NormalizeDirAnchor(input)`: refuses an absolute path (`/`, `\` or a drive letter) and
 /// any `..` segment with Go's two messages (`git.go:115,118`); otherwise the trimmed
 /// anchor with backslash runs turned into `/`, trailing slashes and one leading `./`
 /// removed, and `.` as `""`.
+///
+/// The input is quoted as Go's `%q` with the crate's `go_quote`, which escapes control
+/// characters; other characters Go's `strconv.IsPrint` rejects (format characters,
+/// separators other than the space, unassigned code points) are printed as they are.
 pub fn normalize_dir_anchor(input: &str) -> Result<String> {
-    // stub until t6
-    let _ = input;
-    Err(AtlasError::Message(
-        "not implemented: git::normalize_dir_anchor".to_owned(),
-    ))
+    let v = input.trim();
+    if !v.is_empty() {
+        if has_drive_prefix(v) || v.starts_with('/') || v.starts_with('\\') {
+            return Err(AtlasError::Message(format!(
+                "dir-anchor {} is an absolute path. Use a project-root-relative path like \"src/utils\".",
+                crate::commands::go_quote(input)
+            )));
+        }
+        if backslash_runs_to_slash(v)
+            .split('/')
+            .any(|part| part == "..")
+        {
+            return Err(AtlasError::Message(format!(
+                "dir-anchor {} contains \"..\" (parent traversal). Anchors must stay inside the project root.",
+                crate::commands::go_quote(input)
+            )));
+        }
+    }
+    Ok(normalize_dir_anchor_text(input))
 }
 
 /// `NormalizeDirAnchors(inputs)`: each normalised, empty results dropped, de-duplicated
 /// in order; the first refusal is the error.
 pub fn normalize_dir_anchors(inputs: &[String]) -> Result<Vec<String>> {
-    // stub until t6
-    let _ = inputs;
-    Err(AtlasError::Message(
-        "not implemented: git::normalize_dir_anchors".to_owned(),
-    ))
+    let mut out: Vec<String> = Vec::new();
+    for input in inputs {
+        let v = normalize_dir_anchor(input)?;
+        if !v.is_empty() {
+            out.push(v);
+        }
+    }
+    Ok(unique(&out))
 }
 
 /// `InferDirAnchors(files)`: every parent directory holding at least three of `files`,
 /// sorted by bytes.
 pub fn infer_dir_anchors(files: &[String]) -> Vec<String> {
-    // stub until t6
-    let _ = files;
-    Vec::new()
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for raw in files {
+        let f = backslash_runs_to_slash(raw);
+        match f.rfind('/') {
+            Some(idx) if idx > 0 => *counts.entry(f[..idx].to_owned()).or_insert(0) += 1,
+            _ => {}
+        }
+    }
+    let mut out: Vec<String> = counts
+        .into_iter()
+        .filter(|(_, n)| *n >= 3)
+        .map(|(d, _)| d)
+        .collect();
+    out.sort();
+    out
 }
 
 /// `HasFileAnchors(r)`: the record lists `files` or `dir_anchors` strings.
 pub fn has_file_anchors(record: &Record) -> bool {
-    // stub until t6
-    let _ = record;
-    false
+    !list(record.get("files")).is_empty() || !list(record.get("dir_anchors")).is_empty()
 }
 
 /// `MatchesFileAnchors(r, files)`: one of the record's `files` matches one of `files`
 /// ([`file_matches_any`]) or one of `files` lives under one of its `dir_anchors`.
 pub fn matches_file_anchors(record: &Record, files: &[String]) -> bool {
-    // stub until t6
-    let _ = (record, files);
-    false
+    if list(record.get("files"))
+        .iter()
+        .any(|f| file_matches_any(f, files))
+    {
+        return true;
+    }
+    list(record.get("dir_anchors"))
+        .iter()
+        .any(|dir| files.iter().any(|file| file_lives_under_dir(file, dir)))
 }
 
 /// `FilterByContext(records, files)`: the records without file anchors and those whose
 /// anchors match `files`, in order (cloned).
 pub fn filter_by_context(records: &[Record], files: &[String]) -> Vec<Record> {
-    // stub until t6
-    let _ = (records, files);
-    Vec::new()
+    records
+        .iter()
+        .filter(|r| !has_file_anchors(r) || matches_file_anchors(r, files))
+        .cloned()
+        .collect()
+}
+
+/// Go's `filepath.Clean` on unix, on text: runs of `/` collapse, `.` elements go, `..`
+/// removes the element before it (and is dropped at the root), and an empty result is
+/// `.`. Used only where Go compares or derives paths with it, never as a containment
+/// check.
+fn filepath_clean(path: &str) -> String {
+    let rooted = path.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.last().is_some_and(|last| *last != "..") {
+                    parts.pop();
+                } else if !rooted {
+                    parts.push("..");
+                }
+            }
+            other => parts.push(other),
+        }
+    }
+    let joined = parts.join("/");
+    match (rooted, joined.is_empty()) {
+        (true, _) => format!("/{joined}"),
+        (false, true) => ".".to_owned(),
+        (false, false) => joined,
+    }
+}
+
+/// Go's `filepath.Join(a, b)` for two elements: empty elements are skipped, the rest
+/// joined with `/` and cleaned; `""` when both are empty.
+fn go_join(a: &str, b: &str) -> String {
+    match (a.is_empty(), b.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => filepath_clean(b),
+        (false, true) => filepath_clean(a),
+        (false, false) => filepath_clean(&format!("{a}/{b}")),
+    }
+}
+
+/// Go's `filepath.Abs(path)`: the cleaned path when absolute, else joined to the process's
+/// working directory (Go's `os.Getwd`). On a `Getwd` failure Go returns an error that the
+/// callers ignore, leaving `""`.
+fn go_abs(path: &str) -> String {
+    if path.starts_with('/') {
+        return filepath_clean(path);
+    }
+    match std::env::current_dir() {
+        Ok(wd) => go_join(&wd.to_string_lossy(), path),
+        Err(_) => String::new(),
+    }
+}
+
+/// Go's `filepath.Dir(path)`: everything up to the last `/`, cleaned; `.` when there is
+/// no `/`.
+fn go_dir(path: &str) -> String {
+    let dir = match path.rfind('/') {
+        Some(idx) => &path[..=idx],
+        None => "",
+    };
+    filepath_clean(dir)
 }
 
 #[cfg(test)]
