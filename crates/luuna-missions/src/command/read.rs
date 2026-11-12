@@ -21,15 +21,15 @@ use crate::model::{self, Ticket};
 use crate::store::{read_records, DataFile, Record, Store};
 
 /// The sort modes of `list` and `search` (`issueSorts`).
-const SORTS: [&str; 4] = ["priority", "created", "updated", "id"];
+pub(super) const SORTS: [&str; 4] = ["priority", "created", "updated", "id"];
 
 /// The Go type whose `MarshalJSON` method writes each record of the `list`
 /// and `search` payloads, as Go's errors name it.
-const ISSUE_WITH_PLAN: &str = "*cli.issueWithPlan";
+pub(super) const ISSUE_WITH_PLAN: &str = "*cli.issueWithPlan";
 
 /// The id of a `plans.jsonl` record, the only part the read commands need to
 /// tell whether a ticket carries plan context.
-struct PlanId(String);
+pub(super) struct PlanId(String);
 
 impl Record for PlanId {
     fn from_line(line: &[u8]) -> Option<Self> {
@@ -50,21 +50,21 @@ impl Record for PlanId {
 }
 
 /// The ids of the plans in `plans.jsonl` (Go's `loadPlanIndex`, `byID`).
-struct Plans(HashSet<String>);
+pub(super) struct Plans(HashSet<String>);
 
 impl Plans {
-    fn load(store: &Store) -> Result<Self> {
+    pub(super) fn load(store: &Store) -> Result<Self> {
         let plans: Vec<PlanId> = read_records(&store.path(DataFile::Plans))?;
         Ok(Self(plans.into_iter().map(|plan| plan.0).collect()))
     }
 
     /// Go's `planIndex.forIssue`: the ticket names a plan that exists.
-    fn carries(&self, ticket: &Ticket) -> bool {
+    pub(super) fn carries(&self, ticket: &Ticket) -> bool {
         !ticket.plan_id.is_empty() && self.0.contains(&ticket.plan_id)
     }
 
     /// Refuses output that would print the plan context of `ticket`.
-    fn refuse(&self, ticket: &Ticket, what: &str) -> Result<(), Failure> {
+    pub(super) fn refuse(&self, ticket: &Ticket, what: &str) -> Result<(), Failure> {
         if self.carries(ticket) {
             return Err(Error::unsupported(
                 format!(
@@ -81,7 +81,7 @@ impl Plans {
 }
 
 /// Go's `PriorityLabels[priority]`, else the number.
-fn priority_label(priority: i64) -> String {
+pub(super) fn priority_label(priority: i64) -> String {
     match priority {
         0 => "Critical".to_owned(),
         1 => "High".to_owned(),
@@ -93,7 +93,7 @@ fn priority_label(priority: i64) -> String {
 }
 
 /// Go's `closedIDs`.
-fn closed_ids(tickets: &[Ticket]) -> HashSet<&str> {
+pub(super) fn closed_ids(tickets: &[Ticket]) -> HashSet<&str> {
     tickets
         .iter()
         .filter(|ticket| ticket.status == "closed")
@@ -102,7 +102,7 @@ fn closed_ids(tickets: &[Ticket]) -> HashSet<&str> {
 }
 
 /// Go's `effectivelyBlocked`: a blocker that is not closed (or not there).
-fn effectively_blocked(ticket: &Ticket, closed: &HashSet<&str>) -> bool {
+pub(super) fn effectively_blocked(ticket: &Ticket, closed: &HashSet<&str>) -> bool {
     ticket
         .blocked_by
         .iter()
@@ -111,7 +111,7 @@ fn effectively_blocked(ticket: &Ticket, closed: &HashSet<&str>) -> bool {
 }
 
 /// Go's `compactIssue`.
-fn compact_ticket(ticket: &Ticket, closed: &HashSet<&str>) -> String {
+pub(super) fn compact_ticket(ticket: &Ticket, closed: &HashSet<&str>) -> String {
     let status = if effectively_blocked(ticket, closed) {
         "blocked"
     } else {
@@ -127,7 +127,7 @@ fn compact_ticket(ticket: &Ticket, closed: &HashSet<&str>) -> String {
 }
 
 /// Go's `oneLineIssue`.
-fn one_line_ticket(ticket: &Ticket, closed: &HashSet<&str>) -> String {
+pub(super) fn one_line_ticket(ticket: &Ticket, closed: &HashSet<&str>) -> String {
     let blocked = effectively_blocked(ticket, closed);
     let icon = if ticket.status == "closed" {
         "x"
@@ -162,7 +162,7 @@ fn one_line_ticket(ticket: &Ticket, closed: &HashSet<&str>) -> String {
 
 /// Go's `fmt.Sprint` of a float64 (`%v`): shortest digits, with an exponent
 /// below 1e-4 and from 1e6 on.
-fn sprint_number(number: f64) -> String {
+pub(super) fn sprint_number(number: f64) -> String {
     if number.is_nan() {
         return "NaN".to_owned();
     }
@@ -186,7 +186,7 @@ fn sprint_number(number: f64) -> String {
 /// `map[k:v l:w]` for an object. The tree is walked with a heap stack, so
 /// a value nested as deep as the decoder accepts does not use the call
 /// stack in proportion to its depth.
-fn sprint(value: &Value) -> String {
+pub(super) fn sprint(value: &Value) -> String {
     enum Frame<'a> {
         Array(std::slice::Iter<'a, Value>, bool),
         Object(std::collections::btree_map::Iter<'a, String, Value>, bool),
@@ -238,7 +238,7 @@ fn sprint(value: &Value) -> String {
 }
 
 /// Go's `formatIssueFull`.
-fn format_ticket_full(ticket: &Ticket) -> String {
+pub(super) fn format_ticket_full(ticket: &Ticket) -> String {
     let mut lines = vec![
         format!("{}  {}", ticket.id, ticket.status),
         format!("Title:    {}", ticket.title),
@@ -298,7 +298,7 @@ fn format_ticket_full(ticket: &Ticket) -> String {
 }
 
 /// Go's `parseLimit`: empty is 50; digits only.
-fn parse_limit(value: &str) -> Result<i64, String> {
+pub(super) fn parse_limit(value: &str) -> Result<i64, String> {
     if value.is_empty() {
         return Ok(50);
     }
@@ -316,7 +316,7 @@ fn parse_limit(value: &str) -> Result<i64, String> {
 
 /// Go's `parseFilterPriority`: `0` to `4`, with an optional `P` or `p`,
 /// exactly as `strconv.Itoa` writes the number.
-fn parse_filter_priority(value: &str) -> Result<i64, String> {
+pub(super) fn parse_filter_priority(value: &str) -> Result<i64, String> {
     let token = value.trim();
     let digits = if token.starts_with(['p', 'P']) {
         &token[1..]
@@ -337,7 +337,10 @@ fn parse_filter_priority(value: &str) -> Result<i64, String> {
 }
 
 /// Go's `filterIssues`.
-fn filter_tickets(tickets: Vec<Ticket>, options: &options::Options) -> Result<Vec<Ticket>, String> {
+pub(super) fn filter_tickets(
+    tickets: Vec<Ticket>,
+    options: &options::Options,
+) -> Result<Vec<Ticket>, String> {
     let mut priorities: HashSet<i64> = HashSet::new();
     if !options.value("priority").is_empty() {
         for value in options.value("priority").split(',') {
@@ -385,7 +388,7 @@ fn filter_tickets(tickets: Vec<Ticket>, options: &options::Options) -> Result<Ve
 }
 
 /// Go's `sortIssues`: a stable sort.
-fn sort_tickets(tickets: &mut [Ticket], mode: &str) -> Result<(), String> {
+pub(super) fn sort_tickets(tickets: &mut [Ticket], mode: &str) -> Result<(), String> {
     if !SORTS.contains(&mode) {
         return Err(format!(
             "Invalid --sort value: {mode}. Valid: priority|created|updated|id"
@@ -406,7 +409,7 @@ fn sort_tickets(tickets: &mut [Ticket], mode: &str) -> Result<(), String> {
 }
 
 /// The options `list` and `search` share (`queryOptions`).
-fn query_options(
+pub(super) fn query_options(
     args: &[String],
     extra_values: &[&str],
     extra_switches: &[&str],
@@ -429,7 +432,7 @@ fn query_options(
 }
 
 /// The tickets as a compact JSON array of their records.
-fn records_array(tickets: &[Ticket]) -> Result<Vec<u8>, Failure> {
+pub(super) fn records_array(tickets: &[Ticket]) -> Result<Vec<u8>, Failure> {
     let mut out = vec![b'['];
     for (index, ticket) in tickets.iter().enumerate() {
         if index > 0 {
@@ -442,19 +445,19 @@ fn records_array(tickets: &[Ticket]) -> Result<Vec<u8>, Failure> {
 }
 
 /// Writes `text` and a newline to stdout (Go's `Fprintln`).
-fn println(context: &mut Context<'_>, text: &str) {
+pub(super) fn println(context: &mut Context<'_>, text: &str) {
     context.stdout.extend_from_slice(text.as_bytes());
     context.stdout.push(b'\n');
 }
 
 /// The part of the one-line format Go adds for plan context, which is
 /// refused before it can be printed.
-fn plan_suffix(plans: &Plans, ticket: &Ticket) -> Result<(), Failure> {
+pub(super) fn plan_suffix(plans: &Plans, ticket: &Ticket) -> Result<(), Failure> {
     plans.refuse(ticket, "the plan status in the one-line format")
 }
 
 /// Go's `renderIssues` for `list`.
-fn render_list(
+pub(super) fn render_list(
     context: &mut Context<'_>,
     mode: &str,
     tickets: &[Ticket],
@@ -528,7 +531,7 @@ pub(super) fn list(context: &mut Context<'_>, args: &[String]) -> Result<(), Fai
 }
 
 /// `if limit < len(issues) { issues = issues[:limit] }`.
-fn truncate(tickets: &mut Vec<Ticket>, limit: i64) {
+pub(super) fn truncate(tickets: &mut Vec<Ticket>, limit: i64) {
     if let Ok(limit) = usize::try_from(limit) {
         tickets.truncate(limit);
     }

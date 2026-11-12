@@ -39,7 +39,7 @@ pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Fail
 }
 
 /// Go's `addDependency`.
-fn add_dependency(
+pub(super) fn add_dependency(
     store: &crate::store::Store,
     issue_id: &str,
     blocker_id: &str,
