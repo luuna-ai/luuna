@@ -51,6 +51,16 @@ The remaining checks, each run where its prerequisites exist: `node scripts/chec
 
 Run the schema/fixture suite when changing contracts, state transitions, or protocol handling. Keep fixtures synthetic. A deterministic Pi fixture validates framing and lifecycle logic; a real provider smoke test validates the pinned engine/model profile. Provider credentials belong in private configuration or environment bindings, never in source or test logs. Mark provider/platform checks as unavailable when their prerequisites are absent.
 
+The installer in `packaging/installer/` has its own checks. They need only a POSIX shell and standard utilities, never use the network or the real home, and are not part of `npm test`:
+
+```sh
+sh packaging/installer/tests/run.sh
+TEST_SHELL=dash sh packaging/installer/tests/run.sh
+TEST_SHELL=bash sh packaging/installer/tests/run.sh
+sh packaging/installer/tests/check-manifests.sh
+shellcheck -s sh packaging/installer/install.sh packaging/installer/install-manifest.sh packaging/installer/tests/*.sh
+```
+
 For the prepared Linux cloud machine, `bash scripts/setup-cloud.sh` reproduces the pinned Rust/Bun/Pi tools, frozen component installs, npm workspace, and Rust build. Tool caches live under `/workspace/.tools` and `/workspace/.cache`, outside the checkout. Native desktop system libraries and provider credentials are separate prerequisites.
 
 Run inherited component suites one at a time, separately from builds. On this cloud host, use `TMPDIR=/var/tmp bun test --timeout 30000` from a component directory because the platform's `/tmp/.git` marker interferes with upstream hook fixtures. Keep package-specific assertions intact when investigating failures.

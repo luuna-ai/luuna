@@ -72,6 +72,12 @@ The formula builds the runtime, terminal client and pinned Missions, Atlas and
 Beacon CLIs; it does not install either desktop app. See the desktop release
 matrix for artifacts and platform evidence needed before adding casks.
 
+## Install on macOS and Linux
+
+`packaging/installer/install.sh` is a POSIX installer that, once a release exists, installs `luuna` and `lu` for the
+current user without sudo. No release has been published yet, so there is nothing to download today. It does not
+cover Windows. See [docs/INSTALL.md](docs/INSTALL.md) and [ADR 0048](docs/decisions/0048-one-posix-installer.md).
+
 ## Terminal workbench
 
 Build the terminal client with `npm run build:tui` (Rust 1.90.0, locked dependencies),
