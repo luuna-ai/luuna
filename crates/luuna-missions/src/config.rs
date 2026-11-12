@@ -946,11 +946,21 @@ mod tests {
         fs::create_dir_all(&main).unwrap();
         git(&main, &["init", "-q"]);
         let main_store = initialised(&main);
-        git(&main, &["add", "-A"]);
-        git(&main, &["commit", "-q", "-m", "init"]);
-        git(&main, &["worktree", "add", "-q", "../linked"]);
+        // An orphan worktree needs no commit; its store is made by hand.
+        git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--orphan",
+                "-b",
+                "linked",
+                "../linked",
+            ],
+        );
         let linked = temp.path().join("linked");
-        let linked_store = linked.join(MISSIONS_DIR);
+        let linked_store = initialised(&linked);
         assert!(linked_store.join(CONFIG_FILE).is_file());
         let deep = linked.join("src");
         fs::create_dir_all(&deep).unwrap();
