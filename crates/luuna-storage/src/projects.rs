@@ -129,7 +129,9 @@ impl Store {
                 json!({"repository_id":repository_id,"observation":observation}),
             )?;
         }
-        tx.commit()?;
+        let file_state =
+            crate::project_index::write_project_file(&tx, self.data_dir.as_deref(), id)?;
+        crate::project_index::commit_or_restore(tx, file_state)?;
         self.get_project(id)?
             .ok_or_else(|| StorageError::NotFound(id.into()))
     }
@@ -268,7 +270,9 @@ impl Store {
                 "manifest_confirmation_required": manifest_confirmation_required,
             }),
         )?;
-        tx.commit()?;
+        let file_state =
+            crate::project_index::write_project_file(&tx, self.data_dir.as_deref(), project_id)?;
+        crate::project_index::commit_or_restore(tx, file_state)?;
         Ok(Some(event))
     }
 
@@ -511,7 +515,9 @@ impl Store {
                 }))).collect::<BTreeMap<_, _>>(),
             }),
         )?;
-        tx.commit()?;
+        let file_state =
+            crate::project_index::write_project_file(&tx, self.data_dir.as_deref(), project_id)?;
+        crate::project_index::commit_or_restore(tx, file_state)?;
         self.get_project(project_id)?
             .ok_or_else(|| StorageError::NotFound(project_id.into()))
     }
