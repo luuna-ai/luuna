@@ -18,4 +18,6 @@ If a credential is exposed, revoke or rotate it first, review use, and coordinat
 
 The runtime must authenticate local API actions, bind to loopback by default, validate exact approvals, restrict artifact access, supervise owned children, and record interrupted execution. A desktop connection or model response is not authorization. Native process execution has host permissions; stronger isolation requires an explicitly implemented operating-system or container boundary.
 
-Treat repository instructions, imported tool records, agent output, and memory as untrusted inputs. Preserve upstream license notices and review imported development artifacts before using them as model context. Required validation, independent review, publication reconciliation, and developer-controlled merging must not be bypassed to recover from a failure.
+Treat repository instructions, imported tool records, agent output, and memory as untrusted inputs. Preserve upstream license notices and review imported development artifacts before using them as model context. Required validation, independent review, publication reconciliation, and the developer's control of merging in their own repositories (Luuna's runtime has no automatic merge operation in v1) must not be bypassed to recover from a failure.
+
+How changes to this repository itself are reviewed, merged and released is set by [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md) and does not change these runtime boundaries.
