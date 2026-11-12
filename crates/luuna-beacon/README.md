@@ -61,16 +61,44 @@ removed or changed, and nothing new is written to `.luuna/beacon`.
   `results`. The runtime reads these fields from the named form.
   `validate --all` keeps Go's shape.
 
-`config.yaml` with too many aliases is refused with Go's error,
-`yaml: document contains excessive aliasing`, using yaml.v3's rule and
-thresholds. This check runs before any alias is expanded. Go decodes only
-the first YAML document and skips some values: a key that cannot be
-decoded, a mapping with a repeated key, and merged keys that are already
-present. The YAML reader used here builds every document and every value,
-so the check counts them too. Input that Go accepts can therefore be
-refused here only if its excess aliasing is in a later document or in one
-of those skipped values. Without this check, such input would exhaust
-memory.
+`config.yaml` is parsed with yaml-rust2, not with Go's yaml.v3. As in Go,
+only the first YAML document is read; later documents, including syntax
+errors in them, are ignored. Aliases are kept as references and are never
+copied. The memory used therefore grows with the size of the file, not
+with its aliases or anchors. Errors that match Go's text:
+
+- `yaml: document contains excessive aliasing` and
+  `yaml: anchor '<name>' value contains itself`, from yaml.v3's alias
+  rule and thresholds;
+- `yaml: [line N: ]exceeded max depth of 10000`, for block collections
+  nested more than 10000 levels deep;
+- `yaml: map merge requires map or sequence of maps as the value`;
+- `yaml: unmarshal errors:` for a mapping key that is repeated.
+
+A top-level merge key (`<<`) supplies `project` and `version` as it does
+in Go. The known remaining differences:
+
+- Go skips some values when it decodes: the value of a null key, of a key
+  that is not a string, and of a merged key that is already present. The
+  alias check here still counts these values, so a file whose heavy
+  aliasing sits in such a value can be refused here and accepted by Go.
+- Go lists every repeated key it finds. Only the first one is reported
+  here.
+- Flow collections (`[...]`, `{...}`) nested more than 255 levels deep are
+  refused here (yaml-rust2's limit). Go allows up to 10000 levels.
+- Anchor names follow YAML 1.2, so they may contain characters such as
+  `:` where yaml.v3 ends the name. For example, `*k: v` is an alias
+  named `k:` here, and such files can read differently or fail on one
+  side only.
+- Plain values are typed with YAML 1.2 rules. A `project` or `version`
+  such as `0b101`, `1_000` or `Null` is text here and is used. Go reads it
+  as a number or null and uses the default. `!!binary` and `!!timestamp`
+  values that Go cannot decode are accepted here.
+- A mapping or sequence used as a mapping key is accepted here. Go
+  refuses it.
+- Syntax errors, and a top level that is not a mapping, are refused on
+  both sides, but the messages are yaml-rust2's or this crate's, not
+  Go's.
 
 Lists that Go builds from map iteration, and therefore prints in no fixed
 order, are sorted by name here: `list`, `validate --all` and `schema list`
