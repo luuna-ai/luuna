@@ -1101,6 +1101,9 @@ fn format_no_leftover_lock_or_tmp_files() {
         "rewrite under the lock",
     );
     let archive_path = ok(store.archive_path("d"), "archive_path");
+    // Go's ArchiveRecords creates the directory before it locks (retention.go:30-40).
+    std::fs::create_dir_all(archive_path.parent().expect("archive parent"))
+        .expect("create the archive directory");
     ok(
         store::with_file_lock(&archive_path, || {
             store::write_archive(&archive_path, &records[..1])
