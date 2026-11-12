@@ -2,6 +2,8 @@
 //! building and running the Go binary at the recorded commit (`go`) and the
 //! normalisation every comparison applies (`normalise`).
 #![allow(dead_code)]
+pub mod artifacts;
+pub mod authoring;
 pub mod case;
 pub mod go;
 pub mod normalise;

@@ -14,6 +14,18 @@
 use luuna_beacon::{Init, Prompt, Rendered, Schema, Validation};
 use serde_json::{json, Value};
 
+/// A result produced by a later library plan. Those plans implement this in
+/// their own support files (`authoring.rs`, `artifacts.rs`).
+pub trait PlanDone {
+    /// The documents Go prints on success for this result.
+    fn documents(&self) -> Vec<Value>;
+
+    /// The exit status Go ends with for this result.
+    fn exit_code(&self) -> i32 {
+        0
+    }
+}
+
 /// What a library call returned, one variant per command.
 pub enum Done {
     Init(Init),
@@ -36,6 +48,8 @@ pub enum Done {
     SchemaListed(Vec<Schema>),
     SchemaShown(Schema),
     RuleAdded(Schema),
+    /// A result of a later library plan, given by its own [`PlanDone`].
+    Plan(Box<dyn PlanDone>),
     /// A step that calls no library function (a raw file step).
     Nothing,
 }
@@ -169,6 +183,7 @@ pub fn documents(done: &Done) -> Vec<Value> {
                 },
             })]
         }
+        Done::Plan(done) => done.documents(),
         Done::Nothing => Vec::new(),
     }
 }
@@ -179,6 +194,7 @@ pub fn exit_code(done: &Done) -> i32 {
     match done {
         Done::Validated(validation) if !validation.valid => 1,
         Done::ValidatedAll(validations) if validations.iter().any(|v| !v.valid) => 1,
+        Done::Plan(done) => done.exit_code(),
         _ => 0,
     }
 }

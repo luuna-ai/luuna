@@ -40,6 +40,30 @@ pub const DEFAULT_PROJECT: &str = "luuna-beacon";
 /// The stderr line Go prints when it moves `.canopy`.
 pub const MIGRATED_LINE: &str = "Migrated .canopy to .luuna/beacon";
 
+/// A step of a later library plan. Those plans implement this in their own
+/// support files (`authoring.rs`, `artifacts.rs`); it goes through the same
+/// run, error-document and store comparison as every other step.
+pub trait PlanStep {
+    /// The Go argv without `--json`; `None` for a raw step.
+    fn argv(&self) -> Option<Vec<String>>;
+
+    /// The library call; called only when [`PlanStep::argv`] is `Some`.
+    fn call(&self, beacon: &Beacon) -> Result<Done, BeaconError>;
+
+    /// Applies a raw step to one project root; called only when
+    /// [`PlanStep::argv`] is `None`.
+    fn apply_raw(&self, root: &Path);
+
+    /// A short text for failure messages of a raw step.
+    fn describe_raw(&self) -> String;
+
+    /// Paths (relative to the project root) a raw step writes, so the store
+    /// comparison accepts them.
+    fn written_paths(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
 /// One step of a case.
 pub enum Step {
     Init,
@@ -83,6 +107,8 @@ pub enum Step {
         path: String,
         seconds_ago: u64,
     },
+    /// A step of a later library plan, given by its own [`PlanStep`].
+    Plan(Box<dyn PlanStep>),
 }
 
 // ---- constructors that keep the tests short --------------------------------
@@ -425,6 +451,10 @@ pub fn lower(step: &Step) -> Lowered<'_> {
             argv: None,
             call: Box::new(|_| Ok(Done::Nothing)),
         },
+        Step::Plan(plan) => Lowered {
+            argv: plan.argv(),
+            call: Box::new(move |beacon| plan.call(beacon)),
+        },
     }
 }
 
@@ -436,6 +466,7 @@ pub fn describe(step: &Step) -> String {
         (None, Step::SetMtime { path, seconds_ago }) => {
             format!("set mtime of {path} to {seconds_ago}s ago")
         }
+        (None, Step::Plan(plan)) => plan.describe_raw(),
         (None, _) => "step".to_owned(),
     }
 }
@@ -457,12 +488,14 @@ fn apply_raw(step: &Step, root: &Path) {
             file.set_modified(SystemTime::now() - Duration::from_secs(*seconds_ago))
                 .expect("set the modification time");
         }
+        Step::Plan(plan) => plan.apply_raw(root),
         _ => unreachable!("not a raw step"),
     }
 }
 
 fn is_raw(step: &Step) -> bool {
     matches!(step, Step::WriteFile { .. } | Step::SetMtime { .. })
+        || matches!(step, Step::Plan(plan) if plan.argv().is_none())
 }
 
 // ---- the library side -------------------------------------------------------
@@ -942,6 +975,9 @@ impl Case {
             apply_raw(step, &self.lib_root);
             if let Step::WriteFile { path, .. } | Step::SetMtime { path, .. } = step {
                 self.written.insert(path.clone());
+            }
+            if let Step::Plan(plan) = step {
+                self.written.extend(plan.written_paths());
             }
             self.compare_stores(&context);
             return Seen::empty();

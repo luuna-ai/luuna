@@ -107,13 +107,13 @@ fn validation(
 
 impl Beacon {
     /// `paths.Schemas`: runs the legacy move, then names the schemas file.
-    fn schemas_path(&self) -> Result<PathBuf, BeaconError> {
+    pub(crate) fn schemas_path(&self) -> Result<PathBuf, BeaconError> {
         self.migrate_legacy()?;
         Ok(paths::schemas_file(self.project_root()))
     }
 
     /// Reads the schemas file, as every schema command does first.
-    fn schema_records(&self) -> Result<(PathBuf, Vec<Schema>), BeaconError> {
+    pub(crate) fn schema_records(&self) -> Result<(PathBuf, Vec<Schema>), BeaconError> {
         let path = self.schemas_path()?;
         let records = store::read_jsonl(&path)?;
         Ok((path, records))

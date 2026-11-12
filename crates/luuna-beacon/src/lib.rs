@@ -5,6 +5,8 @@
 //! independent Rust implementation; it contains no Go source. See
 //! `README.md` for provenance, scope and how to run the reference tests.
 
+mod artifacts;
+mod authoring;
 mod beacon;
 mod config;
 mod error;
@@ -24,6 +26,8 @@ mod resolve;
 mod schemas;
 mod store;
 
+pub use artifacts::*;
+pub use authoring::*;
 pub use beacon::{Beacon, Init};
 pub use error::BeaconError;
 pub use gotime::{Clock, SystemClock};
