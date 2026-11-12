@@ -32,7 +32,13 @@ use crate::error::{AtlasError, Result};
 const MAX_DEPTH: usize = 10_000;
 
 /// A JSON value. Numbers are `f64`, as in the Go tool.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Dropping and cloning a value, and both encoders, work with an explicit stack rather than
+/// recursion, so a value nested as deep as the parser accepts ([`MAX_DEPTH`] levels) or
+/// deeper is safe on a thread with the default 2 MiB stack. Because `Value` implements
+/// [`Drop`], its contents cannot be moved out by a pattern; take them with
+/// [`std::mem::take`] through a mutable reference instead.
+#[derive(Debug, PartialEq)]
 pub enum Value {
     Null,
     Bool(bool),
@@ -329,6 +335,151 @@ impl Value {
     /// Whether this is `null`.
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)
+    }
+}
+
+impl Value {
+    /// Whether this is an array or object that holds an array or object.
+    fn holds_containers(&self) -> bool {
+        let nested = |v: &Value| matches!(v, Value::Array(_) | Value::Object(_));
+        match self {
+            Value::Array(items) => items.iter().any(nested),
+            Value::Object(object) => object.entries.iter().any(|(_, v)| nested(v)),
+            _ => false,
+        }
+    }
+
+    /// A copy of a value that holds no arrays or objects.
+    fn clone_flat(&self) -> Value {
+        match self {
+            Value::Null => Value::Null,
+            Value::Bool(b) => Value::Bool(*b),
+            Value::Number(n) => Value::Number(*n),
+            Value::String(s) => Value::String(s.clone()),
+            // Only scalars inside: cloning the elements does not recurse further.
+            Value::Array(items) => Value::Array(items.iter().map(Value::clone_flat).collect()),
+            Value::Object(object) => Value::Object(Object {
+                entries: object
+                    .entries
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone_flat()))
+                    .collect(),
+                unordered_from: object.unordered_from,
+                removed_order: object.removed_order.clone(),
+            }),
+        }
+    }
+}
+
+/// An array or object being copied by [`Value::clone`]: the source's remaining elements
+/// and the copies made so far.
+enum CloneFrame<'a> {
+    Array(std::slice::Iter<'a, Value>, Vec<Value>),
+    Object(
+        &'a Object,
+        std::slice::Iter<'a, (String, Value)>,
+        Vec<(String, Value)>,
+        String,
+    ),
+}
+
+impl Clone for Value {
+    /// A deep copy, made with an explicit stack so that nesting depth does not use the
+    /// thread's stack.
+    fn clone(&self) -> Self {
+        if !self.holds_containers() {
+            return self.clone_flat();
+        }
+        let mut stack: Vec<CloneFrame<'_>> = Vec::new();
+        let mut next = self;
+        loop {
+            // Open `next`, or copy it whole if it holds no containers.
+            let mut done = if next.holds_containers() {
+                match next {
+                    Value::Array(items) => {
+                        stack.push(CloneFrame::Array(
+                            items.iter(),
+                            Vec::with_capacity(items.len()),
+                        ));
+                    }
+                    Value::Object(object) => stack.push(CloneFrame::Object(
+                        object,
+                        object.entries.iter(),
+                        Vec::with_capacity(object.entries.len()),
+                        String::new(),
+                    )),
+                    _ => unreachable!("only arrays and objects hold containers"),
+                }
+                None
+            } else {
+                Some(next.clone_flat())
+            };
+            // Hand the finished copy to its parent and find the next element to copy,
+            // closing every container that has no elements left.
+            loop {
+                let Some(frame) = stack.last_mut() else {
+                    return done.expect("the root copy is finished");
+                };
+                let child = match frame {
+                    CloneFrame::Array(source, copies) => {
+                        if let Some(value) = done.take() {
+                            copies.push(value);
+                        }
+                        source.next()
+                    }
+                    CloneFrame::Object(_, source, copies, key) => {
+                        if let Some(value) = done.take() {
+                            copies.push((std::mem::take(key), value));
+                        }
+                        source.next().map(|(k, v)| {
+                            key.clone_from(k);
+                            v
+                        })
+                    }
+                };
+                if let Some(child) = child {
+                    next = child;
+                    break;
+                }
+                done = Some(match stack.pop() {
+                    Some(CloneFrame::Array(_, copies)) => Value::Array(copies),
+                    Some(CloneFrame::Object(object, _, copies, _)) => Value::Object(Object {
+                        entries: copies,
+                        unordered_from: object.unordered_from,
+                        removed_order: object.removed_order.clone(),
+                    }),
+                    None => unreachable!("the frame was just inspected"),
+                });
+            }
+        }
+    }
+}
+
+impl Drop for Value {
+    /// Frees nested arrays and objects with an explicit stack instead of the recursion a
+    /// derived drop would use.
+    fn drop(&mut self) {
+        if !self.holds_containers() {
+            return;
+        }
+        let mut stack: Vec<Value> = Vec::new();
+        take_children(self, &mut stack);
+        while let Some(mut value) = stack.pop() {
+            take_children(&mut value, &mut stack);
+            // `value` holds no arrays or objects now, so dropping it does not recurse.
+        }
+    }
+}
+
+/// Moves the elements of an array or object onto `stack`.
+fn take_children(value: &mut Value, stack: &mut Vec<Value>) {
+    match value {
+        Value::Array(items) => stack.append(items),
+        Value::Object(object) => {
+            stack.extend(object.entries.drain(..).map(|(_, v)| v));
+            object.unordered_from = 0;
+        }
+        _ => {}
     }
 }
 
@@ -738,53 +889,84 @@ fn newline(out: &mut String, depth: usize) {
     }
 }
 
+/// An array or object being written by [`write_value`]: its remaining elements, whether
+/// none has been written yet, and its own depth for the indented form.
+enum EncodeFrame<'a> {
+    Array(std::slice::Iter<'a, Value>, bool, Option<usize>),
+    Object(std::slice::Iter<'a, (String, Value)>, bool, Option<usize>),
+}
+
 /// Writes `value`; `indent` is the current depth for the indented form, `None` for the
-/// compact form.
+/// compact form. Nested arrays and objects are walked with an explicit stack, so the depth
+/// of `value` does not use the thread's stack.
 fn write_value(out: &mut String, value: &Value, indent: Option<usize>) {
-    match value {
-        Value::Null => out.push_str("null"),
-        Value::Bool(true) => out.push_str("true"),
-        Value::Bool(false) => out.push_str("false"),
-        Value::Number(n) => write_number(out, *n),
-        Value::String(s) => write_string(out, s),
-        Value::Array(items) => {
-            out.push('[');
-            let inner = indent.map(|d| d + 1);
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
+    let mut stack: Vec<EncodeFrame<'_>> = Vec::new();
+    let mut next = Some((value, indent));
+    loop {
+        if let Some((value, indent)) = next.take() {
+            match value {
+                Value::Null => out.push_str("null"),
+                Value::Bool(true) => out.push_str("true"),
+                Value::Bool(false) => out.push_str("false"),
+                Value::Number(n) => write_number(out, *n),
+                Value::String(s) => write_string(out, s),
+                Value::Array(items) => {
+                    out.push('[');
+                    stack.push(EncodeFrame::Array(items.iter(), true, indent));
                 }
-                if let Some(depth) = inner {
-                    newline(out, depth);
+                Value::Object(object) => {
+                    out.push('{');
+                    stack.push(EncodeFrame::Object(object.entries.iter(), true, indent));
                 }
-                write_value(out, item, inner);
             }
-            if let (Some(depth), false) = (indent, items.is_empty()) {
-                newline(out, depth);
-            }
-            out.push(']');
         }
-        Value::Object(object) => {
-            out.push('{');
-            let inner = indent.map(|d| d + 1);
-            for (i, (key, item)) in object.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
+        let Some(frame) = stack.last_mut() else {
+            return;
+        };
+        match frame {
+            EncodeFrame::Array(items, first, indent) => {
+                let inner = indent.map(|d| d + 1);
+                if let Some(item) = items.next() {
+                    if !*first {
+                        out.push(',');
+                    }
+                    *first = false;
+                    if let Some(depth) = inner {
+                        newline(out, depth);
+                    }
+                    next = Some((item, inner));
+                } else {
+                    if let (Some(depth), false) = (*indent, *first) {
+                        newline(out, depth);
+                    }
+                    out.push(']');
+                    stack.pop();
                 }
-                if let Some(depth) = inner {
-                    newline(out, depth);
-                }
-                write_string(out, key);
-                out.push(':');
-                if inner.is_some() {
-                    out.push(' ');
-                }
-                write_value(out, item, inner);
             }
-            if let (Some(depth), false) = (indent, object.is_empty()) {
-                newline(out, depth);
+            EncodeFrame::Object(entries, first, indent) => {
+                let inner = indent.map(|d| d + 1);
+                if let Some((key, item)) = entries.next() {
+                    if !*first {
+                        out.push(',');
+                    }
+                    *first = false;
+                    if let Some(depth) = inner {
+                        newline(out, depth);
+                    }
+                    write_string(out, key);
+                    out.push(':');
+                    if inner.is_some() {
+                        out.push(' ');
+                    }
+                    next = Some((item, inner));
+                } else {
+                    if let (Some(depth), false) = (*indent, *first) {
+                        newline(out, depth);
+                    }
+                    out.push('}');
+                    stack.pop();
+                }
             }
-            out.push('}');
         }
     }
 }
@@ -1179,9 +1361,8 @@ mod tests {
 
     #[test]
     fn nesting_is_limited_to_go_max_depth() {
-        // The parser is iterative, but the encoder and the derived Drop recurse once per
-        // level; an unoptimised build needs more than the default 2 MiB test stack for
-        // 10000 levels (measured: about 5000 levels fit).
+        // Kept on a large stack as it was written; deep_values_are_safe_on_a_default_stack
+        // runs the same depths on the default test thread.
         let check = || {
             let deep = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
             let value = parse(&deep(MAX_DEPTH)).unwrap();
@@ -1197,5 +1378,125 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    /// The recursive encoder this module had before it became iterative, kept as the
+    /// oracle for byte-identical output.
+    fn recursive_encoding(out: &mut String, value: &Value, indent: Option<usize>) {
+        match value {
+            Value::Array(items) => {
+                out.push('[');
+                let inner = indent.map(|d| d + 1);
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    if let Some(depth) = inner {
+                        newline(out, depth);
+                    }
+                    recursive_encoding(out, item, inner);
+                }
+                if let (Some(depth), false) = (indent, items.is_empty()) {
+                    newline(out, depth);
+                }
+                out.push(']');
+            }
+            Value::Object(object) => {
+                out.push('{');
+                let inner = indent.map(|d| d + 1);
+                for (i, (key, item)) in object.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    if let Some(depth) = inner {
+                        newline(out, depth);
+                    }
+                    write_string(out, key);
+                    out.push(':');
+                    if inner.is_some() {
+                        out.push(' ');
+                    }
+                    recursive_encoding(out, item, inner);
+                }
+                if let (Some(depth), false) = (indent, object.is_empty()) {
+                    newline(out, depth);
+                }
+                out.push('}');
+            }
+            scalar => write_value(out, scalar, indent),
+        }
+    }
+
+    #[test]
+    fn iterative_encoding_matches_the_recursive_encoding() {
+        let texts = [
+            r#"null"#,
+            r#""s""#,
+            r#"[]"#,
+            r#"{}"#,
+            r#"[[]]"#,
+            r#"[{}]"#,
+            r#"{"a":[]}"#,
+            r#"{"a":{}}"#,
+            r#"[1,[2,[3,[]],{}],{"x":{"y":[null,true,false]}},"<&>"]"#,
+            r#"{"b":1,"a":{"c":[{"d":[[],[{}],{"e":" "}]}],"f":-0.0},"1":2,"0":{}}"#,
+            r#"[[[[["deep",{"k":[1e21,1e-7,0.5]}]]]],{"z":[{"y":[{"x":[]}]}]}]"#,
+        ];
+        for text in texts {
+            let value = parse(text).unwrap();
+            for indent in [None, Some(0)] {
+                let mut expected = String::new();
+                recursive_encoding(&mut expected, &value, indent);
+                let mut actual = String::new();
+                write_value(&mut actual, &value, indent);
+                assert_eq!(actual, expected, "{text} indent {indent:?}");
+            }
+            let copy = value.clone();
+            assert_eq!(copy, value, "{text}");
+            assert_eq!(compact(&copy), compact(&value), "{text}");
+        }
+    }
+
+    #[test]
+    fn deep_values_are_safe_on_a_default_stack() {
+        // Runs on the default test thread (2 MiB unless RUST_MIN_STACK says otherwise):
+        // drop, clone and both encoders of a value nested as deep as the parser allows.
+        let arrays = |n: usize| format!("{}{}", "[".repeat(n), "]".repeat(n));
+        let text = arrays(MAX_DEPTH);
+        let value = parse(&text).unwrap();
+        assert_eq!(compact(&value), text);
+        let copy = value.clone();
+        drop(value);
+        let pretty = indented(&copy);
+        // Line k (from 0) of the indented form is indented 2*k spaces up to the innermost
+        // `[]`, then the closing brackets come back out.
+        let lines: Vec<&str> = pretty.split('\n').collect();
+        assert_eq!(lines.len(), 2 * MAX_DEPTH - 1);
+        assert_eq!(lines[0], "[");
+        assert_eq!(lines[1], "  [");
+        assert_eq!(
+            lines[MAX_DEPTH - 1],
+            format!("{}[]", "  ".repeat(MAX_DEPTH - 1))
+        );
+        assert_eq!(lines[2 * MAX_DEPTH - 2], "]");
+        drop(copy);
+
+        // Alternating objects and arrays, with siblings at every level.
+        let mixed = |n: usize| format!("{}1{}", "[0,{\"a\":".repeat(n), "}]".repeat(n));
+        let text = mixed(MAX_DEPTH / 2);
+        let value = parse(&text).unwrap();
+        assert_eq!(compact(&value), text);
+        assert_eq!(compact(&value.clone()), text);
+        assert!(parse(&mixed(MAX_DEPTH / 2 + 1)).is_err());
+
+        // A value built in code can be deeper than the parser allows.
+        let mut built = Value::Null;
+        for _ in 0..10 * MAX_DEPTH {
+            let mut object = Object::new();
+            object.insert("k", built);
+            built = Value::Array(vec![Value::Object(object)]);
+        }
+        assert_eq!(compact(&built).len(), 10 * MAX_DEPTH * 8 + 4);
+        drop(built.clone());
     }
 }

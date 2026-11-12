@@ -185,14 +185,14 @@ pub fn read_config(atlas_dir: &Path) -> Result<Config> {
             "yaml: input error: invalid UTF-8".to_owned(),
         )),
     };
-    let parsed = parsed.map_err(|error| match error {
+    let mut parsed = parsed.map_err(|error| match error {
         AtlasError::Message(message) => AtlasError::Message(format!(
             "Failed to parse config.yaml: {message}. Check the YAML syntax."
         )),
         other => other,
     })?;
-    let mut config = match parsed {
-        Value::Object(object) => object,
+    let mut config = match &mut parsed {
+        Value::Object(object) => std::mem::take(object),
         _ => Object::new(),
     };
     merge_defaults(&mut config);

@@ -59,7 +59,7 @@ pub fn read_records(path: &Path, registry: &Registry, allow_unknown: bool) -> Re
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let value = match json::parse_bytes(line) {
+        let mut value = match json::parse_bytes(line) {
             Ok(value) => value,
             Err(_) => {
                 let preview = if utf16_len(trimmed) > 80 {
@@ -76,8 +76,8 @@ pub fn read_records(path: &Path, registry: &Registry, allow_unknown: bool) -> Re
                 )));
             }
         };
-        let mut raw = match value {
-            Value::Object(object) => object,
+        let mut raw = match &mut value {
+            Value::Object(object) => std::mem::take(object),
             // The Go tool's code sees an array row as an empty record (model.go:36-45).
             Value::Array(_) => Object::new(),
             _ => {
