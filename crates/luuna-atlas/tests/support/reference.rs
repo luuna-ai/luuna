@@ -61,8 +61,16 @@ pub fn binary_path(build_root: &Path) -> PathBuf {
 }
 
 /// The complete environment of every `go` invocation: nothing is inherited except `PATH`.
+///
+/// `go build` stamps VCS information, so it runs `git status --porcelain` and `git log` in
+/// the reference clone with this environment. `GIT_OPTIONAL_LOCKS=0` keeps that `status`
+/// from taking `index.lock` or refreshing the clone's index, and no system or global git
+/// config is read, so no user setting (fsmonitor, hooks into status) runs in the clone.
 pub fn go_build_env(build_root: &Path, path: Option<OsString>) -> Vec<(OsString, OsString)> {
     let mut env: Vec<(OsString, OsString)> = vec![
+        ("GIT_OPTIONAL_LOCKS".into(), "0".into()),
+        ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+        ("GIT_CONFIG_GLOBAL".into(), null_device().into()),
         ("GOFLAGS".into(), "-mod=vendor".into()),
         ("GOTOOLCHAIN".into(), "local".into()),
         ("GOPROXY".into(), "off".into()),

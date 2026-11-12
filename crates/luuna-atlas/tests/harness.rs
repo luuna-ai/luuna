@@ -12,7 +12,8 @@ use support::normalize::{Normalizer, GENERATED_TIMESTAMP, PROJECT};
 use support::project::{Project, Sandbox};
 use support::reference::{
     binary_path, build_root, check_clean, check_head, check_variables, go_build_command,
-    go_build_env, reference_git, workspace_root, GO_VAR, REFERENCE_COMMIT, REFERENCE_VAR,
+    go_build_env, null_device, reference_git, workspace_root, GO_VAR, REFERENCE_COMMIT,
+    REFERENCE_VAR,
 };
 
 fn go_format(time: SystemTime) -> String {
@@ -257,6 +258,9 @@ fn harness_go_env_points_inside_target() {
         keys,
         [
             "CGO_ENABLED",
+            "GIT_CONFIG_GLOBAL",
+            "GIT_CONFIG_NOSYSTEM",
+            "GIT_OPTIONAL_LOCKS",
             "GOCACHE",
             "GOENV",
             "GOFLAGS",
@@ -289,6 +293,12 @@ fn harness_go_env_points_inside_target() {
         ("GOENV", "off"),
         ("CGO_ENABLED", "0"),
         ("PATH", "/usr/bin"),
+        // `go build` stamps VCS information by running git in the reference clone with
+        // this environment: no optional locks (index.lock, index refresh) and no system
+        // or global git config.
+        ("GIT_OPTIONAL_LOCKS", "0"),
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_CONFIG_GLOBAL", null_device()),
     ] {
         assert_eq!(
             env_value(&env, key).map(|v| v.to_str().unwrap()),
