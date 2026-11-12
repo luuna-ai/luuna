@@ -21,6 +21,7 @@ mod config;
 mod error;
 mod gopath;
 mod json;
+mod json_error;
 pub mod model;
 pub mod store;
 

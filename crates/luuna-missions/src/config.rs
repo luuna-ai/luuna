@@ -373,7 +373,6 @@ impl Default for Config {
 }
 
 /// Go's `ReadConfig` for the subset of `config.yaml` Go writes.
-#[allow(dead_code, reason = "read by create, ported in t4")]
 pub(crate) fn read_config(missions_dir: &Path) -> Result<Config> {
     let path = missions_dir.join(CONFIG_FILE);
     let content = fs::read(&path).map_err(|error| Error::io("read", &path, error))?;

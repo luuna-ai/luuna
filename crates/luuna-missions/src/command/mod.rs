@@ -48,6 +48,7 @@ mod init;
 mod options;
 mod output;
 mod read;
+mod shared;
 mod update;
 
 use options::OptionError;
@@ -133,7 +134,7 @@ pub(crate) struct Context<'a> {
     /// `--timing` appears among the arguments.
     pub timing: bool,
     /// The command name.
-    #[allow(dead_code, reason = "used by the commands ported in t4 and t5")]
+    #[allow(dead_code, reason = "no ported command reads it yet")]
     pub command: String,
     /// The exit code of a command that did not fail.
     pub exit_code: i32,
@@ -164,7 +165,6 @@ impl<'a> Context<'a> {
     /// The store: the invocation's explicit store directory, or the one Go's
     /// `FindDir` finds from the working directory, with git run in the
     /// invocation's environment.
-    #[allow(dead_code, reason = "used by the commands ported in t4 and t5")]
     pub fn store(&self) -> Result<Store> {
         match &self.invocation.store_dir {
             Some(dir) => Store::open(dir.clone()),
@@ -184,7 +184,6 @@ impl<'a> Context<'a> {
     }
 
     /// The environment variable `key`, as Go's `os.Getenv` would see it.
-    #[allow(dead_code, reason = "used by the commands ported in t4 and t5")]
     pub fn env(&self, key: &str) -> Option<&str> {
         self.invocation.env.get(key).map(String::as_str)
     }
