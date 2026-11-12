@@ -1,0 +1,26 @@
+Usage: luuna-roots propose edge|split|merge|compost ...
+
+Propose an edge, split, merge or compost (tier ≥ 2)
+
+  luuna-roots propose edge <a> <b> <serves|tension|replaces> --reason <t> --cite <id>:<quote> ...
+  luuna-roots propose split <id> --reason <how it splits> --cite <id>:<quote>
+  luuna-roots propose merge <a> <b> --reason <t> --cite <a>:<quote> --cite <b>:<quote>
+  luuna-roots propose compost <id> --reason <t> --cite <id>:<quote> ...
+
+Every quote must be an exact substring of the cited idea's current idea.md (the
+text after the FIRST colon; later colons are part of the quote). Edges and merges
+cite both ideas; splits and composts cite the idea. Nothing is linked until a human
+accepts it in `luuna-roots tend`. Refused below tier 2, at limits.proposals pending, or when
+a human already rejected the same proposal (rejections are permanent).
+--mention: cite only the line that mentions the other idea; roots adds its statement.
+
+Options:
+      --reason <text>      Why, in one line (required)
+      --cite <id>:<quote>  Exact quote from an idea (repeatable)
+      --mention            edge: cite only the mentioning line; roots cites the other idea's statement
+      --as agent:<model>   Agent identity (default: $ROOTS_AGENT)
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

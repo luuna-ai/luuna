@@ -1,0 +1,21 @@
+Usage: luuna-roots think [<id>]
+
+Run a think session. With no id, picks from the queue
+
+Shows one question at a time about the idea. Write in idea.md in your editor:
+a save that changes the file answers the current question and moves on.
+Keys: [d] dismiss (never ask again)  [z] snooze  [s] skip  [q] end session.
+[a] ask agent (tier ≥ 1): after the session agent.command researches the question
+and attaches findings; it comes back with them, and you still answer in idea.md.
+Inside tmux or zellij, $EDITOR opens in a split pane; otherwise open the
+printed path in another pane. With no id, think picks the idea most in need:
+ideas with open questions first, then the most pending questions, planted before
+shaping before committed, least recently touched first (see `luuna-roots queue`).
+
+Options:
+      --no-split  Do not open $EDITOR in a split pane
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

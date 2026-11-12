@@ -1,0 +1,17 @@
+Usage: luuna-roots ask <id> <question>
+
+Queue a question about an idea (tier ≥ 1)
+
+The question shows up in the human's next `luuna-roots think` session on the idea (or the
+current one). One line, ending with "?", specific to this idea. Refused when the tier
+is below 1, when the idea already has limits.questionsPerSession open agent
+questions, or when the same question is open or was dismissed.
+
+Options:
+      --as agent:<model>  Agent identity (default: $ROOTS_AGENT)
+      --session <ss-id>   Attach to a running think session (default: $ROOTS_SESSION)
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

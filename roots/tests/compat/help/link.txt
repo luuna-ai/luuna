@@ -1,0 +1,12 @@
+Usage: luuna-roots link <a> <b> <rel>
+
+Add an edge directly
+
+Relations: serves (a is a means to b), tension (a and b pull against each other),
+replaces (a supersedes b; b is composted). serves and replaces stay acyclic;
+tension is stored once per pair. `derives` comes only from `luuna-roots adopt`.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

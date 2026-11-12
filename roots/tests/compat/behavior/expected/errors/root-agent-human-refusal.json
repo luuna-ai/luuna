@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "command": "link",
+  "error": "`roots link` is a human command, but ROOTS_AGENT is set (agent:fixture); unset ROOTS_AGENT to run it yourself",
+  "code": "guard"
+}

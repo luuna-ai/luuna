@@ -1,0 +1,21 @@
+Usage: luuna-roots accept <p-id|s-id>
+
+Accept a proposal (s-: adopt a sprout)
+
+edge: creates the edge. A mention proposal names no relation: pass --rel.
+merge: pass --keep <id> (the survivor replaces the other idea, which is composted).
+split: marks it accepted; then split the idea yourself in `luuna-roots think <id>`.
+compost: composts the idea. Pending edge proposals on the same pair are decided
+together (one `tend` card).
+sprout (s-): accepting means adopting: same as `luuna-roots adopt <s-id>` (needs a TTY;
+you write the idea yourself in $EDITOR).
+
+Options:
+      --rel <serves|tension|replaces>  Relation for a mention proposal
+      --keep <id>                      merge: the idea that survives
+      --reason <text>                  Optional note
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

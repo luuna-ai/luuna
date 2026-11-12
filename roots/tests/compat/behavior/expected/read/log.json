@@ -1,0 +1,58 @@
+{
+  "success": true,
+  "command": "log",
+  "node": null,
+  "count": 5,
+  "events": [
+    {
+      "type": "heading",
+      "by": "agent:fixture",
+      "at": "2026-10-23T02:13:34Z",
+      "refs": [
+        "r-7528",
+        "r-e724"
+      ],
+      "heading": "h-a608",
+      "flow": "fl-fixture"
+    },
+    {
+      "type": "propose",
+      "by": "roots:mention",
+      "at": "2026-10-23T02:13:34Z",
+      "node": "r-e724",
+      "refs": [
+        "r-7528"
+      ],
+      "proposal": "p-c38e",
+      "kind": "edge",
+      "rel": null
+    },
+    {
+      "type": "scan",
+      "by": "human:fixture-human",
+      "at": "2026-10-23T02:13:34Z",
+      "node": "r-e724",
+      "scannedHash": "sha256:daf7e32cf2383efcb144ab7a3c26aa7186e6fca1b5ffa9217a346c9440ebc9dc",
+      "proposals": [
+        "p-c38e"
+      ]
+    },
+    {
+      "type": "compost",
+      "by": "human:fixture-human",
+      "at": "2026-10-23T02:13:35Z",
+      "node": "r-bb76",
+      "from": "planted",
+      "to": "composted"
+    },
+    {
+      "type": "compost",
+      "by": "human:fixture-human",
+      "at": "2026-10-23T02:13:35Z",
+      "node": "r-e724",
+      "from": "planted",
+      "to": "composted",
+      "reason": "Replaced by the focused tension."
+    }
+  ]
+}

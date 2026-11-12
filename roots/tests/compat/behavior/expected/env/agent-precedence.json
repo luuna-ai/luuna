@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "command": "ask",
+  "id": "<QUESTION_ID>",
+  "node": "r-7528",
+  "question": {
+    "id": "<QUESTION_ID>",
+    "node": "r-7528",
+    "text": "Which agent wins?",
+    "by": "agent:new",
+    "status": "open",
+    "createdAt": "<CREATED_AT>"
+  },
+  "session": null
+}

@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "command": "guard",
+  "decision": "deny",
+  "reason": "roots: .luuna/roots/human/ holds human-written intent; agents never edit it. Ask a question with `luuna-roots ask`, propose with `luuna-roots propose`/`luuna-roots sprout`, or attach material with `luuna-roots note`. (blocked Write on .roots/human/legacy.md)",
+  "target": ".roots/human/legacy.md"
+}

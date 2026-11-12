@@ -1,0 +1,22 @@
+Usage: luuna-roots note <id> --file <path>
+
+Attach an artifact to an idea under agent/notes (tier ≥ 1)
+
+Copies the file (research, a diagram, HTML, an image) to
+.luuna/roots/agent/notes/<hex>/YYYY-MM-DD-<name>.<ext>. The human's idea.md is never
+touched. Limit: 1 MiB per file. Refused below tier 1 (per-idea override, else
+config). `luuna-roots show` and `luuna-roots context` list an idea's notes.
+--question <q-id>: findings on a question the human handed to the agent ([a] in
+think). Text only (.md/.txt); its first paragraph is shown under the question when
+it comes back to the human, who still answers it in idea.md.
+
+Options:
+      --file <path>       The file to attach (required)
+      --name <name>       Name for the note (default: the file name)
+      --question <q-id>   Findings for this delegated question (reopens it for the human)
+      --as agent:<model>  Agent identity (default: $ROOTS_AGENT)
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

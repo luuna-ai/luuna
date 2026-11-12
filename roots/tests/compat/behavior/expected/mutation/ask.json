@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "command": "ask",
+  "id": "<QUESTION_ID>",
+  "node": "r-7528",
+  "question": {
+    "id": "<QUESTION_ID>",
+    "node": "r-7528",
+    "text": "Who owns conflict resolution?",
+    "by": "agent:fixture",
+    "status": "open",
+    "createdAt": "<CREATED_AT>"
+  },
+  "session": null
+}

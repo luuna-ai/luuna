@@ -1,0 +1,11 @@
+Usage: luuna-roots unlink <edge-id>
+
+Remove an edge
+
+Edge ids are listed by `luuna-roots show <id>`. Unlinking a `replaces` edge does not
+revive the replaced idea. `derives` edges (adoption lineage) stay.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

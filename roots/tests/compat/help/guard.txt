@@ -1,0 +1,13 @@
+Usage: luuna-roots guard
+
+PreToolUse hook: deny agent edits to .luuna/roots/human/ (reads hook JSON on stdin)
+
+Claude Code PreToolUse hook handler. Reads {tool_name, tool_input, cwd} on stdin.
+Denies Write/Edit/MultiEdit/NotebookEdit whose target resolves (relative paths, `..`,
+symlinks) under any .luuna/roots/human/, and, best effort, Bash commands that write there.
+Allows silently otherwise. Unparsable input is allowed with a note on stderr.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

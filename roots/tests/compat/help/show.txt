@@ -1,0 +1,12 @@
+Usage: luuna-roots show <id>
+
+Show an idea or sprout with edges, questions and history
+
+<id> may be r-a1b2, a1b2, a slug, or a unique prefix of any of them.
+For ideas, also lists linked Missions issues (.luuna/missions/issues.jsonl: an `intent` field, else an
+r- id in the title/description/labels) and Atlas records that cite the id (read-only).
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

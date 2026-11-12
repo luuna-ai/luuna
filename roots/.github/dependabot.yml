@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Keep Cargo manifest and lockfile updates on a deliberate cadence.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: main
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+      semver-minor-days: 5
+      semver-patch-days: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: main
+    cooldown:
+      default-days: 5

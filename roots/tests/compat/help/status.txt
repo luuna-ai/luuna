@@ -1,0 +1,11 @@
+Usage: luuna-roots status <id> <status>
+
+Change an idea's status
+
+planted → shaping → committed → built; any live idea → composted.
+shaping is set by the first `luuna-roots think` session; composted ideas stay composted.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

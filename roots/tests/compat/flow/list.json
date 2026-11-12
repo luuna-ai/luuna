@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "command": "list",
+  "count": 1,
+  "nodes": [
+    {
+      "type": "node",
+      "id": "<SPROUT_ID>",
+      "kind": "sprout",
+      "slug": "agent-candidate",
+      "status": "open",
+      "author": "agent:fixture",
+      "createdAt": "<CREATED_AT>",
+      "updatedAt": "<CREATED_AT>",
+      "expiresAt": "<EXPIRES_AT>",
+      "statement": "Agent candidate"
+    }
+  ]
+}

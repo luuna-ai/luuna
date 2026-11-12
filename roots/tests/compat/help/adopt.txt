@@ -1,0 +1,22 @@
+Usage: luuna-roots adopt <sprout-id>
+
+Create a new idea from a sprout (rewrite it, or --endorse it with your thoughts)
+
+Opens $EDITOR on an empty idea.md with the sprout quoted below a scissors
+line for reference; everything from that line down is removed on save (also
+shown in a split pane under tmux/zellij). Write the idea in your own words;
+nothing is copied. Saving nothing above the line cancels.
+--endorse keeps the sprout as the agent's text (pinned by hash, quoted and
+labeled in view/show/prime/context); you write only your thoughts on it.
+Records `<new idea> derives <sprout>` and marks the sprout adopted. Needs an
+interactive terminal and a human name (ROOTS_USER or git user.name).
+
+Options:
+      --slug <slug>  Slug for the new idea (default: from your first line)
+      --no-split     Do not open the sprout in a split pane
+      --endorse      Accept the sprout as written; you write only your thoughts on it
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

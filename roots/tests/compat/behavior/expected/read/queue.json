@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "command": "queue",
+  "think": [
+    {
+      "id": "r-7528",
+      "slug": "durable-sync",
+      "status": "planted",
+      "open": [
+        "q-3d57"
+      ],
+      "candidates": [
+        "missing-done",
+        "missing-scope"
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "q-3d57",
+      "node": "r-7528",
+      "text": "Who owns conflict resolution?",
+      "by": "agent:fixture",
+      "status": "open",
+      "createdAt": "2026-10-23T02:12:10Z"
+    }
+  ],
+  "proposals": [],
+  "sprouts": [],
+  "built": [],
+  "expiring": []
+}

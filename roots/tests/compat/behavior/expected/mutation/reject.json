@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "command": "reject",
+  "id": "<SPROUT_ID>",
+  "action": "reject",
+  "proposals": [],
+  "edge": null,
+  "statusChanges": [],
+  "think": null,
+  "sprout": {
+    "type": "node",
+    "id": "<SPROUT_ID>",
+    "kind": "sprout",
+    "slug": "add-reconciliation-model",
+    "status": "rejected",
+    "author": "agent:fixture",
+    "createdAt": "<CREATED_AT>",
+    "updatedAt": "<CREATED_AT>",
+    "expiresAt": "<EXPIRES_AT>",
+    "decidedBy": "human:fixture-human",
+    "decidedAt": "<CREATED_AT>",
+    "decisionReason": "Already covered by the tension."
+  },
+  "idea": null,
+  "path": null
+}

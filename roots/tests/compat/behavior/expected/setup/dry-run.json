@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "command": "setup",
+  "target": "claude",
+  "scope": "project",
+  "path": "<ROOT>\\setup\\.claude\\settings.json",
+  "action": "install",
+  "changed": true,
+  "dryRun": true,
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "luuna-roots prime --hook"
+    },
+    {
+      "event": "PreToolUse",
+      "command": "luuna-roots guard",
+      "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash"
+    }
+  ],
+  "settings": {
+    "hooks": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "luuna-roots prime --hook"
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "luuna-roots guard"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

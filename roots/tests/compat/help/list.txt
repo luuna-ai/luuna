@@ -1,0 +1,18 @@
+Usage: luuna-roots list [--status <s>] [--kind idea|sprout] [--orphans] [--anchors]
+
+List ideas and sprouts
+
+By default composted ideas and closed sprouts are hidden; use --all or --status.
+--orphans: no edges at all. --anchors: live ideas with no outgoing `serves`.
+
+Options:
+      --status <status>  Only nodes with this status
+      --kind <kind>      idea or sprout
+      --orphans          Only nodes with no edges
+      --anchors          Only anchors (ideas with no outgoing serves)
+  -a, --all              Include composted ideas and closed sprouts
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

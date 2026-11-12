@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "command": "sprout",
+  "id": "<SPROUT_ID>",
+  "slug": "agent-candidate",
+  "status": "open",
+  "author": "agent:fixture",
+  "path": ".luuna\\roots\\agent\\sprouts\\<SPROUT_HEX>-agent-candidate\\sprout.md",
+  "statement": "Agent candidate",
+  "expiresAt": "<EXPIRES_AT>"
+}

@@ -1,0 +1,6 @@
+{"type":"init","by":"roots","at":"2026-10-23T02:12:09Z","project":"fixture-project"}
+{"type":"plant","by":"human:fixture-human","at":"2026-10-23T02:12:09Z","node":"r-7528","slug":"durable-sync","hash":"sha256:5a8feab32cb7e7325ab63239bf3530a6df331bf24761f624005ac26f0b77596a"}
+{"type":"plant","by":"human:fixture-human","at":"2026-10-23T02:12:09Z","node":"r-e724","slug":"offline-mode","hash":"sha256:daf7e32cf2383efcb144ab7a3c26aa7186e6fca1b5ffa9217a346c9440ebc9dc"}
+{"type":"plant","by":"human:fixture-human","at":"2026-10-23T02:12:09Z","node":"r-bb76","slug":"interface","hash":"sha256:4da6febf6189013e71e966a7243dfe71440ff2ad017da3e6e3c9e8e33ac06bb8"}
+{"type":"tier","by":"human:fixture-human","at":"2026-10-23T02:30:22Z","node":"r-7528","from":null,"to":1}
+{"type":"flow.start","by":"human:fixture-human","at":"2026-10-23T02:30:22Z","flow":"fl-heading"}

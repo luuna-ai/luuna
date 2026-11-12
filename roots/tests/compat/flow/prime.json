@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "command": "prime",
+  "project": "<PROJECT>",
+  "tier": {
+    "tier": 2,
+    "name": "propose",
+    "source": "config"
+  },
+  "questionsPerSession": 3,
+  "scope": null,
+  "ideas": 0,
+  "committed": 0,
+  "serves": [],
+  "tree": [],
+  "tensions": [],
+  "overrides": []
+}

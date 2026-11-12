@@ -1,0 +1,5 @@
+{"type":"node","id":"r-7528","kind":"idea","slug":"durable-sync","status":"planted","author":"human:fixture-human","createdAt":"<CREATED_AT>","updatedAt":"<CREATED_AT>","tier":1}
+{"type":"node","id":"r-e724","kind":"idea","slug":"resilient-offline","status":"composted","author":"human:fixture-human","createdAt":"<CREATED_AT>","updatedAt":"<CREATED_AT>"}
+{"type":"node","id":"r-bb76","kind":"idea","slug":"interface","status":"composted","author":"human:fixture-human","createdAt":"<CREATED_AT>","updatedAt":"<CREATED_AT>"}
+{"type":"node","id":"<SPROUT_ID>","kind":"sprout","slug":"add-reconciliation-model","status":"rejected","author":"agent:fixture","createdAt":"<CREATED_AT>","updatedAt":"<CREATED_AT>","expiresAt":"<EXPIRES_AT>","decidedBy":"human:fixture-human","decidedAt":"<CREATED_AT>","decisionReason":"Already covered by the tension."}
+{"type":"edge","id":"<ACCEPTED_EDGE_ID>","from":"r-bb76","to":"r-e724","rel":"tension","by":"human:fixture-human","proposedBy":"agent:fixture","proposal":"<PROPOSAL_ID>","createdAt":"<CREATED_AT>"}

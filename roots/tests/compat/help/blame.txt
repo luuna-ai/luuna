@@ -1,0 +1,13 @@
+Usage: luuna-roots blame <id>
+
+Show which question each line of an idea answered
+
+Prints idea.md with the id of the question each line answered in the margin, then
+the questions. A think save that answers a question records a hash of each line it
+added; blame matches the current lines against them. A line edited later shows no id
+(or the id of a later answer that rewrote it). idea.md is never changed.
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

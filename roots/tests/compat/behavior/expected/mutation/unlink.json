@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "command": "unlink",
+  "id": "<LINK_EDGE_ID>",
+  "edge": {
+    "type": "edge",
+    "id": "<LINK_EDGE_ID>",
+    "from": "r-7528",
+    "to": "r-e724",
+    "rel": "serves",
+    "by": "human:fixture-human",
+    "createdAt": "<CREATED_AT>"
+  }
+}

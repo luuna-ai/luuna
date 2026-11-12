@@ -1,0 +1,17 @@
+Usage: luuna-roots context <id>
+
+Context packet for one idea (prose, neighbors, history)
+
+Read-only. Prints the idea's prose, status, neighbors, prior questions (dismissed
+ones included, so agents learn what not to ask), rejected proposals, agent notes,
+linked Missions issues and Atlas expertise, the effective agent tier and limits, and
+recent repo state.
+
+Options:
+      --session <ss-id>  Think session the packet is for (default: $ROOTS_SESSION)
+      --no-repo          Skip git branch / recent commits
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

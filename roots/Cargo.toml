@@ -1,0 +1,23 @@
+[workspace]
+members = [
+  "crates/roots-core",
+  "crates/roots-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Brodynelly", "Jaymin West (original Roots author)"]
+repository = "https://github.com/brodynelly/luuna-roots"
+
+[workspace.dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.149", features = ["preserve_order"] }
+thiserror = "2.0.17"
+sha2 = "0.10.9"
+rand = "0.9.2"
+time = { version = "0.3.44", features = ["formatting", "macros", "parsing"] }
+unicode-normalization = "0.1.24"

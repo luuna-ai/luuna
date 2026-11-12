@@ -1,0 +1,76 @@
+name: Release artifacts
+
+# Builds checksum-verified native archives and uploads them as workflow
+# artifacts ONLY. Nothing is published: no tags, GitHub Releases, crates.io,
+# npm, or attestations. Enabling any of those is an owner gate (docs/RELEASING.md).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Archive version label (semver, e.g. 0.1.0 or 0.1.0-rc.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - name: Confirm native runner matches target
+        shell: sh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          echo "host=$host target=$TARGET"
+          test "$host" = "$TARGET"
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Test release scripts
+        run: sh scripts/release/test-release-scripts.sh
+      - name: Package
+        shell: sh
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: sh scripts/release/package.sh --version "$VERSION" --target "$TARGET" --out "$RUNNER_TEMP/dist"
+      - name: Check archive
+        shell: sh
+        run: |
+          set -eu
+          for archive in "$RUNNER_TEMP"/dist/luuna-roots_*.tar.gz; do
+            sh scripts/release/check-archive.sh "$archive"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: luuna-roots-${{ inputs.version }}-${{ matrix.target }}
+          path: ${{ runner.temp }}/dist/
+          if-no-files-found: error
+          retention-days: 14
+      # OWNER GATE (disabled): GitHub build-provenance attestations need
+      # `id-token: write` and `attestations: write` and create a stored
+      # attestation. Enable only after the owner decision in docs/RELEASING.md.
+      # - uses: actions/attest-build-provenance@v2
+      #   with:
+      #     subject-path: ${{ runner.temp }}/dist/luuna-roots_*.tar.gz

@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "reference": {
+    "commit": "ce22500",
+    "implementation": "TypeScript/Bun",
+    "binary": "luuna-roots",
+    "alias": "lrt",
+    "host": "windows-x86_64-msvc",
+    "bun": "1.4.3"
+  },
+  "normalizers": [
+    "<ROOT>",
+    "<PROJECT>",
+    "<HUMAN>",
+    "<CREATED_AT>",
+    "<EXPIRES_AT>",
+    "<SPROUT_ID>",
+    "<SPROUT_HEX>"
+  ],
+  "fixtures": [
+    { "argv": ["--help"], "stdout": "root-help.txt", "exit": 0 },
+    { "argv": ["--help", "--json"], "stdout": "root-help.json", "exit": 0 },
+    { "argv": ["--version"], "stdout": "version.txt", "exit": 0 },
+    { "argv": ["--version", "--json"], "stdout": "version.json", "exit": 0 },
+    { "argv": ["init", "--help"], "stdout": "help/init.txt", "exit": 0 },
+    { "argv": ["propose", "--help"], "stdout": "help/propose.txt", "exit": 0 },
+    { "argv": ["view", "--help"], "stdout": "help/view.txt", "exit": 0 },
+    { "argv": ["plnt", "--json"], "stdout": "errors/unknown-command.json", "exit": 2 },
+    { "argv": ["list", "--json"], "stdout": "errors/not-initialized.json", "exit": 3 },
+    { "argv": ["init", "--json"], "stdout": "init/result.json", "exit": 0 },
+    { "argv": ["sprout", "Agent candidate", "--as", "agent:fixture", "--json"], "stdout": "flow/sprout.json", "exit": 0 },
+    { "argv": ["list", "--json"], "stdout": "flow/list.json", "exit": 0 },
+    { "argv": ["show", "<SPROUT_ID>", "--json"], "stdout": "flow/show.json", "exit": 0 },
+    { "argv": ["view", "--sprouts"], "stdout": "flow/view-sprouts.md", "exit": 0 },
+    { "argv": ["view", "--sprouts", "--json"], "stdout": "flow/view-sprouts.json", "exit": 0 },
+    { "argv": ["prime", "--json"], "stdout": "flow/prime.json", "exit": 0 }
+  ]
+}

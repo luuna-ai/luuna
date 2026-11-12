@@ -1,0 +1,15 @@
+Usage: luuna-roots scan [<id>]
+
+Find mentions in edits made outside a session
+
+Scans ideas whose idea.md changed since its last recorded hash (plant, think
+session end, or a previous scan) and files link proposals for mentions of other
+ideas (slug, id, or a distinctive phrase from their statement).
+
+Options:
+      --all  Scan every idea, changed or not
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

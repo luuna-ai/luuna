@@ -1,0 +1,6 @@
+.luuna/roots/*.jsonl merge=union
+
+# Compat fixtures are byte-exact reference data: never convert line endings
+# on checkout or commit (e.g. core.autocrlf=true on Windows), so the working
+# tree always matches the committed blobs. -text keeps diffs and merge=union.
+tests/compat/** -text

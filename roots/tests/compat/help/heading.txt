@@ -1,0 +1,19 @@
+Usage: luuna-roots heading <text> --cite <id>:<quote> ... [--next <id>]
+
+Say where a flow session is going (tier ≥ 1)
+
+Shown in the human's `luuna-roots flow` pane, labeled [agent]; never in views. At most two
+sentences and 280 characters. Cite every idea the text names with an exact quote
+from its idea.md. --next suggests the idea to think about next. Refused outside a
+running flow ($ROOTS_FLOW or --flow) and for text a human dismissed before.
+
+Options:
+      --cite <id>:<quote>  Exact quote from an idea (repeatable, at least one)
+      --next <id>          Idea to think about next
+      --flow <fl-id>       The flow session (default: $ROOTS_FLOW)
+      --as agent:<model>   Agent identity (default: $ROOTS_AGENT)
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

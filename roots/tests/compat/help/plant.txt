@@ -1,0 +1,14 @@
+Usage: luuna-roots plant [<statement>]
+
+Create an idea. With no argument, opens $EDITOR
+
+The first non-empty line of the idea is its statement: one claim, one sentence.
+Requires an interactive terminal and a human name (ROOTS_USER or git user.name).
+
+Options:
+      --slug <slug>  Slug to use instead of one derived from the statement
+
+Global options:
+      --json   Machine-readable JSON output
+  -q, --quiet  Suppress non-essential output
+  -h, --help   Show help for this command

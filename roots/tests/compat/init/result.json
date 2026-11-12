@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "command": "init",
+  "path": ".luuna/roots",
+  "root": "<ROOT>",
+  "created": [
+    ".luuna\\roots",
+    ".luuna\\roots\\human",
+    ".luuna\\roots\\agent\\sprouts",
+    ".luuna\\roots\\agent\\notes",
+    ".luuna\\roots\\config.yaml",
+    ".luuna\\roots\\graph.jsonl",
+    ".luuna\\roots\\proposals.jsonl",
+    ".luuna\\roots\\questions.jsonl",
+    ".luuna\\roots\\events.jsonl",
+    ".luuna\\roots\\.gitignore"
+  ],
+  "gitattributes": "added"
+}

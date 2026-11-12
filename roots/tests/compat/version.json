@@ -1,0 +1,6 @@
+{
+  "success": true,
+  "command": "version",
+  "name": "@luuna/roots-cli",
+  "version": "0.0.0"
+}
