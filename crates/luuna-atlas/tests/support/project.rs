@@ -255,6 +255,7 @@ impl Project {
             Step::Init => commands::run_init(&self.dir),
             Step::Add(domain) => commands::run_add(&self.dir, domain),
             Step::ConfigShow => commands::run_config_show(&self.dir),
+            Step::Command { args, rust } => rust(&self.dir, args),
         }
     }
 
@@ -307,11 +308,24 @@ pub enum Step {
     Init,
     Add(String),
     ConfigShow,
+    /// A command of a later plan: the Go arguments, and the crate function that runs it.
+    Command {
+        args: Vec<String>,
+        rust: fn(&Path, &[String]) -> CommandOutput,
+    },
 }
 
 impl Step {
     pub fn add(domain: &str) -> Step {
         Step::Add(domain.to_owned())
+    }
+
+    /// A step that runs `rust` in the crate and `args` through the Go tool.
+    pub fn command(args: &[&str], rust: fn(&Path, &[String]) -> CommandOutput) -> Step {
+        Step::Command {
+            args: args.iter().map(|arg| (*arg).to_owned()).collect(),
+            rust,
+        }
     }
 
     /// The Go tool's arguments, without `--json --quiet` (added by [`Project::go`]).
@@ -320,6 +334,7 @@ impl Step {
             Step::Init => vec!["init".into()],
             Step::Add(domain) => vec!["add".into(), domain.clone()],
             Step::ConfigShow => vec!["config".into(), "show".into()],
+            Step::Command { args, .. } => args.clone(),
         }
     }
 

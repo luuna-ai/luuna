@@ -343,7 +343,7 @@ fn temp_suffix() -> String {
 /// Writes `data` to `<path>.tmp.<16 hex>` and renames it over `path`. If the rename fails
 /// the temporary file is removed. As in the Go tool, a failed write of the temporary file
 /// returns at once, and nothing is synced to disk.
-fn write_file_atomic(path: &Path, data: &[u8]) -> Result<()> {
+pub(crate) fn write_file_atomic(path: &Path, data: &[u8]) -> Result<()> {
     let tmp = suffixed(path, &format!(".tmp.{}", temp_suffix()));
     let mut file = OpenOptions::new()
         .write(true)
@@ -367,7 +367,7 @@ fn write_file_atomic(path: &Path, data: &[u8]) -> Result<()> {
 
 /// `fs::rename`, retried on Windows up to 20 attempts while the target is in use, with a
 /// delay of 5 ms doubled per attempt and capped at 100 ms (store.go:144-162).
-fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
     let mut attempt: u32 = 1;
     loop {
         let error = match fs::rename(from, to) {
@@ -429,7 +429,7 @@ fn utf16_prefix(s: &str, n: usize) -> String {
 
 /// The Go tool's `writeJSONParseError`: the message JavaScriptCore's `JSON.parse` gave
 /// for `input`, found by a diagnostic walk over its bytes (write_json.go).
-fn json_parse_error(input: &[u8]) -> String {
+pub(crate) fn json_parse_error(input: &[u8]) -> String {
     let mut walk = Diagnostic { s: input, pos: 0 };
     let message = walk.value();
     let message = if message.is_empty() {
