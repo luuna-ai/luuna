@@ -11,10 +11,14 @@
 
 use crate::error::PLAN_2;
 
+mod blocked;
 pub(in crate::command) mod lossy;
+mod ready;
+mod render;
+mod schedule;
 
 /// `ready`.
-pub(super) const READY: super::Entry = super::Entry::Deferred(PLAN_2);
+pub(super) const READY: super::Entry = super::Entry::Ported(ready::run);
 /// `close`.
 pub(super) const CLOSE: super::Entry = super::Entry::Deferred(PLAN_2);
 /// `dep`.
@@ -22,7 +26,7 @@ pub(super) const DEP: super::Entry = super::Entry::Deferred(PLAN_2);
 /// `label`.
 pub(super) const LABEL: super::Entry = super::Entry::Deferred(PLAN_2);
 /// `blocked`.
-pub(super) const BLOCKED: super::Entry = super::Entry::Deferred(PLAN_2);
+pub(super) const BLOCKED: super::Entry = super::Entry::Ported(blocked::run);
 /// `stats`.
 pub(super) const STATS: super::Entry = super::Entry::Deferred(PLAN_2);
 /// `completions`.
@@ -76,7 +80,25 @@ pub(super) mod checks {
                 );
                 assert_eq!(plan_of(error), plan, "{name}");
             }
-            Entry::Ported(_) => unreachable!("{name} is not ported at the slots commit"),
+            Entry::Ported(_) => match name {
+                // Go: FindDir fails in a folder without a store, so the
+                // command prints the error envelope (--json is among the
+                // arguments) and exits 1.
+                "ready" | "blocked" => {
+                    let temp = tempfile::tempdir().unwrap();
+                    let outcome = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
+                    assert_eq!(
+                        String::from_utf8(outcome.stdout).unwrap(),
+                        format!(
+                            "{{\n  \"success\": false,\n  \"command\": \"{name}\",\n  \"error\": \"Not in a missions project. Run `luuna-missions init` first.\"\n}}\n"
+                        ),
+                        "{name}"
+                    );
+                    assert_eq!(outcome.stderr, b"", "{name}");
+                    assert_eq!(outcome.exit_code, 1, "{name}");
+                }
+                other => unreachable!("{other} is not ported at this commit"),
+            },
         }
     }
 }
