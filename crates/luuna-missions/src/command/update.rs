@@ -1,8 +1,7 @@
 //! `update` (`internal/cli/issue_mutate.go:135-312`).
 //!
-//! A status change on a ticket that belongs to a plan, or that is the seed of
-//! one, runs Go's plan transition hook, which this plan does not port. It is
-//! refused with [`Error::Unsupported`] before anything is written.
+//! Status changes hold plans then issues locks and preflight the prospective
+//! plan transition before writing either file. Other edits retain Go behavior.
 
 use std::collections::BTreeMap;
 
@@ -12,10 +11,10 @@ use super::shared::{
     validate_type, without_string,
 };
 use super::{options, Context, Failure};
-use crate::error::{Error, Result, PLAN_4};
+use crate::error::Result;
 use crate::json_error;
-use crate::model::{self, Ticket, Value};
-use crate::store::{read_records, DataFile, Record, Store};
+use crate::model::{self, Value};
+use crate::store::DataFile;
 
 /// Go's `runUpdate`.
 pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Failure> {
@@ -185,9 +184,18 @@ pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Fail
         ticket.updated_at = model::now_iso();
         let updated = ticket.clone();
         if status_changing && old_status != updated.status {
-            refuse_plan_transition(&store, &updated)?;
+            super::plans::check_status_change(&store, &[&updated])?;
+            super::workflow::lossy::refuse_lossy_issues_rewrite(&store)?;
         }
         store.write_tickets(&tickets)?;
+        if status_changing && old_status != updated.status {
+            super::plans::apply_status_change(
+                &store,
+                std::slice::from_ref(&updated.id),
+                &tickets,
+                &updated.updated_at,
+            )?;
+        }
         updated
     };
     if options.has("json") {
@@ -214,70 +222,6 @@ fn extensions_patch(raw: &str) -> Result<BTreeMap<String, Value>, String> {
         }),
         Err(error) => Err(format!("--extensions must be valid JSON: {error}")),
     }
-}
-
-/// The part of a `plans.jsonl` record the plan transition hook looks at.
-struct PlanLinks {
-    line: Vec<u8>,
-    id: String,
-    seed: String,
-    children: Vec<String>,
-}
-
-impl Record for PlanLinks {
-    fn from_line(line: &[u8]) -> Option<Self> {
-        let members = Value::decode(line).ok().and_then(Value::into_object)?;
-        let text = |key: &str| match members.get(key) {
-            Some(Value::String(text)) => text.clone(),
-            _ => String::new(),
-        };
-        let children = match members.get("children") {
-            Some(Value::Array(items)) => items
-                .iter()
-                .map(|item| match item {
-                    Value::String(text) => text.clone(),
-                    _ => String::new(),
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
-        Some(Self {
-            line: line.to_vec(),
-            id: text("id"),
-            seed: text("seed"),
-            children,
-        })
-    }
-
-    fn record_id(&self) -> &str {
-        &self.id
-    }
-
-    fn to_line(&self) -> Result<Vec<u8>> {
-        Ok(self.line.clone())
-    }
-}
-
-/// Refuses a status change that Go's plan transition hook would act on: the
-/// ticket has a `plan_id`, is the seed of a plan, or is one of its children.
-/// Plan transitions are ported by s4-missions-lib-4. Nothing has been written
-/// when this runs.
-fn refuse_plan_transition(store: &Store, ticket: &Ticket) -> Result<()> {
-    let plans: Vec<PlanLinks> = read_records(&store.path(DataFile::Plans))?;
-    let involved = !ticket.plan_id.is_empty()
-        || plans.iter().any(|plan| {
-            plan.seed == ticket.id() || plan.children.iter().any(|child| child == ticket.id())
-        });
-    if involved {
-        return Err(Error::unsupported(
-            format!(
-                "a status change on {}, which belongs to a plan or is the seed of one (plan transitions)",
-                ticket.id()
-            ),
-            PLAN_4,
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -333,18 +277,12 @@ mod tests {
     #[test]
     fn a_status_change_on_a_ticket_with_a_plan_id_is_refused() {
         let temp = project(&[record(r#","plan_id":"pl-1""#)], "");
-        let before = files(temp.path());
         for args in [
             &["p-1", "--status", "in_progress"][..],
             &["p-1", "--status", "closed", "--title", "other"],
             &["p-1", "--claim", "--as", "me"],
         ] {
-            match update(temp.path(), args) {
-                Err(Error::Unsupported { plan, .. }) => assert_eq!(plan, "s4-missions-lib-4"),
-                other => panic!("{args:?}: expected Unsupported, got {other:?}"),
-            }
-            assert_eq!(files(temp.path()), before, "{args:?}");
-            assert_eq!(leftover_locks(temp.path()), Vec::<String>::new());
+            super::super::plans::foundation_checks::update(temp.path(), args, 0);
         }
     }
 
@@ -352,16 +290,11 @@ mod tests {
     fn a_status_change_on_the_seed_of_a_plan_is_refused() {
         let plan = r#"{"id":"pl-1","seed":"p-1","template":"t","status":"draft","children":[]}"#;
         let temp = project(&[record("")], &format!("{plan}\n"));
-        let before = files(temp.path());
-        match update(temp.path(), &["p-1", "--status", "closed", "--json"]) {
-            Err(Error::Unsupported { plan, feature }) => {
-                assert_eq!(plan, "s4-missions-lib-4");
-                assert!(feature.contains("p-1"), "{feature}");
-            }
-            other => panic!("expected Unsupported, got {other:?}"),
-        }
-        assert_eq!(files(temp.path()), before);
-        assert_eq!(leftover_locks(temp.path()), Vec::<String>::new());
+        super::super::plans::foundation_checks::update(
+            temp.path(),
+            &["p-1", "--status", "closed", "--json"],
+            1,
+        );
     }
 
     #[test]
@@ -369,13 +302,11 @@ mod tests {
         let plan =
             r#"{"id":"pl-1","seed":"s","template":"t","status":"active","children":["p-1"]}"#;
         let temp = project(&[record("")], &format!("{plan}\n"));
-        let before = files(temp.path());
-        let result = update(temp.path(), &["p-1", "--status", "in_progress"]);
-        assert!(
-            matches!(result, Err(Error::Unsupported { .. })),
-            "{result:?}"
+        super::super::plans::foundation_checks::update(
+            temp.path(),
+            &["p-1", "--status", "in_progress"],
+            2,
         );
-        assert_eq!(files(temp.path()), before);
     }
 
     #[test]

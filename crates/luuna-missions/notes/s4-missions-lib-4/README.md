@@ -1,25 +1,19 @@
-# Notes of s4-missions-lib-4
+# Native plan lifecycle
 
-These notes belong to s4-missions-lib-4. It edits them, and only it does. Paths are relative to `crates/luuna-missions/`.
+This plan completes native `plan templates`, `prompt`, `submit`, `show`, `list`, `validate`, `edit`, `create`, `adopt`, `reorder`, `release`, `review` and `outcome`. Ticket show/list/search gain Go plan context; status updates and close run native lifecycle hooks. The foundational crate README describes earlier plan states; these notes supersede its deferred plan limitations. Runtime/CLI integration is the separate Missions wiring plan.
 
-## Moved from the README
+`Invocation` supplies cwd, stdin, environment and optional explicit store. No Missions command invokes Go or Bun. Optional Atlas queries and decision recording retain Go's external executable contract until native Atlas wiring. They use only the supplied environment; recording runs at the project root after local persistence and remains best effort.
 
-- **s4-missions-lib-4:** plans.
-- **Plans.** A status change (`update --status` or `--claim`) on a ticket that has a `plan_id`, that is the seed of a plan or that is one of its children returns `Error::Unsupported` naming s4-missions-lib-4, before anything is written. Go would run its plan transition hook there. Other edits of such a ticket, and a status set to the value it already has, are applied. Reading is refused the same way where the output would print plan context: `show`, `list` and `search` of a ticket whose `plan_id` names a plan in `plans.jsonl`, in the markdown, plain and json formats, and `show pl-<id>` for an id that is not a ticket. The `ids` and `compact` formats print no plan context and are ported for such tickets.
+Plan records preserve raw unchanged known fields, unknown fields and original key order. Explicit blueprint submission replaces sections. Section edits protect retained data before re-encoding. Plans lock before issues. Preflight inspects both prospective files before writes; existing Go I/O failure ordering remains. Edit writes the plan before locking issues, as Go does: it preflights first, then rechecks fresh issue data under the lock. If unsafe concurrent data appears there, its error explicitly says the plan was saved and child propagation was refused, leaving that issue file untouched.
 
-## Files this plan owns
+Lifecycle transitions consider affected child ids, not the seed or its plan_id. Draft plans stay draft. Existing children all closed yield done; active/done or any in-progress child yield active; otherwise approved. Missing children do not prevent done when at least one existing child remains. A no-op transition does not rewrite plans, including unreadable unrelated lines.
 
-- `src/command/plans/mod.rs`
-- `tests/later_plans/s4_missions_lib_4.rs`
-- `tests/support/fixtures/s4_missions_lib_4.rs`
+Tree expansion and rendering use iterative arenas. More than 100000 graph nodes or 128 MiB buffered native plan output returns explicit Unsupported; JSON keeps Go's depth checks. Cycles never recurse on the call stack. Go panic shapes in list and custom-schema submission are explicit refusals, detailed in UPSTREAM.md.
 
-Check functions it owns and replaces (each is called by a unit test whose inputs and name stay as they are):
+## Validation and ownership
 
-- `command::plans::checks::command`, `pub(in crate::command) fn command(name: &str)`. Caller: `command::tests::every_other_go_command_answers_as_its_plan_states (plan)`.
-  - Until ported: Matches on the module's constant for `name`. Deferred arm: `run(<name> --json` in `std::env::temp_dir()`) is Unsupported naming PLAN_4 with Display `the <name> command is not supported yet; it is ported in s4-missions-lib-4`. Ported arm: `unreachable!`.
-  - Once ported: The Deferred arm is kept unchanged; the Ported arm asserts Go's exact outcome of `<name> --json` in a `tempfile::tempdir()` without a store, per name, as literals.
-- `command::plans::checks::status_change_seams`, `pub(in crate::command) fn status_change_seams()`. Caller: `command::tests::the_status_change_seams_answer_as_their_owner_states`.
-  - Until ported: `check_status_change` is `Ok` for tickets without `plan_id` and an empty `plans.jsonl`, and Unsupported naming PLAN_4 for a ticket with `plan_id` and for a non-empty `plans.jsonl`; `apply_status_change` is `Ok` and changes no file in the store.
-  - Once ported: For the same literal inputs, Go's `planTransitionHook` result (`internal/cli/issue_mutate.go:14-20`, `:62-67`): `Ok` or Go's error text, and the literal `plans.jsonl` after.
+The 45 allocated fixtures stay frozen in 24 command groups. Owned unit tests cover raw records, loss guards, validation, optional Atlas, rendering, mutations, concurrency and transitions. The final gate runs all workspace checks, 60 Missions Go comparisons, five format comparisons, the 24 plan groups, and capped hostile plan tests. Native macOS execution belongs to the later CI work; it is not inferred from Linux tests.
 
-A ported branch never asserts only `is_ok()`, and an input with no expectation panics.
+Only the read/update and one close stub expectation delegate into owned checks; their names and inputs remain. Literal pinned-Go output replaces those retired refusals. All other shared tests and harness files stay unchanged. The read index additionally shares full Plan acceptance so known unmarshal/baseline failures are skipped exactly as Go, while unknown root values stay raw. Onboard and CLI version equality is checked through public dispatch.
+
+See UPSTREAM.md for source hashes, license provenance, copied defects and A8 differences.

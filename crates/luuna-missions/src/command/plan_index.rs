@@ -6,14 +6,11 @@
 //! (`internal/store/store.go:116-143`): a missing file is an empty index;
 //! the content is split on `\n`, each line trimmed as `bytes.TrimSpace`
 //! trims it, and a blank line skipped. A line is skipped exactly when Go's
-//! `json.Unmarshal` into `model.Plan` fails, which happens only when it is
-//! not one JSON value or not a JSON object (`Plan.UnmarshalJSON` fails only
-//! through `parseObject`, `internal/model/json.go:82-85`, :275, because
-//! `decodeKnownObject` ignores each field's error, :99). Every other line
-//! is kept whatever its field types, and each field the index uses is
-//! decoded as `json.Unmarshal` into the Go field leaves it after an ignored
-//! type error. Records with the same id keep the last at the first one's
-//! position.
+//! Plan decoder rejects its syntax/object shape or cannot marshal its known
+//! baseline values. Acceptance is shared with the full model introduced by
+//! s4-missions-lib-4; unknown root values stay raw. Index fields retain Go's
+//! independently ignored field type errors. Repeated ids keep the last record
+//! at the first one's position.
 //!
 //! The index holds only what the commands of this plan and s4-missions-lib-4
 //! read ([`IndexedPlan`]); s4-missions-lib-4 may replace it by its full plan
@@ -69,7 +66,7 @@ impl IndexedPlan {
     /// `model.Plan` does; `None` where Go rejects the line and its store
     /// reader skips it.
     fn from_line(line: &[u8]) -> Option<Self> {
-        if !json::is_valid(line) {
+        if !super::plans::accepts_record(line) {
             return None;
         }
         let members = json::parse_object(line).ok()?;
