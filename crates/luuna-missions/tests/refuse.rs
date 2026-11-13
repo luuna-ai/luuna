@@ -372,6 +372,72 @@ fn init_refusals_where_go_loses_data() {
             }
             report.case(case, serde_json::Map::new(), diff);
         }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for file in [
+                "issues.jsonl",
+                "templates.jsonl",
+                "plans.jsonl",
+                ".gitignore",
+            ] {
+                let gp = TempProject::new();
+                let rp = TempProject::new();
+                let expected = TempProject::new();
+                let relative = format!(".luuna/missions/{file}");
+                let original = b"private user data\n".to_vec();
+                for p in [&gp, &rp, &expected] {
+                    p.write_files([(relative.as_str(), original.clone())]);
+                }
+                let gpath = gp.root().join(&relative);
+                let rpath = rp.root().join(&relative);
+                fs::set_permissions(&gpath, fs::Permissions::from_mode(0o200)).unwrap();
+                fs::set_permissions(&rpath, fs::Permissions::from_mode(0o200)).unwrap();
+                let unreadable = fs::read(&rpath).is_err();
+                let command = args(&["init", "--json"]);
+                let g = run_go(go.binary(), gp.root(), &command, b"", &child_env(None)).unwrap();
+                assert_eq!(g.exit, 0);
+                assert_eq!(
+                    fs::metadata(&gpath).unwrap().len(),
+                    if file == ".gitignore" { 7 } else { 0 }
+                );
+                let r = run_rust(rp.root(), &command, b"", &child_env(None)).unwrap();
+                let text = if unreadable {
+                    format!("Refusing to initialize: .luuna/missions/{file} is nonempty but cannot be read while config.yaml is missing, so initializing could overwrite unchecked user data. Nothing was written.")
+                } else if file == ".gitignore" {
+                    "Refusing to initialize: line 1 of .luuna/missions/.gitignore holds an entry other than *.lock, and initializing would replace the file with *.lock alone. Nothing was written.".into()
+                } else {
+                    format!("Refusing to initialize: line 1 of .luuna/missions/{file} holds data and config.yaml is missing, and initializing would empty the file. Nothing was written.")
+                };
+                let mut differences = vec![];
+                if r.exit != 1 {
+                    differences.push(format!("Rust exit {}, want1", r.exit));
+                }
+                differences.extend(exact_difference(
+                    "stdout",
+                    &envelope("init", &text),
+                    &r.stdout,
+                ));
+                differences.extend(exact_difference("stderr", b"", &r.stderr));
+                assert_eq!(
+                    fs::metadata(&rpath).unwrap().permissions().mode() & 0o7777,
+                    0o200,
+                    "Rust retained original mode before test restores readability"
+                );
+                // Only the test restores read permission after verifying the original
+                // mode, so the frozen whole-tree snapshot can read every original byte.
+                fs::set_permissions(&rpath, fs::Permissions::from_mode(0o644)).unwrap();
+                if rp.snapshot() != expected.snapshot() {
+                    differences.push("Rust changed file bytes or other tree entries".into());
+                }
+                report.case(
+                    &format!("write-only-{file}"),
+                    serde_json::Map::new(),
+                    differences,
+                );
+            }
+        }
     });
 }
 fn copied(go: &GoTool, data: Vec<u8>, command: Vec<String>) -> Vec<String> {
@@ -395,6 +461,12 @@ fn copied(go: &GoTool, data: Vec<u8>, command: Vec<String>) -> Vec<String> {
 }
 fn init_copied_setup(p: &TempProject, case: &str) -> Option<TempProject> {
     match case {
+        #[cfg(unix)]
+        "special" => {
+            let dir = p.root().join(".luuna/missions");
+            fs::create_dir_all(&dir).unwrap();
+            std::os::unix::fs::symlink("/dev/zero", dir.join("issues.jsonl")).unwrap();
+        }
         "empty" => (),
         "three-empty" => p.write_files([
             (".luuna/missions/issues.jsonl", vec![]),
@@ -557,7 +629,7 @@ fn copied_cases_match_go() {
             "attrs",
         ];
         #[cfg(unix)]
-        cases.extend(["linked-config", "linked-attrs"]);
+        cases.extend(["linked-config", "linked-attrs", "special"]);
         for case in cases {
             let gp = TempProject::new();
             let rp = TempProject::new();
