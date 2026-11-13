@@ -12,9 +12,9 @@ use std::{
 };
 use support::project::{assert_same_output, Project, Step, Twin};
 const ROWS: &str = concat!(
-    "{\"id\":\"mx-a\",\"type\":\"convention\",\"content\":\"Prefer exact checks.\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\",\"tags\":[\"rust\"],\"classification\":\"tactical\",\"outcomes\":[{\"status\":\"success\"}]}\n",
-    "{\"id\":\"mx-b\",\"type\":\"failure\",\"description\":\"Flaky check\",\"resolution\":\"Use deterministic checks.\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\",\"outcomes\":[{\"status\":\"failure\"}]}\n",
-    "{\"id\":\"mx-c\",\"type\":\"pattern\",\"name\":\"Atomic write\",\"description\":\"Use locks for exact checks.\",\"files\":[\"src/main.rs\"],\"recorded_at\":\"2026-01-01T00:00:00.000Z\"}\n"
+    "{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"Prefer exact checks.\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\",\"tags\":[\"rust\"],\"classification\":\"tactical\",\"outcomes\":[{\"status\":\"success\"}]}\n",
+    "{\"id\":\"mx-bbbb\",\"type\":\"failure\",\"description\":\"Flaky check\",\"resolution\":\"Use deterministic checks.\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\",\"outcomes\":[{\"status\":\"failure\"}]}\n",
+    "{\"id\":\"mx-cccc\",\"type\":\"pattern\",\"name\":\"Atomic write\",\"description\":\"Use locks for exact checks.\",\"files\":[\"src/main.rs\"],\"recorded_at\":\"2026-01-01T00:00:00.000Z\"}\n"
 );
 fn base(seed: bool) -> Twin {
     let t = Twin::new(true);
@@ -381,7 +381,7 @@ case!(
         "--classification",
         "tactical",
         "--relates-to",
-        "mx-a,mx-b",
+        "mx-aaaa,mx-bbbb",
         "--outcome-status",
         "success",
         "--outcome-duration",
@@ -414,7 +414,7 @@ case!(
     &[
         "edit",
         "core",
-        "mx-c",
+        "mx-cccc",
         "--description",
         "Changed",
         "--files",
@@ -430,18 +430,18 @@ case!(
 case!(
     actions_edit_ignored_flag_and_no_flags_rewrite,
     true,
-    &["edit", "core", "mx-a", "--name", "ignored"],
-    &["edit", "core", "mx-a"]
+    &["edit", "core", "mx-aaaa", "--name", "ignored"],
+    &["edit", "core", "mx-aaaa"]
 );
 case!(
     actions_edit_schema_failure,
     true,
-    &["edit", "core", "mx-a", "--content", ""]
+    &["edit", "core", "mx-aaaa", "--content", ""]
 );
 case!(
     actions_edit_domain_and_id_errors,
     true,
-    &["edit", "missing", "mx-a", "--content", "x"],
+    &["edit", "missing", "mx-aaaa", "--content", "x"],
     &["edit", "core", "unknown", "--content", "x"]
 );
 case!(
@@ -450,33 +450,33 @@ case!(
     &[
         "edit",
         "core",
-        "mx-a",
+        "mx-aaaa",
         "--content",
         "Updated runtime content"
     ]
 );
-case!(actions_delete_single, true, &["delete", "core", "mx-b"]);
+case!(actions_delete_single, true, &["delete", "core", "mx-bbbb"]);
 case!(
     actions_delete_dry_run_single_shape,
     true,
-    &["delete", "core", "mx-a", "--dry-run"]
+    &["delete", "core", "mx-aaaa", "--dry-run"]
 );
 case!(
     actions_delete_records_and_all_except,
     true,
-    &["delete", "core", "--records", "mx-b"],
-    &["delete", "core", "--all-except", "mx-a"]
+    &["delete", "core", "--records", "mx-bbbb"],
+    &["delete", "core", "--all-except", "mx-aaaa"]
 );
 case!(
     actions_delete_unknown_id_is_atomic,
     true,
-    &["delete", "core", "--records", "mx-a,absent"]
+    &["delete", "core", "--records", "mx-aaaa,absent"]
 );
 case!(
     actions_delete_mode_errors,
     true,
     &["delete", "core"],
-    &["delete", "core", "mx-a", "--records", "mx-b"],
+    &["delete", "core", "mx-aaaa", "--records", "mx-bbbb"],
     &["delete", "core", "--all-except", ""]
 );
 case!(
@@ -529,13 +529,13 @@ case!(
 case!(
     actions_show_json_multiple_ids,
     true,
-    &["show", "mx-a", "mx-c"]
+    &["show", "mx-aaaa", "mx-cccc"]
 );
 case!(
     actions_show_ambiguous_and_missing_fail_fast,
     true,
     &["show", "mx-"],
-    &["show", "absent", "mx-a"]
+    &["show", "absent", "mx-aaaa"]
 );
 
 fn append_config(t: &Twin, text: &str) {
@@ -784,14 +784,14 @@ extra_test!(actions_delete_human_output, {
     let t = base(true);
     compare_mode(
         &t,
-        &["delete", "core", "mx-b", "--dry-run"],
+        &["delete", "core", "mx-bbbb", "--dry-run"],
         None,
         &[],
         true,
     );
     compare_mode(
         &t,
-        &["delete", "core", "--records", "mx-b,mx-c"],
+        &["delete", "core", "--records", "mx-bbbb,mx-cccc"],
         None,
         &[],
         true,
@@ -811,13 +811,13 @@ extra_test!(actions_search_human_formats, {
 });
 extra_test!(actions_search_archived, {
     let t = base(true);
-    t.prepare(|p|p.write(".luuna/atlas/archive/core.jsonl","{\"archived_at\":\"2026-01-01T00:00:00.000Z\",\"type\":\"convention\",\"id\":\"mx-old\",\"content\":\"Old exact checks\"}\n"));
+    t.prepare(|p|p.write(".luuna/atlas/archive/core.jsonl","{\"archived_at\":\"2026-01-01T00:00:00.000Z\",\"type\":\"convention\",\"id\":\"mx-dddd\",\"content\":\"Old exact checks\"}\n"));
     compare(&t, &["search", "exact", "--archived"]);
     compare_mode(&t, &["search", "exact", "--archived"], None, &[], true);
 });
 extra_test!(actions_show_human_markdown, {
     let t = base(true);
-    compare_mode(&t, &["show", "mx-a", "mx-b", "mx-c"], None, &[], true);
+    compare_mode(&t, &["show", "mx-aaaa", "mx-bbbb", "mx-cccc"], None, &[], true);
 });
 extra_test!(actions_show_custom_type_fallback, {
     let t = base(true);
@@ -838,7 +838,7 @@ extra_test!(actions_show_custom_type_fallback, {
 extra_test!(actions_quiet_does_not_silence_search_show, {
     let t = base(true);
     compare_mode(&t, &["search", "exact", "--quiet"], None, &[], true);
-    compare_mode(&t, &["show", "mx-a", "--quiet"], None, &[], true);
+    compare_mode(&t, &["show", "mx-aaaa", "--quiet"], None, &[], true);
 });
 extra_test!(actions_search_format_ids_is_a_parser_error_in_go, {
     let t = base(true);
@@ -853,7 +853,7 @@ extra_test!(actions_search_format_ids_is_a_parser_error_in_go, {
     assert!(out.stderr.contains("ids"));
     let out = native(&t.rust, &args, None, &[]);
     assert_eq!(out.exit_code, 0);
-    assert!(out.stdout.contains("mx-a"));
+    assert!(out.stdout.contains("mx-aaaa"));
 });
 #[cfg(unix)]
 fn script(t: &Twin, name: &str, body: &str) {
