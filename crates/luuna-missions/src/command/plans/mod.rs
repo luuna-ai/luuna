@@ -15,6 +15,8 @@
 )]
 mod record;
 
+#[allow(dead_code, reason = "native plan reader wiring is the next step")]
+mod common;
 #[allow(
     dead_code,
     reason = "mutation handlers consume these guards in following tasks"
@@ -25,6 +27,8 @@ mod guard;
     reason = "mutation handlers consume these guards in following tasks"
 )]
 mod raw;
+#[allow(dead_code, reason = "native plan reader wiring is the next step")]
+mod validation;
 use std::io;
 
 use crate::error::{Error, Result, PLAN_4};
