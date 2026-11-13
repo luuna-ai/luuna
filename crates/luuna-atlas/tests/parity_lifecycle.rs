@@ -581,3 +581,62 @@ fn yaml_full_repeated_and_unknown_errors() {
         t.assert_same_tree(yaml);
     }
 }
+
+#[test]
+#[ignore = "hostile YAML: compile first, run under prlimit4GiB/timeout120"]
+fn hostile_yaml_graph_depth_limits() {
+    for flow in [true, false] {
+        for depth in [9999, 10000, 10001] {
+            let t = base(false);
+            t.prepare(|p| {
+                let mut file = std::io::BufWriter::new(
+                    std::fs::File::create(p.atlas_dir().join("config.yaml")).unwrap(),
+                );
+                file.write_all(if flow {
+                    b"extra: &anchor "
+                } else {
+                    b"extra: &anchor\n  "
+                })
+                .unwrap();
+                for _ in 0..depth {
+                    file.write_all(if flow { b"[" } else { b"- " }).unwrap();
+                }
+                file.write_all(b"0").unwrap();
+                if flow {
+                    for _ in 0..depth {
+                        file.write_all(b"]").unwrap();
+                    }
+                }
+                file.write_all(b"\n").unwrap();
+                file.flush().unwrap();
+            });
+            let args = vec![
+                "config".into(),
+                "show".into(),
+                "--path".into(),
+                "governance.max_entries".into(),
+            ];
+            let g = go(&t.go, &args, None, &[]);
+            let expected = if depth > if flow { 10000 } else { 9999 } {
+                1
+            } else {
+                0
+            };
+            assert_eq!(
+                g.exit_code, expected,
+                "flow={flow}, depth={depth}: {}",
+                g.stderr
+            );
+            let r = match luuna_atlas::config::read_config(&t.rust.atlas_dir()) {
+                Ok(cfg) => CommandOutput::json(
+                    luuna_atlas::records::obj(cfg.get("governance"))
+                        .get("max_entries")
+                        .unwrap(),
+                ),
+                Err(error) => CommandOutput::plain_failure(&error.to_string()),
+            };
+            assert_same_output("graph depth", &t.go, &g, &t.rust, &r);
+            t.assert_same_tree("graph depth");
+        }
+    }
+}

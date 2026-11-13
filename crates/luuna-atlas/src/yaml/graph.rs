@@ -5,11 +5,10 @@ use crate::{
     json::{Object, Value},
     records, AtlasError, Result,
 };
-use std::collections::{HashMap, HashSet};
-use yaml_rust2::{
-    parser::{Event, Parser, Tag},
-    scanner::TScalarStyle,
+use granit_parser::{
+    Event, Options, Parser, ScalarStyle as TScalarStyle, Scanner, StrInput, Tag, TokenType,
 };
+use std::collections::{HashMap, HashSet};
 enum Kind {
     Scalar(String, TScalarStyle, Option<Tag>),
     Sequence(Vec<usize>),
@@ -35,18 +34,36 @@ impl Document {
                 if version.trim() != "1.1" {
                     return Err(error("yaml: found incompatible YAML document"));
                 }
+            } else if !line.trim().is_empty()
+                && !line.trim_start().starts_with('#')
+                && !line.starts_with('%')
+            {
+                break;
             }
         }
         let mut doc = Self {
             nodes: Vec::new(),
             root: None,
         };
-        let mut parser = Parser::new_from_str(text);
+        let mut options = Options::default();
+        options.flow_nesting_limit = super::MAX_DEPTH + 1;
+        options.block_nesting_limit = super::MAX_DEPTH * 2 + 2;
+        options.max_directive_bytes = usize::MAX;
+        options.max_reserved_directive_params = usize::MAX;
+        options.emit_unresolved_aliases = true;
+        options.emit_comments = false;
+        let mut parser = Parser::new_from_str_with_options(text, options.clone());
         let mut open: Vec<usize> = Vec::new();
         let mut anchors = HashMap::new();
-        loop {
-            let (event, mark) = parser.next_token().map_err(|e| {
+        let end = loop {
+            let Some(result) = parser.next_event() else {
+                break text.chars().count();
+            };
+            let (event, span) = result.map_err(|e| {
                 let message = e.info();
+                if message.contains("nesting limit") || message.contains("recursion limit") {
+                    return super::depth_error([0, e.marker().line() - 1]);
+                }
                 if message.contains("unknown anchor") {
                     let name = text
                         .lines()
@@ -63,18 +80,23 @@ impl Document {
                     error(format!("yaml: line {}: {message}", e.marker().line()))
                 }
             })?;
+            let mark = span.start;
             let (kind, anchor) = match event {
-                Event::StreamEnd | Event::DocumentEnd => break,
-                Event::Nothing | Event::StreamStart | Event::DocumentStart => continue,
+                Event::StreamEnd | Event::DocumentEnd => break mark.index(),
+                Event::StreamStart | Event::DocumentStart(_, _) | Event::Anchor(_, _) => continue,
                 Event::SequenceEnd | Event::MappingEnd => {
                     open.pop();
                     continue;
                 }
-                Event::Scalar(value, style, anchor, tag) => {
-                    (Kind::Scalar(value, style, tag), anchor)
+                Event::Scalar(value, style, anchor, tag) => (
+                    Kind::Scalar(value.into_owned(), style, tag.map(|t| t.into_owned())),
+                    anchor,
+                ),
+                Event::SequenceStart(_, anchor, _) => (Kind::Sequence(Vec::new()), anchor),
+                Event::MappingStart(_, anchor, _) => (Kind::Mapping(Vec::new()), anchor),
+                Event::UnresolvedAlias(name) => {
+                    return Err(error(format!("yaml: unknown anchor '{name}' referenced")))
                 }
-                Event::SequenceStart(anchor, _) => (Kind::Sequence(Vec::new()), anchor),
-                Event::MappingStart(anchor, _) => (Kind::Mapping(Vec::new()), anchor),
                 Event::Alias(anchor) => (
                     Kind::Alias(
                         *anchors
@@ -83,6 +105,11 @@ impl Document {
                     ),
                     0,
                 ),
+                _ => {
+                    return Err(error(
+                        "Unexpected YAML parser event; the file is unchanged.",
+                    ))
+                }
             };
             let collection = matches!(kind, Kind::Sequence(_) | Kind::Mapping(_));
             let index = doc.nodes.len();
@@ -104,6 +131,83 @@ impl Document {
             }
             if collection {
                 open.push(index);
+            }
+        };
+        // Parser events locate the scalar after its tag/anchor. Go's Node
+        // locates the first property, which duplicate diagnostics must quote.
+        let mut properties = HashMap::new();
+        let mut pending = None;
+        let mut flow_depth = 0usize;
+        let mut block_depth = 0usize;
+        let mut simple_key_line = 0usize;
+        for token in Scanner::with_options(StrInput::new(text), options) {
+            let Ok(token) = token else {
+                break;
+            }; // First document was already parsed above.
+            let mark = token.span().start;
+            if mark.index() >= end {
+                break;
+            }
+            match token.token_type() {
+                TokenType::FlowSequenceStart | TokenType::FlowMappingStart => {
+                    flow_depth += 1;
+                    if flow_depth > super::MAX_DEPTH {
+                        return Err(super::depth_error([0, mark.line() - 1]));
+                    }
+                    simple_key_line = mark.line() - 1;
+                }
+                TokenType::FlowSequenceEnd | TokenType::FlowMappingEnd => {
+                    flow_depth = flow_depth.saturating_sub(1);
+                }
+                TokenType::BlockSequenceStart | TokenType::BlockMappingStart => {
+                    block_depth += 1;
+                    if block_depth > super::MAX_DEPTH {
+                        let context = if matches!(token.token_type(), TokenType::BlockMappingStart)
+                        {
+                            mark.line() - 1
+                        } else {
+                            simple_key_line
+                        };
+                        return Err(super::depth_error([context, mark.line() - 1]));
+                    }
+                }
+                TokenType::BlockEnd => {
+                    block_depth = block_depth.saturating_sub(1);
+                }
+                TokenType::Scalar(_, _)
+                | TokenType::Tag(_, _)
+                | TokenType::Anchor(_)
+                | TokenType::Alias(_) => {
+                    simple_key_line = mark.line() - 1;
+                }
+                _ => {}
+            }
+            match token.token_type() {
+                TokenType::Tag(_, _) | TokenType::Anchor(_) => {
+                    if pending.is_none() {
+                        pending = Some(mark);
+                    }
+                }
+                TokenType::Scalar(_, _)
+                | TokenType::Alias(_)
+                | TokenType::FlowSequenceStart
+                | TokenType::FlowMappingStart
+                | TokenType::BlockSequenceStart
+                | TokenType::BlockMappingStart => {
+                    if let Some(property) = pending.take() {
+                        properties.insert(
+                            (mark.line(), mark.col() + 1),
+                            (property.line(), property.col() + 1),
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        for node in &mut doc.nodes {
+            if let Some(&(line, column)) = properties.get(&(node.line, node.column)) {
+                node.line = line;
+                node.column = column;
             }
         }
         Ok(doc)
@@ -250,9 +354,21 @@ impl Document {
         }
     }
 }
-fn core_tag(tag: Option<&Tag>) -> Option<&str> {
-    tag.filter(|t| t.handle == "!!" || t.handle == "tag:yaml.org,2002:")
-        .map(|t| t.suffix.as_str())
+fn core_tag(tag: Option<&Tag>) -> Option<&'static str> {
+    let suffix = tag?.suffix_in_namespace("tag:yaml.org,2002:")?;
+    match suffix.as_ref() {
+        "str" => Some("str"),
+        "binary" => Some("binary"),
+        "int" => Some("int"),
+        "float" => Some("float"),
+        "bool" => Some("bool"),
+        "null" => Some("null"),
+        "timestamp" => Some("timestamp"),
+        "merge" => Some("merge"),
+        "seq" => Some("seq"),
+        "map" => Some("map"),
+        _ => None,
+    }
 }
 fn scalar(raw: &str, style: TScalarStyle, tag: Option<&Tag>) -> Value {
     let resolved = || scalar_value(raw, Style::Plain);
