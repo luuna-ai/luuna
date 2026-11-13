@@ -21,15 +21,11 @@ pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Fail
     let _plans = store.lock(DataFile::Plans)?;
     let _issues = store.lock(DataFile::Issues)?;
     let before = store.read_tickets()?;
-    let selected = ids
-        .iter()
-        .map(|id| {
-            ticket_index(&before, id)
-                .map(|i| &before[i])
-                .ok_or_else(|| Failure::message(format!("Issue not found: {id}")))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    plans::check_status_change(&store, &selected)?;
+    for id in ids {
+        if ticket_index(&before, id).is_none() {
+            return Err(Failure::message(format!("Issue not found: {id}")));
+        }
+    }
     let mut after = before.clone();
     for id in ids {
         let i = ticket_index(&after, id).expect("all ids checked");
@@ -46,6 +42,11 @@ pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Fail
             }
         }
     }
+    let selected = ids
+        .iter()
+        .map(|id| &after[ticket_index(&after, id).expect("all ids checked")])
+        .collect::<Vec<_>>();
+    plans::check_status_change(&store, &selected)?;
     lossy::refuse_lossy_ticket_changes(&store, &before, &after)?;
     store.write_tickets(&after)?;
     plans::apply_status_change(&store, ids, &after, &now)?;

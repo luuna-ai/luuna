@@ -469,11 +469,6 @@ pub(super) fn inherited(seed: &Ticket, store: &Store) -> Result<String> {
     };
     Ok(text(step.get("plan_template")).into())
 }
-/// Go's submit writer uses this process path too; later native Atlas wiring
-/// replaces the transport while retaining the command-level result contract.
-pub(super) fn invoke(c: &Context<'_>, args: &[&str]) -> Option<Vec<u8>> {
-    capture(c, "luuna-atlas", args)
-}
 /// Submit's optional decision write uses the project root, unlike prompt queries.
 pub(super) fn record(
     c: &mut Context<'_>,

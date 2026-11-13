@@ -69,7 +69,7 @@ impl IndexedPlan {
     /// `model.Plan` does; `None` where Go rejects the line and its store
     /// reader skips it.
     fn from_line(line: &[u8]) -> Option<Self> {
-        if !json::is_valid(line) {
+        if !super::plans::accepts_record(line) {
             return None;
         }
         let members = json::parse_object(line).ok()?;
