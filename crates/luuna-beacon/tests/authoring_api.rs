@@ -760,7 +760,8 @@ fn public_api_matches_the_contract() {
     let _: fn(&Beacon, &ImportMarkdown) -> Result<Imported, BeaconError> = Beacon::import_markdown;
     let _: fn(&Beacon, &str) -> Result<Prompt, BeaconError> = Beacon::pin;
     let _: fn(&Beacon, &str) -> Result<Prompt, BeaconError> = Beacon::unpin;
-    let _: fn(&Beacon, &str, &str, &str) -> Result<Vec<SectionChange>, BeaconError> = Beacon::diff;
+    type DiffFunction = fn(&Beacon, &str, &str, &str) -> Result<Vec<SectionChange>, BeaconError>;
+    let _: DiffFunction = Beacon::diff;
     let _: fn(&Beacon, &str) -> Result<PromptTree, BeaconError> = Beacon::tree;
     let _: fn(&Beacon) -> Result<PromptStats, BeaconError> = Beacon::stats;
     let _: fn(&Beacon) -> Result<ProjectConfig, BeaconError> = Beacon::config_targets;

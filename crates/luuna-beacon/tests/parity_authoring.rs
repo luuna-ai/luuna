@@ -114,10 +114,13 @@ fn assert_config_show_text(case: &Case) {
 /// `config show --path <path>` without `--json`, against
 /// `YamlValue::to_yaml`.
 fn assert_config_path_text(case: &Case, path: &str) {
-    let lib = case
-        .beacon()
-        .config_get(path)
-        .map(|value| value.to_yaml().into_bytes());
+    let lib = if path.is_empty() {
+        case.beacon().config_show().map(|shown| shown.text)
+    } else {
+        case.beacon()
+            .config_get(path)
+            .map(|value| value.to_yaml().into_bytes())
+    };
     assert_text_matches(case, &["config", "show", "--path", path], lib, None);
 }
 
@@ -1269,6 +1272,10 @@ fn emit_out_and_out_dir_like_go() {
     assert_outside(&case, "absolute --out and --out-dir");
     let mut all_out = emit_all();
     all_out.out = Some("one-file.md".to_owned());
+    // Shared identical output: force avoids assigning `skipped` to whichever
+    // prompt Go's map iteration happens to visit second. Skip behavior has
+    // its own exact parity test above.
+    all_out.force = true;
     case.step(emit(all_out));
     assert_outside(&case, "--all with one --out");
     let mut dry = emit_all();
@@ -2071,10 +2078,13 @@ fn decoding_case(case: &mut Case, file: &[u8], paths: &[&str], prefix: Option<&s
     let lib = case.beacon().config_show().map(|shown| shown.text);
     assert_text_matches(case, &["config", "show"], lib, prefix);
     for path in paths {
-        let lib = case
-            .beacon()
-            .config_get(path)
-            .map(|value| value.to_yaml().into_bytes());
+        let lib = if path.is_empty() {
+            case.beacon().config_show().map(|shown| shown.text)
+        } else {
+            case.beacon()
+                .config_get(path)
+                .map(|value| value.to_yaml().into_bytes())
+        };
         assert_text_matches(case, &["config", "show", "--path", path], lib, prefix);
     }
 }
