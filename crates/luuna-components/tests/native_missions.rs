@@ -79,15 +79,17 @@ async fn managed_refusals_leave_store_untouched() {
     }
     let lossy = b"{\"id\":\"a\"}\ninvalid\n";
     fs::write(&file, lossy).unwrap();
-    let error = run_missions_native(
+    let refusal = run_missions_native(
         root,
         &args(&["update", "a", "--title=changed"]),
         BTreeMap::new(),
         Vec::new(),
     )
     .await
-    .unwrap_err()
-    .to_string();
+    .unwrap();
+    assert_eq!(refusal.exit_code, 1);
+    assert!(refusal.stdout.is_empty());
+    let error = String::from_utf8(refusal.stderr).unwrap();
     assert!(error.contains("issues.jsonl"), "{error}");
     assert!(error.contains("line"), "{error}");
     assert_eq!(fs::read(&file).unwrap(), lossy);
