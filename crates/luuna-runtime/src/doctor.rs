@@ -505,7 +505,7 @@ pub fn host_probes(host: Host) -> DoctorProbes {
                 .as_ref()
                 .map(|components| {
                     format!(
-                        "pinned Missions/Atlas/Beacon toolchain discovered: {}",
+                        "pinned Missions/Atlas toolchain discovered: {}; Beacon runs natively",
                         components.describe()
                     )
                 })
@@ -516,7 +516,7 @@ pub fn host_probes(host: Host) -> DoctorProbes {
         bun: Box::new(move || {
             match &components_for_bun {
             Ok(components) => Ok(format!(
-                "bun {} at {} (revalidated before every component call)",
+                "bun {} at {} (revalidated before every legacy component call)",
                 components.runtime_version(),
                 components.bun().display()
             )),

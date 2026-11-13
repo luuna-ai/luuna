@@ -58,12 +58,28 @@ pub(crate) fn enabled(state: &AppState, id: &str) -> Result<bool, ApiError> {
         _ => Ok(false),
     }
 }
-fn require_enabled(state: &AppState, id: &str) -> Result<(), ApiError> {
+fn require_beacon_enabled(state: &AppState, id: &str) -> Result<(), ApiError> {
     if !enabled(state, id)? {
         return Err(conflict(
             "Enable project components before using memory or prompts",
         ));
     }
+    if state.components.is_none() {
+        // A native backend removes the toolchain dependency only for a
+        // store the authoritative resolver makes available. Retain the
+        // existing resource-availability refusal before attempting data I/O.
+        workspace(state, id).map_err(|_| {
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "This project's prompt store is unavailable; check its store mode configuration"
+                    .into(),
+            )
+        })?;
+    }
+    Ok(())
+}
+fn require_enabled(state: &AppState, id: &str) -> Result<(), ApiError> {
+    require_beacon_enabled(state, id)?;
     available(state)?;
     Ok(())
 }
@@ -124,12 +140,21 @@ async fn call(
     directory: &FsPath,
     args: Vec<String>,
 ) -> Result<Value, ApiError> {
-    available(state)?.call(component,directory,&args).await.map_err(|error| {
+    let result = if component == "beacon" {
+        luuna_components::call_beacon_native(directory, &args).await
+    } else {
+        available(state)?.call(component, directory, &args).await
+    };
+    result.map_err(|error| {
         // Diagnostic data for the operator's log only; the API answer stays
         // generic so component output never reaches a client.
         eprintln!("luuna-runtime: {component} call failed: {error}");
-        ApiError(StatusCode::SERVICE_UNAVAILABLE,
-        format!("{component} refused or unavailable; verify the pinned toolchain and managed store"))
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "{component} refused or unavailable; verify the pinned toolchain and managed store"
+            ),
+        )
     })
 }
 pub async fn status(
@@ -144,7 +169,7 @@ pub async fn status(
         .component_state(&id)
         .map_err(internal)?;
     let reason = if state.components.is_none() {
-        Some("Pinned component toolchain unavailable; run npm run components:setup and restart")
+        Some("Ticket and memory tools are unavailable; prompts remain usable in already enabled projects")
     } else if phase.as_deref() == Some("initializing") {
         Some("Activation is incomplete; retry to reconcile it")
     } else {
@@ -1526,7 +1551,7 @@ pub async fn list_prompts(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
-    require_enabled(&state, &id)?;
+    require_beacon_enabled(&state, &id)?;
     let _guard = state.component_locks.lock().await;
     let rows = prompt_records(&state, &id).await?;
     Ok(Json(
@@ -1540,7 +1565,7 @@ pub async fn render_prompt(
     Path((id, name)): Path<(String, String)>,
     Query(query): Query<PromptQuery>,
 ) -> Result<Json<RenderedPrompt>, ApiError> {
-    require_enabled(&state, &id)?;
+    require_beacon_enabled(&state, &id)?;
     let _guard = state.component_locks.lock().await;
     Ok(Json(render(&state, &id, &name, query.version).await?))
 }
@@ -1549,7 +1574,7 @@ pub async fn create_prompt(
     Path(id): Path<String>,
     Json(request): Json<CreatePrompt>,
 ) -> Result<Json<RenderedPrompt>, ApiError> {
-    require_enabled(&state, &id)?;
+    require_beacon_enabled(&state, &id)?;
     valid_prompt_request(&request.name, &request.body)?;
     let _guard = state.component_locks.lock().await;
     Ok(Json(
@@ -1708,7 +1733,11 @@ pub(crate) async fn resolve_selection(
     let Some(selection) = selection else {
         return Ok(None);
     };
-    require_enabled(state, id)?;
+    if selection.memory_ids.is_empty() {
+        require_beacon_enabled(state, id)?
+    } else {
+        require_enabled(state, id)?
+    }
     if selection.memory_ids.len() > 16 {
         return Err(invalid("At most sixteen memories may be selected"));
     }
@@ -1771,7 +1800,11 @@ pub(crate) async fn resolve_approved(
     let Some(context) = context else {
         return Ok(None);
     };
-    require_enabled(state, id)?;
+    if context.memory.is_empty() {
+        require_beacon_enabled(state, id)?
+    } else {
+        require_enabled(state, id)?
+    }
     let bindings = state
         .store
         .lock()

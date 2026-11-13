@@ -12,6 +12,9 @@
 //! digest of its staged tree, and optionally the pinned Bun executable. Its
 //! identity is proved by recomputing those digests; a mismatch is refused by
 //! component name and never silently degraded.
+mod beacon;
+pub use beacon::call_beacon_native;
+
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -338,6 +341,9 @@ impl Components {
             if cfg.get("hooks").is_some_and(nonempty_hooks) {
                 return Err(ComponentError::Hooks);
             }
+        }
+        if name == "beacon" {
+            return call_beacon_native(&workspace, args).await;
         }
         let value = self.invoke(pin, &workspace, args).await?;
         if value.get("success").and_then(Value::as_bool) != Some(true) {
