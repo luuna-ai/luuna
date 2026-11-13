@@ -238,7 +238,7 @@ impl Document {
             Map {
                 index: usize,
                 next: usize,
-                values: Object,
+                values: Box<Object>,
                 key: Option<Value>,
                 seen: HashSet<Vec<u8>>,
                 validate: bool,
@@ -268,7 +268,7 @@ impl Document {
                     Kind::Mapping(_) => stack.push(Frame::Map {
                         index,
                         next: 0,
-                        values: Object::new(),
+                        values: Box::new(Object::new()),
                         key: None,
                         seen: HashSet::new(),
                         validate,
@@ -349,7 +349,7 @@ impl Document {
                         next = Some((*child, validate_child));
                     } else {
                         active.remove(index);
-                        done = Some(Value::Object(std::mem::take(values)));
+                        done = Some(Value::Object(*std::mem::take(values)));
                         stack.pop();
                     }
                 }

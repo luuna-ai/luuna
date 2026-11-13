@@ -119,6 +119,9 @@ pub struct Object {
     // Opaque internal identities keep invalid-byte keys distinct even when JSON's
     // replacement characters give two different keys the same visible spelling.
     raw_keys: std::collections::BTreeMap<String, GoString>,
+    // Go RecordFromValue keeps an array outside its otherwise empty map.
+    // Only the store constructs this sidecar, never recursively inside itself.
+    record_array: Option<Vec<Value>>,
 }
 
 impl PartialEq for Object {
@@ -148,6 +151,13 @@ impl Object {
     /// An empty object.
     pub fn new() -> Self {
         Object::default()
+    }
+
+    pub(crate) fn from_record_array(items: Vec<Value>) -> Self {
+        Self {
+            record_array: Some(items),
+            ..Default::default()
+        }
     }
 
     /// The original bytes of a key returned by iteration, including YAML binary keys.
@@ -519,6 +529,7 @@ impl Value {
                 unordered_from: object.unordered_from,
                 removed_order: object.removed_order.clone(),
                 raw_keys: object.raw_keys.clone(),
+                record_array: object.record_array.clone(),
             }),
         }
     }
@@ -601,6 +612,7 @@ impl Clone for Value {
                         unordered_from: object.unordered_from,
                         removed_order: object.removed_order.clone(),
                         raw_keys: object.raw_keys.clone(),
+                        record_array: object.record_array.clone(),
                     }),
                     None => unreachable!("the frame was just inspected"),
                 });
@@ -1094,13 +1106,18 @@ fn write_value(out: &mut String, value: &Value, indent: Option<usize>) -> Result
                     stack.push(EncodeFrame::Array(items.iter(), true, indent));
                 }
                 Value::Object(object) => {
-                    out.push('{');
-                    stack.push(EncodeFrame::Object(
-                        object,
-                        object.entries.iter(),
-                        true,
-                        indent,
-                    ));
+                    if let Some(items) = &object.record_array {
+                        out.push('[');
+                        stack.push(EncodeFrame::Array(items.iter(), true, indent));
+                    } else {
+                        out.push('{');
+                        stack.push(EncodeFrame::Object(
+                            object,
+                            object.entries.iter(),
+                            true,
+                            indent,
+                        ));
+                    }
                 }
             }
         }
