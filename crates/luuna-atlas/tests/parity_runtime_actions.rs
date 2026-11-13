@@ -185,11 +185,35 @@ fn compare_mode(
     assert_same_output(&args.join(" "), &t.go, &g, &t.rust, &r);
     t.assert_same_tree(&args.join(" "));
 }
+fn compare_case(t: &Twin, name: &str, index: usize, args: &[&str]) {
+    let mut full: Vec<String> = args.iter().map(|s| (*s).into()).collect();
+    full.extend(["--json".into(), "--quiet".into()]);
+    let g = go(&t.go, &full, None, &[]);
+    let expected = if name.contains("validation_errors")
+        || name.contains("missing_type")
+        || name.contains("schema_failure")
+        || name.contains("domain_and_id_errors")
+        || name.contains("unknown_id")
+        || name.contains("mode_errors")
+        || name == "actions_search_errors"
+        || name.contains("ambiguous_and_missing")
+        || (index > 0
+            && (name.contains("exact_duplicate_refused") || name.contains("unicode_duplicate")))
+    {
+        1
+    } else {
+        0
+    };
+    assert_eq!(g.exit_code, expected, "{name} step{index}: {}", g.stderr);
+    let r = native(&t.rust, &full, None, &[]);
+    assert_same_output(&full.join(" "), &t.go, &g, &t.rust, &r);
+    t.assert_same_tree(name);
+}
 macro_rules! case {
     ($name:ident,$seed:expr,$($args:expr),+ $(,)?)=>{
         #[test]
         #[ignore="needs the luuna-atlas reference clone and Go; run the -- --ignored check"]
-        fn $name(){let t=base($seed);$(compare(&t,$args);)+}
+        fn $name(){let t=base($seed);let steps:&[&[&str]]=&[$($args),+];for (index,args) in steps.iter().enumerate(){compare_case(&t,stringify!($name),index,args);}}
     };
 }
 case!(
@@ -227,14 +251,7 @@ case!(
         "--resolution",
         "Fix it"
     ],
-    &[
-        "record",
-        "core",
-        "--type",
-        "decision",
-        "--rationale",
-        "Keep safe state"
-    ],
+    &["record", "core", "Keep safe state.", "--type", "decision"],
     &[
         "record",
         "core",
