@@ -463,11 +463,27 @@ case!(
     &["edit", "core", "mx-aaaa", "--name", "ignored"],
     &["edit", "core", "mx-aaaa"]
 );
-case!(
-    actions_edit_schema_failure,
-    true,
-    &["edit", "core", "mx-aaaa", "--content", ""]
-);
+#[test]
+#[ignore = "needs the luuna-atlas reference clone and Go; run the -- --ignored check"]
+fn actions_edit_schema_failure() {
+    let t = base(true);
+    // Go accepts an empty content string. A retained wrong-kind field actually
+    // exercises schema refusal, without assuming a nonempty-string constraint.
+    t.prepare(|p| {
+        p.write(
+            ".luuna/atlas/expertise/core.jsonl",
+            &ROWS
+                .replace("Prefer exact checks.", "PLACEHOLDER")
+                .replace("\"PLACEHOLDER\"", "17"),
+        )
+    });
+    compare_case(
+        &t,
+        "actions_edit_schema_failure",
+        0,
+        &["edit", "core", "mx-aaaa"],
+    );
+}
 case!(
     actions_edit_domain_and_id_errors,
     true,
