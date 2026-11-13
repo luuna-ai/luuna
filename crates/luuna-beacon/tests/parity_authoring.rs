@@ -151,8 +151,11 @@ fn probe_create() -> Step {
 }
 
 /// A frontmatter number as a float64 (as Go reads every JSON number).
-fn number(frontmatter: &std::collections::BTreeMap<String, Value>, key: &str) -> Option<f64> {
-    frontmatter.get(key).and_then(Value::as_f64)
+fn number(
+    frontmatter: &std::collections::BTreeMap<String, luuna_beacon::JsonValue>,
+    key: &str,
+) -> Option<f64> {
+    frontmatter.get(key).map(|v| &**v).and_then(Value::as_f64)
 }
 
 /// A JSON object text built from `(key, value)` pairs with each string
@@ -541,7 +544,11 @@ fn pin_and_unpin_probe_rows_like_go() {
                 "n2" => assert_eq!(shown.tags, strings(&["a"]), "{label}"),
                 "n3" => assert_eq!(number(&shown.frontmatter, "k"), Some(1.0), "{label}"),
                 "r24-fm-earlier-null" => {
-                    assert_eq!(shown.frontmatter.get("k"), Some(&json!("x")), "{label}")
+                    assert_eq!(
+                        shown.frontmatter.get("k").map(|v| &**v),
+                        Some(&json!("x")),
+                        "{label}"
+                    )
                 }
                 "r24-fm-merge" => {
                     assert_eq!(number(&shown.frontmatter, "a"), Some(1.0), "{label}");

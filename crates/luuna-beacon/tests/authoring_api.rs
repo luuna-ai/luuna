@@ -86,9 +86,12 @@ fn prompt(name: &str, sections: &[(&str, &str)]) -> Prompt {
     }
 }
 
-fn frontmatter(value: Value) -> BTreeMap<String, Value> {
+fn frontmatter(value: Value) -> BTreeMap<String, luuna_beacon::JsonValue> {
     match value {
-        Value::Object(map) => map.into_iter().collect(),
+        Value::Object(map) => map
+            .into_iter()
+            .map(|(key, value)| (key, value.into()))
+            .collect(),
         other => panic!("frontmatter must be an object: {other}"),
     }
 }
@@ -146,9 +149,15 @@ fn relative_out_and_import_path_use_the_project_root() {
     options.out = Some("rel-out-of-test/out.md".to_owned());
     let files = emitted(beacon.emit(&options).expect("emit"));
     assert_eq!(files.len(), 1);
-    assert_eq!(files[0].path, "rel-out-of-test/out.md", "--out is reported verbatim");
+    assert_eq!(
+        files[0].path, "rel-out-of-test/out.md",
+        "--out is reported verbatim"
+    );
     assert!(root.join("rel-out-of-test/out.md").is_file());
-    assert!(!cwd.join("rel-out-of-test").exists(), "nothing under the working folder");
+    assert!(
+        !cwd.join("rel-out-of-test").exists(),
+        "nothing under the working folder"
+    );
     let mut options = emit_one("p");
     options.out_dir = Some("rel-dir-of-test".to_owned());
     let files = emitted(beacon.emit(&options).expect("emit"));
@@ -199,7 +208,10 @@ fn emit_reports_out_verbatim_and_joined_paths_absolute() {
     let absolute = root.join("abs/x.md").to_string_lossy().into_owned();
     let mut options = emit_one("p");
     options.out = Some(absolute.clone());
-    assert_eq!(emitted(beacon.emit(&options).expect("abs"))[0].path, absolute);
+    assert_eq!(
+        emitted(beacon.emit(&options).expect("abs"))[0].path,
+        absolute
+    );
     let mut options = emit_one("p");
     options.out = Some("x.md".to_owned());
     options.out_dir = Some("ignored".to_owned());
@@ -316,9 +328,15 @@ fn map_ordered_outputs_are_deterministic() {
     create(&beacon, named("untagged"));
     for _ in 0..2 {
         let files = emitted(beacon.emit(&emit_one("tagged")).expect("emit"));
-        assert_eq!(files[0].path, root.join("second-dir/tagged.md").to_string_lossy());
+        assert_eq!(
+            files[0].path,
+            root.join("second-dir/tagged.md").to_string_lossy()
+        );
         let files = emitted(beacon.emit(&emit_one("untagged")).expect("emit"));
-        assert_eq!(files[0].path, root.join("dz-dir/untagged.md").to_string_lossy());
+        assert_eq!(
+            files[0].path,
+            root.join("dz-dir/untagged.md").to_string_lossy()
+        );
     }
 
     // GD16: legacy emitDirByTag, tags and directories in config-file order;
@@ -356,7 +374,10 @@ fn map_ordered_outputs_are_deterministic() {
     write_config(&root, b"project: p\nversion: \"2\"\n");
     let config = beacon.config_targets().expect("no targets");
     assert!(config.targets.is_none(), "Go's nil Targets");
-    assert_eq!((config.project.as_str(), config.version.as_str()), ("p", "2"));
+    assert_eq!(
+        (config.project.as_str(), config.version.as_str()),
+        ("p", "2")
+    );
 }
 
 // ---- the YAML emitter -----------------------------------------------------------
@@ -369,12 +390,16 @@ fn yaml_key_order_follows_yaml_v3_sorter() {
         "a10", "a2", "a_b", "A", "b", "1", "10", "9", "item-1", "item_1", "a1b", "a01", "a1",
     ];
     let mut p = prompt("keys", &[("main", "body")]);
-    p.frontmatter = keys.iter().map(|key| ((*key).to_owned(), json!(1))).collect();
+    p.frontmatter = keys
+        .iter()
+        .map(|key| ((*key).to_owned(), json!(1).into()))
+        .collect();
     assert_eq!(
         luuna_beacon::render_markdown(&p),
         "---\n\"1\": 1\n\"9\": 1\n\"10\": 1\nA: 1\na_b: 1\na1: 1\na1b: 1\na01: 1\na2: 1\na10: 1\nb: 1\nitem-1: 1\nitem_1: 1\nname: keys\n---\nbody\n"
     );
-    let value = YamlValue::from_json(&json!({"b": 1, "a": {"z": 1, "y": 2}, "A": [], "10": 1, "9": 1}));
+    let value =
+        YamlValue::from_json(&json!({"b": 1, "a": {"z": 1, "y": 2}, "A": [], "10": 1, "9": 1}));
     assert_eq!(
         value.to_yaml(),
         "\"9\": 1\n\"10\": 1\nA: []\na:\n    \"y\": 2\n    z: 1\nb: 1\n"
@@ -458,7 +483,10 @@ fn yaml_values_convert_to_go_json_like_encoding_json() {
         ("nan", "json: unsupported value: NaN"),
         ("inf", "json: unsupported value: +Inf"),
         ("ninf", "json: unsupported value: -Inf"),
-        ("boolkey", "json: unsupported value: jsontext: object member name must be a string after offset 2"),
+        (
+            "boolkey",
+            "json: unsupported value: jsontext: object member name must be a string after offset 2",
+        ),
     ] {
         let value = beacon.config_get(&format!("x.{key}")).expect("config_get");
         let error = error_of(value.to_go_json(), key);
@@ -467,9 +495,18 @@ fn yaml_values_convert_to_go_json_like_encoding_json() {
     // from_json: every JSON number becomes a float64, as json.Unmarshal
     // gives.
     let value = YamlValue::from_json(&json!({"n": 9007199254740993_u64, "s": "<", "l": [1, 2.5]}));
-    assert_eq!(go_json(&value), "{\"l\":[1,2.5],\"n\":9007199254740992,\"s\":\"\\u003c\"}");
-    assert_eq!(YamlValue::from_json(&json!(1)), YamlValue::from_json(&json!(1.0)));
-    assert_ne!(YamlValue::from_json(&json!(1)), YamlValue::from_json(&json!("1")));
+    assert_eq!(
+        go_json(&value),
+        "{\"l\":[1,2.5],\"n\":9007199254740992,\"s\":\"\\u003c\"}"
+    );
+    assert_eq!(
+        YamlValue::from_json(&json!(1)),
+        YamlValue::from_json(&json!(1.0))
+    );
+    assert_ne!(
+        YamlValue::from_json(&json!(1)),
+        YamlValue::from_json(&json!("1"))
+    );
     let missing = error_of(beacon.config_get("x.none"), "a missing path");
     assert_eq!(missing.to_string(), "path not found: x.none");
 }
@@ -501,7 +538,10 @@ fn go_panic_is_returned_as_an_error() {
         let (_dir, root, beacon) = project();
         write_config(&root, content);
         let before = tree_bytes(&root);
-        let error = error_of(beacon.config_set("project", "x"), "config set on an empty file");
+        let error = error_of(
+            beacon.config_set("project", "x"),
+            "config set on an empty file",
+        );
         assert!(matches!(
             &error,
             BeaconError::Authoring(AuthoringError::GoPanic(message))
@@ -509,7 +549,9 @@ fn go_panic_is_returned_as_an_error() {
         ));
         assert_eq!(error.to_string(), "panic: assignment to entry in nil map");
         assert_tree_unchanged(&before, &root, "after the panic");
-        assert!(!beacon.config_unset("project").expect("unset on an empty file"));
+        assert!(!beacon
+            .config_unset("project")
+            .expect("unset on an empty file"));
         assert_tree_unchanged(&before, &root, "after unset");
         assert!(beacon.config_show().expect("show").raw.is_null());
     }
@@ -530,9 +572,15 @@ fn render_markdown_body_rules() {
         "---\nname: two\n---\n## A\n\na\n\n## B\n\nb\n\n"
     );
     let mut none = prompt("nosec", &[]);
-    assert_eq!(luuna_beacon::render_markdown(&none), "---\nname: nosec\n---\n\n");
+    assert_eq!(
+        luuna_beacon::render_markdown(&none),
+        "---\nname: nosec\n---\n\n"
+    );
     none.sections = None;
-    assert_eq!(luuna_beacon::render_markdown(&none), "---\nname: nosec\n---\n\n");
+    assert_eq!(
+        luuna_beacon::render_markdown(&none),
+        "---\nname: nosec\n---\n\n"
+    );
     let nameless = prompt("", &[("main", "nameless")]);
     assert_eq!(luuna_beacon::render_markdown(&nameless), "nameless\n");
     let mut overridden = prompt("own", &[("Task", "x")]);
@@ -699,7 +747,7 @@ fn authoring_errors_display_go_messages() {
 fn public_api_matches_the_contract() {
     use luuna_beacon::{
         Beacon, BeaconError, ChangeKind, ConfigShow, EmitOptions, EmitReport, EmitSelection,
-        EmitTarget, EmittedFile, ImportMarkdown, Imported, Prompt, ProjectConfig, PromptStats,
+        EmitTarget, EmittedFile, ImportMarkdown, Imported, ProjectConfig, Prompt, PromptStats,
         PromptTree, SectionChange, YamlValue,
     };
     use std::collections::BTreeMap;
@@ -862,7 +910,10 @@ fn import_returns_the_prompt_go_would_read_back() {
         format!("\",\"name\":\"imp\",\"description\":\"Desc\",\"version\":1,\"sections\":[{{\"name\":\"A\",\"body\":\"a\"}},{{\"name\":\"B\",\"body\":\"b\\n\"}}],\"tags\":[\"t\"],\"frontmatter\":{{\"k\":\"v\",\"list\":[1,\"two\"],\"n\":1.5,\"when\":\"2001-12-14T00:00:00Z\"}},\"status\":\"active\",\"createdAt\":\"{FIXED_TIME_TEXT}\",\"updatedAt\":\"{FIXED_TIME_TEXT}\"}}")
     );
     let shown = beacon.show("imp").expect("show");
-    assert_eq!(imported.prompt, shown, "Imported.prompt is the stored line read back");
+    assert_eq!(
+        imported.prompt, shown,
+        "Imported.prompt is the stored line read back"
+    );
     assert_eq!(imported.prompt.description, "Desc");
     assert!(!imported.prompt.frontmatter.contains_key("name"));
     assert!(!imported.prompt.frontmatter.contains_key("description"));
@@ -889,7 +940,10 @@ fn decoder_refuses_control_characters_and_skips_a_bom() {
     // leading U+FEFF skipped (so no BOM ends up in the first key).
     let (_dir, root, beacon) = project();
     write_config(&root, "\u{feff}project: bom\nversion: \"1\"\n".as_bytes());
-    assert_eq!(go_json(&beacon.config_get("project").expect("project")), "\"bom\"");
+    assert_eq!(
+        go_json(&beacon.config_get("project").expect("project")),
+        "\"bom\""
+    );
     assert_eq!(beacon.config_targets().expect("targets").project, "bom");
     write_config(&root, b"project: luuna-beacon\nversion: \"1\"\nx: a\x00b\n");
     let before = tree_bytes(&root);
@@ -899,14 +953,23 @@ fn decoder_refuses_control_characters_and_skips_a_bom() {
         beacon.config_set("version", "\"2\"").map(|_| ()),
     ] {
         let error = error_of(result, "NUL in config.yaml");
-        assert_eq!(error.to_string(), "yaml: control characters are not allowed");
+        assert_eq!(
+            error.to_string(),
+            "yaml: control characters are not allowed"
+        );
     }
     assert_tree_unchanged(&before, &root, "NUL in config.yaml");
     write_config(&root, b"project: luuna-beacon\nversion: \"1\"\n");
     let before = tree_bytes(&root);
     for value in ["a\u{0}b", "a\u{1}b", "a\u{7f}b"] {
-        let error = error_of(beacon.config_set("version", value), "a control character in the value");
-        assert_eq!(error.to_string(), "yaml: control characters are not allowed");
+        let error = error_of(
+            beacon.config_set("version", value),
+            "a control character in the value",
+        );
+        assert_eq!(
+            error.to_string(),
+            "yaml: control characters are not allowed"
+        );
     }
     assert_tree_unchanged(&before, &root, "control characters in the value");
     for (index, byte) in [0_u8, 1, 0x7f].into_iter().enumerate() {
@@ -926,11 +989,18 @@ fn decoder_refuses_control_characters_and_skips_a_bom() {
         );
         assert_tree_unchanged(&before, &root, "control character in frontmatter");
     }
-    write_under(&root, "src/bom.md", "---\n\u{feff}k: v\n---\n## S\nb\n".as_bytes());
+    write_under(
+        &root,
+        "src/bom.md",
+        "---\n\u{feff}k: v\n---\n## S\nb\n".as_bytes(),
+    );
     let imported = beacon
         .import_markdown(&import_input("src/bom.md", "bom", &[], false))
         .expect("a BOM at the start of the frontmatter text");
-    assert_eq!(imported.prompt.frontmatter.get("k"), Some(&json!("v")));
+    assert_eq!(
+        imported.prompt.frontmatter.get("k").map(|v| &**v),
+        Some(&json!("v"))
+    );
     assert_eq!(imported.prompt.frontmatter.len(), 1);
 }
 
@@ -1006,18 +1076,54 @@ fn sort_map_ordered_only_reorders_map_ordered_arrays() {
     }
     // Every other document is left exactly as it is.
     let unchanged: Vec<(&str, Value)> = vec![
-        ("emit", json!({"success": false, "command": "emit", "error": "2 stale file(s)"})),
-        ("tree", json!({"success": false, "command": "tree", "error": "prompt \"x\" not found"})),
-        ("diff", json!({"success": true, "command": "diff", "changes": [{"section": "b", "type": "removed"}, {"section": "a", "type": "added"}]})),
-        ("stats", json!({"success": true, "command": "stats", "prompts": {"total": 2, "byStatus": {"active": 2}, "byTag": {"b": 1, "a": 1}}})),
-        ("config show", json!({"success": true, "command": "config show", "config": {"targets": {"b": {"dir": "b"}, "a": {"dir": "a"}}, "list": ["b", "a"]}})),
-        ("config show", json!({"success": true, "command": "config show", "path": "x", "value": ["b", "a"]})),
-        ("import", json!({"success": true, "command": "import", "id": "luuna-beacon-1", "name": "p", "sections": 2})),
-        ("pin", json!({"success": true, "command": "pin", "name": "p", "pinned": 1})),
-        ("unpin", json!({"success": true, "command": "unpin", "name": "p", "pinned": null})),
-        ("list", json!({"success": true, "command": "list", "prompts": [{"name": "b"}, {"name": "a"}], "count": 2})),
-        ("config", json!({"success": false, "command": "config", "error": "path not found: x"})),
-        ("something-else", json!({"children": ["b", "a"], "stale": ["b", "a"], "files": [{"name": "b"}, {"name": "a"}]})),
+        (
+            "emit",
+            json!({"success": false, "command": "emit", "error": "2 stale file(s)"}),
+        ),
+        (
+            "tree",
+            json!({"success": false, "command": "tree", "error": "prompt \"x\" not found"}),
+        ),
+        (
+            "diff",
+            json!({"success": true, "command": "diff", "changes": [{"section": "b", "type": "removed"}, {"section": "a", "type": "added"}]}),
+        ),
+        (
+            "stats",
+            json!({"success": true, "command": "stats", "prompts": {"total": 2, "byStatus": {"active": 2}, "byTag": {"b": 1, "a": 1}}}),
+        ),
+        (
+            "config show",
+            json!({"success": true, "command": "config show", "config": {"targets": {"b": {"dir": "b"}, "a": {"dir": "a"}}, "list": ["b", "a"]}}),
+        ),
+        (
+            "config show",
+            json!({"success": true, "command": "config show", "path": "x", "value": ["b", "a"]}),
+        ),
+        (
+            "import",
+            json!({"success": true, "command": "import", "id": "luuna-beacon-1", "name": "p", "sections": 2}),
+        ),
+        (
+            "pin",
+            json!({"success": true, "command": "pin", "name": "p", "pinned": 1}),
+        ),
+        (
+            "unpin",
+            json!({"success": true, "command": "unpin", "name": "p", "pinned": null}),
+        ),
+        (
+            "list",
+            json!({"success": true, "command": "list", "prompts": [{"name": "b"}, {"name": "a"}], "count": 2}),
+        ),
+        (
+            "config",
+            json!({"success": false, "command": "config", "error": "path not found: x"}),
+        ),
+        (
+            "something-else",
+            json!({"children": ["b", "a"], "stale": ["b", "a"], "files": [{"name": "b"}, {"name": "a"}]}),
+        ),
     ];
     for (command, input) in unchanged {
         let mut doc = input.clone();
@@ -1061,9 +1167,14 @@ fn a8_config_set_refuses_later_documents_and_leaves_the_file_unchanged() {
             error.to_string(),
             "config validation failed: unknown property \"unknown\""
         );
-        assert!(!beacon.config_unset("targets.none").expect("unset of a missing key"));
+        assert!(!beacon
+            .config_unset("targets.none")
+            .expect("unset of a missing key"));
         // Reading ignores the later document (GD46, copied).
-        assert_eq!(go_json(&beacon.config_get("targets.other.dir").expect("get")), "\"o\"");
+        assert_eq!(
+            go_json(&beacon.config_get("targets.other.dir").expect("get")),
+            "\"o\""
+        );
     }
     let (_dir, root, beacon) = project();
     write_config(&root, PROBE_BASE_CONFIG.as_bytes());
@@ -1078,13 +1189,22 @@ fn a8_config_set_refuses_later_documents_and_leaves_the_file_unchanged() {
     beacon
         .config_set("targets.other.dir", "---\no2\n...\n")
         .expect("one document with markers");
-    assert_eq!(go_json(&beacon.config_get("targets.other.dir").expect("get")), "\"o2\"");
+    assert_eq!(
+        go_json(&beacon.config_get("targets.other.dir").expect("get")),
+        "\"o2\""
+    );
 }
 
 #[test]
 fn a8_config_set_refuses_a_null_top_level_key_and_leaves_the_file_unchanged() {
     // RD13. A nested null key is kept by yaml.v3 and is not refused.
-    for null_key in ["~: lost\n", "null: lost\n", "Null: lost\n", "? \n: lost\n", "? ~\n: lost\n"] {
+    for null_key in [
+        "~: lost\n",
+        "null: lost\n",
+        "Null: lost\n",
+        "? \n: lost\n",
+        "? ~\n: lost\n",
+    ] {
         let (_dir, root, beacon) = project();
         write_config(&root, format!("{PROBE_BASE_CONFIG}{null_key}").as_bytes());
         assert_refused(&root, null_key, NULL_KEY, || {
@@ -1095,7 +1215,10 @@ fn a8_config_set_refuses_a_null_top_level_key_and_leaves_the_file_unchanged() {
         });
     }
     let (_dir, root, beacon) = project();
-    write_config(&root, format!("{PROBE_BASE_CONFIG}\"null\": a quoted key is a string\n").as_bytes());
+    write_config(
+        &root,
+        format!("{PROBE_BASE_CONFIG}\"null\": a quoted key is a string\n").as_bytes(),
+    );
     let error = error_of(beacon.config_set("targets.other.dir", "o2"), "a string key");
     assert_eq!(
         error.to_string(),
@@ -1159,21 +1282,32 @@ fn a8_config_set_drops_only_comments_and_form() {
         .iter()
         .map(|path| go_json(&beacon.config_get(path).expect("before")))
         .collect();
-    let replacement = beacon.config_set("targets.docs.dir", "d2").expect("config set");
+    let replacement = beacon
+        .config_set("targets.docs.dir", "d2")
+        .expect("config set");
     assert_eq!(go_json(&replacement), "\"d2\"");
     let after: Vec<String> = paths
         .iter()
         .map(|path| go_json(&beacon.config_get(path).expect("after")))
         .collect();
     assert_eq!(before, after, "every untouched value reads the same");
-    assert_eq!(go_json(&beacon.config_get("targets.docs.dir").expect("dir")), "\"d2\"");
+    assert_eq!(
+        go_json(&beacon.config_get("targets.docs.dir").expect("dir")),
+        "\"d2\""
+    );
     let text = fs::read_to_string(root.join(CONFIG)).expect("config.yaml");
     assert!(!text.contains('#'), "comments are dropped: {text}");
-    assert!(!text.contains('&') && !text.contains('*'), "anchors are not kept: {text}");
+    assert!(
+        !text.contains('&') && !text.contains('*'),
+        "anchors are not kept: {text}"
+    );
     assert!(text.contains("hex: 31\n"), "number form changes: {text}");
     assert!(!root.join(".luuna/beacon/config.yaml.lock").exists());
     assert!(beacon.config_unset("targets.copy").expect("unset"));
-    assert_eq!(go_json(&beacon.config_get("targets.base").expect("base")), before[3]);
+    assert_eq!(
+        go_json(&beacon.config_get("targets.base").expect("base")),
+        before[3]
+    );
 }
 
 // ---- A8: import -----------------------------------------------------------------
@@ -1191,7 +1325,13 @@ fn assert_import_refused(root: &Path, beacon: &Beacon, name: &str, source: &[u8]
 }
 
 /// Writes `source` and asserts that importing it as `name` succeeds.
-fn assert_imports(root: &Path, beacon: &Beacon, name: &str, source: &[u8], no_split: bool) -> Prompt {
+fn assert_imports(
+    root: &Path,
+    beacon: &Beacon,
+    name: &str,
+    source: &[u8],
+    no_split: bool,
+) -> Prompt {
     let path = format!("src/{name}.md");
     write_under(root, &path, source);
     beacon
@@ -1213,17 +1353,29 @@ fn a8_import_refuses_an_unrecognised_frontmatter_block() {
         ("close-at-end", b"\xef\xbb\xbf---\nk: v\n---"),
         ("empty", b"---\n---\n## S\nb\n"),
         ("empty-crlf", b"---\r\n---\r\n## S\nb\n"),
-        ("skipped-crlf-line", b"---\nk: v\n---\r\nj: w\n---\n## S\nb\n"),
-        ("bom-no-heading", "\u{feff}---\nk: v\n---\nbody\n".as_bytes()),
+        (
+            "skipped-crlf-line",
+            b"---\nk: v\n---\r\nj: w\n---\n## S\nb\n",
+        ),
+        (
+            "bom-no-heading",
+            "\u{feff}---\nk: v\n---\nbody\n".as_bytes(),
+        ),
     ] {
         assert_import_refused(&root, &beacon, name, source, UNRECOGNISED);
     }
     // A first-line thematic break with no closing line anywhere is imported
     // as Go imports it (GD21, copied).
-    let prompt = assert_imports(&root, &beacon, "rule", b"---\nplain text after a rule\n", false);
+    let prompt = assert_imports(
+        &root,
+        &beacon,
+        "rule",
+        b"---\nplain text after a rule\n",
+        false,
+    );
     assert!(prompt.frontmatter.is_empty());
     let prompt = assert_imports(&root, &beacon, "fm", b"---\nk: v\n---\n## S\nb\n", false);
-    assert_eq!(prompt.frontmatter.get("k"), Some(&json!("v")));
+    assert_eq!(prompt.frontmatter.get("k").map(|v| &**v), Some(&json!("v")));
 }
 
 #[test]
@@ -1243,7 +1395,13 @@ fn a8_import_refuses_text_before_the_first_heading() {
         assert_import_refused(&root, &beacon, name, source, DROPPED);
     }
     assert_imports(&root, &beacon, "blank", b"\n \t\r\n\n## S\nb\n", false);
-    assert_imports(&root, &beacon, "fm-blank", b"---\nk: v\n---\n\n\n## S\nb\n", false);
+    assert_imports(
+        &root,
+        &beacon,
+        "fm-blank",
+        b"---\nk: v\n---\n\n\n## S\nb\n",
+        false,
+    );
     assert_imports(&root, &beacon, "no-split", b"intro\n## S\nb\n", true);
     assert_imports(&root, &beacon, "no-heading", b"intro\n# Title\nb\n", false);
 }
@@ -1254,11 +1412,26 @@ fn a8_import_refuses_a_non_string_description() {
     const NOT_STRING: &str =
         "refused: the frontmatter description is not a string and would be dropped; nothing was stored";
     let (_dir, root, beacon) = project();
-    for (index, value) in ["5", "true", "~", "[a]", "{a: b}", "1.5", "2001-12-14"].iter().enumerate() {
+    for (index, value) in ["5", "true", "~", "[a]", "{a: b}", "1.5", "2001-12-14"]
+        .iter()
+        .enumerate()
+    {
         let source = format!("---\ndescription: {value}\n---\n## S\nb\n");
-        assert_import_refused(&root, &beacon, &format!("d{index}"), source.as_bytes(), NOT_STRING);
+        assert_import_refused(
+            &root,
+            &beacon,
+            &format!("d{index}"),
+            source.as_bytes(),
+            NOT_STRING,
+        );
     }
-    let prompt = assert_imports(&root, &beacon, "string", b"---\ndescription: \"5\"\n---\n## S\nb\n", false);
+    let prompt = assert_imports(
+        &root,
+        &beacon,
+        "string",
+        b"---\ndescription: \"5\"\n---\n## S\nb\n",
+        false,
+    );
     assert_eq!(prompt.description, "5");
     assert!(prompt.frontmatter.is_empty());
 }
@@ -1266,15 +1439,43 @@ fn a8_import_refuses_a_non_string_description() {
 #[test]
 fn a8_import_refuses_null_frontmatter_keys() {
     // RD18.
-    const NULL: &str = "refused: a frontmatter key is null and would be dropped; nothing was stored";
+    const NULL: &str =
+        "refused: a frontmatter key is null and would be dropped; nothing was stored";
     let (_dir, root, beacon) = project();
-    for (index, key) in ["~: x\n", "null: x\n", "NULL: x\n", "? \n: x\n", "? ~\n: x\n"].iter().enumerate() {
+    for (index, key) in [
+        "~: x\n",
+        "null: x\n",
+        "NULL: x\n",
+        "? \n: x\n",
+        "? ~\n: x\n",
+    ]
+    .iter()
+    .enumerate()
+    {
         let source = format!("---\nk: v\n{key}---\n## S\nb\n");
-        assert_import_refused(&root, &beacon, &format!("n{index}"), source.as_bytes(), NULL);
+        assert_import_refused(
+            &root,
+            &beacon,
+            &format!("n{index}"),
+            source.as_bytes(),
+            NULL,
+        );
     }
-    let prompt = assert_imports(&root, &beacon, "quoted", b"---\n\"null\": x\nk: ~\n---\n## S\nb\n", false);
-    assert_eq!(prompt.frontmatter.get("null"), Some(&json!("x")));
-    assert_eq!(prompt.frontmatter.get("k"), Some(&Value::Null));
+    let prompt = assert_imports(
+        &root,
+        &beacon,
+        "quoted",
+        b"---\n\"null\": x\nk: ~\n---\n## S\nb\n",
+        false,
+    );
+    assert_eq!(
+        prompt.frontmatter.get("null").map(|v| &**v),
+        Some(&json!("x"))
+    );
+    assert_eq!(
+        prompt.frontmatter.get("k").map(|v| &**v),
+        Some(&Value::Null)
+    );
 }
 
 #[test]
@@ -1283,23 +1484,37 @@ fn a8_import_refuses_later_frontmatter_documents() {
     const LATER: &str = "refused: the frontmatter holds more than one YAML document and only the first would be stored; nothing was stored";
     let (_dir, root, beacon) = project();
     for (name, source) in [
-        ("spaced-marker", &b"---\nk: v\n--- \nj: w\n---\n## S\nb\n"[..]),
+        (
+            "spaced-marker",
+            &b"---\nk: v\n--- \nj: w\n---\n## S\nb\n"[..],
+        ),
         ("end-marker", b"---\nk: v\n...\nj: w\n---\n## S\nb\n"),
         ("marker-with-content", b"---\nk: v\n--- j\n---\n## S\nb\n"),
     ] {
         assert_import_refused(&root, &beacon, name, source, LATER);
     }
-    let prompt = assert_imports(&root, &beacon, "one", b"---\nk: v\n...\n---\n## S\nb\n", false);
-    assert_eq!(prompt.frontmatter.get("k"), Some(&json!("v")));
+    let prompt = assert_imports(
+        &root,
+        &beacon,
+        "one",
+        b"---\nk: v\n...\n---\n## S\nb\n",
+        false,
+    );
+    assert_eq!(prompt.frontmatter.get("k").map(|v| &**v), Some(&json!("v")));
 }
 
 #[test]
 fn a8_import_refuses_a_frontmatter_name_other_than_the_imported_name() {
     // RD20. A name equal to the imported one is dropped as Go drops it.
     let (_dir, root, beacon) = project();
-    for (index, (value, shown)) in [("other", "other"), ("\"\"", ""), ("5", "5"), ("[a]", "- a\n")]
-        .iter()
-        .enumerate()
+    for (index, (value, shown)) in [
+        ("other", "other"),
+        ("\"\"", ""),
+        ("5", "5"),
+        ("[a]", "- a\n"),
+    ]
+    .iter()
+    .enumerate()
     {
         let name = format!("named{index}");
         let source = format!("---\nname: {value}\n---\n## S\nb\n");
@@ -1309,7 +1524,13 @@ fn a8_import_refuses_a_frontmatter_name_other_than_the_imported_name() {
         );
         assert_import_refused(&root, &beacon, &name, source.as_bytes(), &expected);
     }
-    let prompt = assert_imports(&root, &beacon, "same", b"---\nname: same\nk: v\n---\n## S\nb\n", false);
+    let prompt = assert_imports(
+        &root,
+        &beacon,
+        "same",
+        b"---\nname: same\nk: v\n---\n## S\nb\n",
+        false,
+    );
     assert!(!prompt.frontmatter.contains_key("name"));
     assert_eq!(prompt.frontmatter.len(), 1);
 }
@@ -1332,7 +1553,13 @@ fn a8_import_refuses_values_that_read_back_differently() {
         let expected = format!(
             "refused: the frontmatter value at {path} would read back from the store as a different value; nothing was stored"
         );
-        assert_import_refused(&root, &beacon, &format!("r{index}"), source.as_bytes(), &expected);
+        assert_import_refused(
+            &root,
+            &beacon,
+            &format!("r{index}"),
+            source.as_bytes(),
+            &expected,
+        );
     }
     // Exactly representable numbers, kinds and times pass (copied).
     let prompt = assert_imports(
@@ -1342,8 +1569,14 @@ fn a8_import_refuses_values_that_read_back_differently() {
         b"---\nn: 9007199254740992\nf: 1.0\nt: 2001-12-14T21:59:43.1Z\nbin: !!binary aGVsbG8=\n---\n## S\nb\n",
         false,
     );
-    assert_eq!(prompt.frontmatter.get("t"), Some(&json!("2001-12-14T21:59:43.1Z")));
-    assert_eq!(prompt.frontmatter.get("bin"), Some(&json!("hello")));
+    assert_eq!(
+        prompt.frontmatter.get("t").map(|v| &**v),
+        Some(&json!("2001-12-14T21:59:43.1Z"))
+    );
+    assert_eq!(
+        prompt.frontmatter.get("bin").map(|v| &**v),
+        Some(&json!("hello"))
+    );
 }
 
 // ---- A8: emit -----------------------------------------------------------------
@@ -1372,13 +1605,17 @@ fn a8_emit_refuses_to_overwrite_files_inside_dot_luuna() {
     );
     write_under(&root, "agents/ordinary.md", b"an earlier target\n");
     let target = root.join(PROMPTS);
-    assert_refused(&root, "--all", &into_store(&target), || beacon.emit(&emit_all()));
+    assert_refused(&root, "--all", &into_store(&target), || {
+        beacon.emit(&emit_all())
+    });
     assert_refused(&root, "by name", &into_store(&target), || {
         beacon.emit(&emit_one("into-store"))
     });
     let mut forced = emit_all();
     forced.force = true;
-    assert_refused(&root, "--force", &into_store(&target), || beacon.emit(&forced));
+    assert_refused(&root, "--force", &into_store(&target), || {
+        beacon.emit(&forced)
+    });
     // --check and --dry-run write nothing and are not refused.
     let mut check = emit_all();
     check.check = true;
@@ -1394,12 +1631,20 @@ fn a8_emit_refuses_to_overwrite_files_inside_dot_luuna() {
     let config = root.join(CONFIG);
     let mut options = emit_one("ordinary");
     options.out = Some(config.to_string_lossy().into_owned());
-    assert_refused(&root, "absolute --out", &into_store(&config), || beacon.emit(&options));
+    assert_refused(&root, "absolute --out", &into_store(&config), || {
+        beacon.emit(&options)
+    });
     let mut options = emit_one("ordinary");
     options.out_dir = Some(".luuna/beacon".into());
-    write_under(&root, ".luuna/beacon/ordinary.md", b"another component's file\n");
+    write_under(
+        &root,
+        ".luuna/beacon/ordinary.md",
+        b"another component's file\n",
+    );
     let inside = root.join(".luuna/beacon/ordinary.md");
-    assert_refused(&root, "--out-dir", &into_store(&inside), || beacon.emit(&options));
+    assert_refused(&root, "--out-dir", &into_store(&inside), || {
+        beacon.emit(&options)
+    });
     // A folder link that resolves into .luuna/.
     symlink_into(&root, ".luuna/beacon", "linked");
     let mut options = emit_one("ordinary");
@@ -1458,7 +1703,11 @@ fn refuse_pin_and_unpin(loss: &LossCase) {
             }
             other => panic!("{label}: unexpected error {other}"),
         };
-        assert_eq!((name.as_str(), key.as_str()), (loss.name, loss.key), "{label}");
+        assert_eq!(
+            (name.as_str(), key.as_str()),
+            (loss.name, loss.key),
+            "{label}"
+        );
     }
 }
 
@@ -1468,7 +1717,13 @@ fn a8_pin_and_unpin_refuse_unknown_record_keys_and_leave_the_store_unchanged() {
     // and mulch, and one with MULCH.
     let probed = probed_loss_cases();
     let unprobed = unprobed_loss_cases();
-    let wanted = ["b04a", "b04b", "b04c", "r23-mulch-beside-atlas", "r23-MULCH"];
+    let wanted = [
+        "b04a",
+        "b04b",
+        "b04c",
+        "r23-mulch-beside-atlas",
+        "r23-MULCH",
+    ];
     let mut ran = 0;
     for loss in probed.iter().chain(unprobed.iter()) {
         if wanted.contains(&loss.id) {
@@ -1539,14 +1794,24 @@ fn a8_pin_and_unpin_refuse_repeated_record_keys_and_leave_the_store_unchanged() 
             let line = String::from_utf8(last_store_line(&root)).expect("UTF-8");
             assert_eq!(line, expected, "{label}: the appended line is Go's");
             let stored = fs::read(root.join(PROMPTS)).expect("store");
-            assert!(stored.starts_with(row.record.as_bytes()), "{label}: append only");
+            assert!(
+                stored.starts_with(row.record.as_bytes()),
+                "{label}: append only"
+            );
             let shown = beacon.show("p1").expect("show");
-            assert_eq!(shown, returned, "{label}: the returned prompt is the new record");
+            assert_eq!(
+                shown, returned,
+                "{label}: the returned prompt is the new record"
+            );
             match row.id {
                 "n1" => assert_eq!(shown.description, "d", "{label}"),
                 "n2" => assert_eq!(shown.tags, ["a"], "{label}"),
                 "n3" => assert_eq!(
-                    shown.frontmatter.get("k").and_then(Value::as_f64),
+                    shown
+                        .frontmatter
+                        .get("k")
+                        .map(|v| &**v)
+                        .and_then(Value::as_f64),
                     Some(1.0),
                     "{label}"
                 ),
@@ -1567,9 +1832,10 @@ fn a8_pin_and_unpin_refuse_repeated_record_keys_and_leave_the_store_unchanged() 
             } else {
                 beacon.unpin("p1")
             };
-            let shown = result.unwrap_or_else(|error| panic!("{id} `{command}` is copied: {error}"));
+            let shown =
+                result.unwrap_or_else(|error| panic!("{id} `{command}` is copied: {error}"));
             if id == "r24-fm-earlier-null" {
-                assert_eq!(shown.frontmatter.get("k"), Some(&json!("x")));
+                assert_eq!(shown.frontmatter.get("k").map(|v| &**v), Some(&json!("x")));
             } else {
                 assert_eq!(shown.frontmatter.keys().collect::<Vec<_>>(), ["a", "b"]);
             }
