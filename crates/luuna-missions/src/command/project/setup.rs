@@ -337,6 +337,13 @@ mod tests {
         assert!(String::from_utf8(fs::read(&p).unwrap())
             .unwrap()
             .contains("\"n\": 9007199254740992"));
+        // W4 starts with the unrounded number while installed hooks force a remove write.
+        let installed = String::from_utf8(fs::read(&p).unwrap()).unwrap();
+        fs::write(
+            &p,
+            installed.replace("9007199254740992", "9007199254740993"),
+        )
+        .unwrap();
         assert_eq!(
             invoke(t.path(), &["setup", "claude", "--remove"]).exit_code,
             0
@@ -358,6 +365,9 @@ mod tests {
             let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
             assert_eq!(v["changed"], false);
             assert_eq!(fs::read(&p).unwrap(), first);
+            // W8 starts with the unpaired escape again and removes live hooks.
+            let installed = String::from_utf8(fs::read(&p).unwrap()).unwrap();
+            fs::write(&p, installed.replace('�', r"\ud800")).unwrap();
             assert_eq!(
                 invoke(t.path(), &["setup", "claude", "--remove"]).exit_code,
                 0

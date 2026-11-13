@@ -143,11 +143,24 @@ pub(super) fn run(c: &mut Context<'_>, args: &[String]) -> std::result::Result<(
         .map(|s| config::project_root(s.dir()))
         .unwrap_or_else(|| c.cwd.clone());
     let verify = fs::metadata(root.join("go.mod")).is_ok_and(|m| m.is_file());
-    let fixture: serde_json::Value =
-        serde_json::from_slice(ASSETS[usize::from(o.has("compact")) + 2 * usize::from(verify)])
-            .expect("embedded reference fixture");
-    let mut content = fixture["content"].as_str().unwrap().as_bytes().to_vec();
-    let mut sections = serde_json::to_vec(&fixture["sections"]).unwrap();
+    // Use this crate's Go map decoder: serde_json object iteration order is a
+    // workspace-unified feature and must not change our wire bytes.
+    let mut fixture =
+        json::Value::decode(ASSETS[usize::from(o.has("compact")) + 2 * usize::from(verify)])
+            .expect("embedded reference fixture")
+            .into_object()
+            .expect("reference object");
+    let mut content = fixture
+        .remove("content")
+        .and_then(json::Value::into_string)
+        .expect("reference content")
+        .into_bytes();
+    let mut sections = Vec::new();
+    fixture
+        .remove("sections")
+        .expect("reference sections")
+        .encode(&mut sections, false)
+        .expect("reference values");
     let mut state = None;
     if !o.has("export") {
         if let Some(s) = &store {
