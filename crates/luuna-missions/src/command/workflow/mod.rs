@@ -9,30 +9,34 @@
 //! this folder and replaces the `checks` it owns, and does not edit
 //! `command/mod.rs`.
 
-use crate::error::PLAN_2;
-
 mod blocked;
+mod close;
+mod completions;
+mod dep;
+mod label;
 pub(in crate::command) mod lossy;
 mod ready;
 mod render;
 mod schedule;
+mod stats;
+mod unblock;
 
 /// `ready`.
 pub(super) const READY: super::Entry = super::Entry::Ported(ready::run);
 /// `close`.
-pub(super) const CLOSE: super::Entry = super::Entry::Deferred(PLAN_2);
+pub(super) const CLOSE: super::Entry = super::Entry::Ported(close::run);
 /// `dep`.
-pub(super) const DEP: super::Entry = super::Entry::Deferred(PLAN_2);
+pub(super) const DEP: super::Entry = super::Entry::Ported(dep::run);
 /// `label`.
-pub(super) const LABEL: super::Entry = super::Entry::Deferred(PLAN_2);
+pub(super) const LABEL: super::Entry = super::Entry::Ported(label::run);
 /// `blocked`.
 pub(super) const BLOCKED: super::Entry = super::Entry::Ported(blocked::run);
 /// `stats`.
-pub(super) const STATS: super::Entry = super::Entry::Deferred(PLAN_2);
+pub(super) const STATS: super::Entry = super::Entry::Ported(stats::run);
 /// `completions`.
-pub(super) const COMPLETIONS: super::Entry = super::Entry::Deferred(PLAN_2);
+pub(super) const COMPLETIONS: super::Entry = super::Entry::Ported(completions::run);
 /// `unblock`.
-pub(super) const UNBLOCK: super::Entry = super::Entry::Deferred(PLAN_2);
+pub(super) const UNBLOCK: super::Entry = super::Entry::Ported(unblock::run);
 
 /// The expectations of `every_other_go_command_answers_as_its_plan_states`
 /// in `command/mod.rs` for this module's commands, whose names stay there.
@@ -84,20 +88,40 @@ pub(super) mod checks {
                 // Go: FindDir fails in a folder without a store, so the
                 // command prints the error envelope (--json is among the
                 // arguments) and exits 1.
-                "ready" | "blocked" => {
+                "ready" | "blocked" | "dep" | "label" | "close" | "unblock" | "stats" => {
                     let temp = tempfile::tempdir().unwrap();
                     let outcome = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
+                    let message = match name {
+                        "close" => "Usage: luuna-missions close <id> [ids...] [--reason text]",
+                        "dep" => "Usage: luuna-missions dep <add|remove|list> <issue> [depends-on]",
+                        "label" => "Usage: luuna-missions label <add|remove|list|list-all>",
+                        "unblock" => {
+                            "Usage: luuna-missions unblock <id> [--from <blocker-id> | --all]"
+                        }
+                        _ => "Not in a missions project. Run `luuna-missions init` first.",
+                    };
                     assert_eq!(
                         String::from_utf8(outcome.stdout).unwrap(),
                         format!(
-                            "{{\n  \"success\": false,\n  \"command\": \"{name}\",\n  \"error\": \"Not in a missions project. Run `luuna-missions init` first.\"\n}}\n"
+                            "{{\n  \"success\": false,\n  \"command\": \"{name}\",\n  \"error\": \"{message}\"\n}}\n"
                         ),
                         "{name}"
                     );
                     assert_eq!(outcome.stderr, b"", "{name}");
                     assert_eq!(outcome.exit_code, 1, "{name}");
                 }
-                other => unreachable!("{other} is not ported at this commit"),
+                "completions" => {
+                    let temp = tempfile::tempdir().unwrap();
+                    let result =
+                        run(&Invocation::new(temp.path(), ["completions", "--json"])).unwrap();
+                    assert_eq!(result.stdout, b"");
+                    assert_eq!(
+                        result.stderr,
+                        "✗ Unknown shell: --json. Supported: bash, zsh, fish\n".as_bytes()
+                    );
+                    assert_eq!(result.exit_code, 1);
+                }
+                other => panic!("unexpected workflow input {other}"),
             },
         }
     }
@@ -107,6 +131,7 @@ pub(super) mod checks {
 mod tests {
     use super::super::{find, Entry};
     use super::*;
+    use crate::error::PLAN_2;
 
     #[test]
     fn its_routes_point_at_this_module() {

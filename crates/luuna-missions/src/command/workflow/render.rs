@@ -16,10 +16,6 @@ use std::collections::BTreeMap;
 use crate::json;
 
 /// `items` as a compact JSON array of strings.
-#[allow(
-    dead_code,
-    reason = "used by stats and completions of s4-missions-lib-2, which follow"
-)]
 pub(super) fn string_array(items: &[String]) -> Vec<u8> {
     let mut out = vec![b'['];
     for (index, item) in items.iter().enumerate() {
@@ -34,10 +30,6 @@ pub(super) fn string_array(items: &[String]) -> Vec<u8> {
 
 /// `counts` as a compact JSON object with its keys in bytewise order (a
 /// `BTreeMap<String, _>` iterates in that order).
-#[allow(
-    dead_code,
-    reason = "used by stats of s4-missions-lib-2, which follows"
-)]
 pub(super) fn sorted_int_map(counts: &BTreeMap<String, i64>) -> Vec<u8> {
     let mut out = vec![b'{'];
     for (index, (key, count)) in counts.iter().enumerate() {
