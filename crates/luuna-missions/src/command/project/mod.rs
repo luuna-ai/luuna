@@ -11,14 +11,17 @@
 
 use crate::error::PLAN_3;
 mod config;
+mod doctor;
+mod doctor_fix;
 mod lossy;
+mod stale_lock;
 mod template_record;
 mod tpl;
 
 /// `sync`.
 pub(super) const SYNC: super::Entry = super::Entry::Deferred(PLAN_3);
 /// `doctor`.
-pub(super) const DOCTOR: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const DOCTOR: super::Entry = super::Entry::Ported(doctor::run);
 /// `tpl`.
 pub(super) const TPL: super::Entry = super::Entry::Ported(tpl::run);
 /// `migrate-from-beads`.
@@ -94,6 +97,13 @@ pub(super) mod checks {
                 let out = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
                 assert_eq!(out.stdout, b"");
                 assert_eq!(out.stderr, b"error: unknown option '--json'\n");
+                assert_eq!(out.exit_code, 1);
+            }
+            "doctor" => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(temp.path(), ["doctor", "--json"])).unwrap();
+                assert_eq!(out.stdout,b"{\n  \"success\": false,\n  \"command\": \"doctor\",\n  \"error\": \"Not in a missions project. Run `luuna-missions init` first.\"\n}\n");
+                assert_eq!(out.stderr, b"");
                 assert_eq!(out.exit_code, 1);
             }
             _ => panic!("no Go literal for {name}"),
