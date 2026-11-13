@@ -61,15 +61,6 @@ fn fold(name: &str) -> String {
         .map(|c| if c == 'ſ' { 's' } else { c })
         .collect()
 }
-fn last_field<'a>(raw: &'a [u8], name: &str) -> Option<&'a [u8]> {
-    let mut value = None;
-    for (key, v) in super::raw::pairs(raw) {
-        if fold(&json::unquote(key)) == name {
-            value = Some(v)
-        }
-    }
-    value
-}
 // Go's typed structs fold field names and apply alias occurrences in source
 // order. Record maps remain case-sensitive, including their unknown metadata.
 fn normalize(raw: &[u8], status: bool) -> Option<V> {
@@ -83,33 +74,144 @@ fn normalize(raw: &[u8], status: bool) -> Option<V> {
     if raw.first() != Some(&b'{') {
         return None;
     }
-    let mut result = std::collections::BTreeMap::new();
-    let Some(domains) = last_field(raw, "domains") else {
-        return Some(V::Object(result));
-    };
-    if domains == b"null" {
-        result.insert("domains".into(), V::Null);
-        return Some(V::Object(result));
+    #[derive(Default)]
+    struct Domain {
+        name: String,
+        records: Vec<Option<std::collections::BTreeMap<String, V>>>,
+        len: usize,
+        nil: bool,
     }
-    let mut entries = vec![];
-    for item in super::raw::array(domains)? {
-        if item == b"null" {
-            entries.push(V::Null);
+    let mut storage: Vec<Domain> = vec![];
+    let mut len = 0;
+    let mut nil = true;
+    for (key, value) in super::raw::pairs(raw) {
+        if fold(&json::unquote(key)) != "domains" {
             continue;
         }
-        if item.first() != Some(&b'{') {
+        if value == b"null" {
+            storage.clear();
+            len = 0;
+            nil = true;
+            continue;
+        }
+        let items = super::raw::array(value)?;
+        len = items.len();
+        nil = false;
+        storage.resize_with(storage.len().max(len), Domain::default);
+        for (i, item) in items.into_iter().enumerate() {
+            if item == b"null" {
+                continue;
+            }
+            if item.first() != Some(&b'{') {
+                return None;
+            }
+            let domain = &mut storage[i];
+            for (key, value) in super::raw::pairs(item) {
+                let key = fold(&json::unquote(key));
+                if status && key == "domain" {
+                    match V::decode(value).ok()? {
+                        V::Null => (),
+                        V::String(ref s) => domain.name = s.clone(),
+                        _ => return None,
+                    }
+                }
+                if !status && key == "records" {
+                    if value == b"null" {
+                        domain.records.clear();
+                        domain.len = 0;
+                        domain.nil = true;
+                        continue;
+                    }
+                    let records = super::raw::array(value)?;
+                    domain.len = records.len();
+                    domain.nil = false;
+                    domain
+                        .records
+                        .resize_with(domain.records.len().max(domain.len), || None);
+                    for (j, record) in records.into_iter().enumerate() {
+                        if crate::json_error::unmarshal_error(&String::from_utf8_lossy(record))
+                            .is_some()
+                        {
+                            return None;
+                        }
+                        match V::decode(record).ok()? {
+                            V::Null => domain.records[j] = None,
+                            V::Object(ref m) => {
+                                for value in m.values() {
+                                    encoded(value, true).ok()?;
+                                }
+                                domain.records[j].get_or_insert_default().extend(m.clone())
+                            }
+                            _ => return None,
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let entries = storage
+        .into_iter()
+        .take(len)
+        .map(|d| {
+            let value = if status {
+                V::String(d.name)
+            } else if d.nil {
+                V::Null
+            } else {
+                V::Array(
+                    d.records
+                        .into_iter()
+                        .take(d.len)
+                        .map(|m| m.map(V::Object).unwrap_or(V::Null))
+                        .collect(),
+                )
+            };
+            V::Object(std::collections::BTreeMap::from([(
+                if status { "domain" } else { "records" }.into(),
+                value,
+            )]))
+        })
+        .collect();
+    Some(V::Object(std::collections::BTreeMap::from([(
+        "domains".into(),
+        if nil { V::Null } else { V::Array(entries) },
+    )])))
+}
+fn recorded_id(raw: &[u8]) -> Option<String> {
+    if !json::is_valid(raw) {
+        return None;
+    }
+    let raw = crate::store::trim_space(raw);
+    if raw == b"null" {
+        return Some(String::new());
+    }
+    if raw.first() != Some(&b'{') {
+        return None;
+    }
+    let mut id = String::new();
+    for (key, record) in super::raw::pairs(raw) {
+        if fold(&json::unquote(key)) != "record" {
+            continue;
+        }
+        if record == b"null" {
+            continue;
+        }
+        if record.first() != Some(&b'{') {
             return None;
         }
-        let key = if status { "domain" } else { "records" };
-        let mut entry = std::collections::BTreeMap::new();
-        if let Some(value) = last_field(item, key) {
-            entry.insert(key.into(), V::decode(value).ok()?);
+        for (key, value) in super::raw::pairs(record) {
+            if fold(&json::unquote(key)) == "id" {
+                match V::decode(value).ok()? {
+                    V::Null => (),
+                    V::String(ref s) => id = s.clone(),
+                    _ => return None,
+                }
+            }
         }
-        entries.push(V::Object(entry));
     }
-    result.insert("domains".into(), V::Array(entries));
-    Some(V::Object(result))
+    Some(id)
 }
+
 fn payload(c: &Context<'_>, args: &[&str]) -> Option<V> {
     let out = capture(c, "luuna-atlas", args)?;
     normalize(&out, args.get(1) == Some(&"status"))
@@ -372,6 +474,103 @@ pub(super) fn inherited(seed: &Ticket, store: &Store) -> Result<String> {
 pub(super) fn invoke(c: &Context<'_>, args: &[&str]) -> Option<Vec<u8>> {
     capture(c, "luuna-atlas", args)
 }
+/// Submit's optional decision write uses the project root, unlike prompt queries.
+pub(super) fn record(
+    c: &mut Context<'_>,
+    store: &Store,
+    seed: &Ticket,
+    plan: &super::record::Plan,
+    approach: Option<&V>,
+    forced: &str,
+) -> String {
+    let Some(binary) = executable(c, "luuna-atlas") else {
+        c.stderr.extend_from_slice(
+            "⚠ --record-decision: luuna-atlas not found on PATH; skipping\n".as_bytes(),
+        );
+        return String::new();
+    };
+    let root = crate::config::project_root(store.dir());
+    let run = |args: &[&str]| {
+        let mut cmd = Command::new(&binary);
+        cmd.args(args)
+            .current_dir(&root)
+            .env_clear()
+            .envs(&c.invocation.env)
+            .stdin(Stdio::null());
+        #[cfg(unix)]
+        cmd.env("PWD", &root);
+        cmd.output()
+    };
+    let mut domain = forced.to_owned();
+    if domain.is_empty() {
+        if let Ok(out) = run(&["--json", "status"]) {
+            if out.status.success() {
+                if let Some(p) = normalize(&out.stdout, true) {
+                    if let Some(set) = status_domains(&p) {
+                        domain = submitted_domain(seed, &set);
+                    }
+                }
+            }
+        }
+    }
+    if domain.is_empty() {
+        c.stderr.extend_from_slice(
+            "⚠ --record-decision: no luuna-atlas domain inferred (skipping)\n".as_bytes(),
+        );
+        return String::new();
+    }
+    let out = run(&[
+        "record",
+        &domain,
+        "--type",
+        "decision",
+        "--title",
+        &seed.title,
+        "--rationale",
+        text(approach),
+        "--evidence-missions",
+        &plan.id,
+        "--json",
+    ]);
+    match out {
+        Ok(out) if out.status.success() => recorded_id(&out.stdout).unwrap_or_default(),
+        other => {
+            let detail = match other {
+                Ok(out) => String::from_utf8_lossy(&out.stderr)
+                    .trim()
+                    .split('\n')
+                    .next()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| format!(": {s}"))
+                    .unwrap_or_default(),
+                Err(_) => String::new(),
+            };
+            c.stderr.extend_from_slice(
+                format!("⚠ --record-decision: luuna-atlas record failed{detail}\n").as_bytes(),
+            );
+            String::new()
+        }
+    }
+}
+fn submitted_domain(seed: &Ticket, set: &HashSet<String>) -> String {
+    for label in seed.labels.as_deref().unwrap_or_default() {
+        if set.contains(label) {
+            return label.clone();
+        }
+    }
+    for token in seed.description.split_whitespace() {
+        let token = token.trim_end_matches(['.', ',', ';', ':', ')', ']']);
+        if !token.contains('/') || !token.rsplit('/').next().unwrap_or_default().contains('.') {
+            continue;
+        }
+        for part in token.split('/') {
+            if set.contains(part) {
+                return part.into();
+            }
+        }
+    }
+    String::new()
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,5 +639,121 @@ mod tests {
         let records = query_records(&p).unwrap();
         assert_eq!(text(field(records[0], "id")), "p");
         assert_eq!(text(field(records[0], "ID")), "not-id");
+    }
+    #[test]
+    fn repeated_record_fields_merge_nulls_and_preserve_prior_type_errors() {
+        for raw in [
+            br#"{"record":{"id":"first"},"Record":{}}"#.as_slice(),
+            br#"{"record":{"id":"first","ID":null}}"#,
+            br#"{"record":{"id":"first"},"Record":null}"#,
+        ] {
+            assert_eq!(recorded_id(raw), Some("first".into()));
+        }
+        for raw in [
+            br#"{"record":{"id":3,"ID":"valid"}}"#.as_slice(),
+            br#"{"record":3,"Record":{"id":"valid"}}"#,
+        ] {
+            assert!(recorded_id(raw).is_none());
+        }
+    }
+    #[test]
+    fn status_aliases_reuse_slice_structs_as_go_does() {
+        for raw in [
+            br#"{"domains":[{"domain":"first","Domain":null}]}"#.as_slice(),
+            br#"{"domains":[{"domain":"first"}],"Domains":[{}]}"#,
+            br#"{"domains":[{"domain":"first"}],"Domains":[null]}"#,
+        ] {
+            assert!(status_domains(&normalize(raw, true).unwrap())
+                .unwrap()
+                .contains("first"));
+        }
+        assert!(normalize(br#"{"domains":3,"Domains":[{"domain":"valid"}]}"#, true).is_none());
+        assert!(normalize(br#"{"domains":[{"domain":3,"Domain":"valid"}]}"#, true).is_none());
+    }
+    #[test]
+    fn submit_domain_inference_uses_labels_then_token_segments() {
+        let set = HashSet::from(["core".into(), "ui".into()]);
+        let mut seed = Ticket::default();
+        seed.labels = Some(vec!["ui".into()]);
+        seed.description = "core/file.rs".into();
+        assert_eq!(submitted_domain(&seed, &set), "ui");
+        seed.labels = None;
+        seed.description = "Look at [core/file.rs), and ui/view.ts".into();
+        assert_eq!(submitted_domain(&seed, &set), "ui");
+        seed.description = "core/file.rs),".into();
+        assert_eq!(submitted_domain(&seed, &set), "core");
+    }
+    #[test]
+    #[cfg(unix)]
+    fn recording_runs_at_project_root_with_invocation_environment_and_keeps_local_success() {
+        use crate::{
+            command::{run, Invocation},
+            config_tree::tree::test_support::project,
+        };
+        use std::{fs, os::unix::fs::PermissionsExt};
+        let t = project("project: demo\nversion: \"1\"\n");
+        let dir = t.path().join(".luuna/missions");
+        fs::write(
+            dir.join("issues.jsonl"),
+            b"{\"id\":\"demo-1\",\"title\":\"Parent\",\"status\":\"open\"}\n",
+        )
+        .unwrap();
+        let bin = t.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        let script = bin.join("luuna-atlas");
+        fs::write(&script,b"#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$SENTINEL\" \"$@\" > atlas-call\nprintf '%s' '{\"Record\":{\"ID\":\"decision-id\"}}'\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let nested = t.path().join("nested");
+        fs::create_dir(&nested).unwrap();
+        let raw=br#"{"template":"feature","sections":{"context":"A sufficiently long explanation of this work and its intended motivation.","approach":"Use native behavior","steps":[{"title":"A"},{"title":"B"}],"acceptance":["Done"]}}"#;
+        let inv = Invocation::new(
+            &nested,
+            [
+                "plan",
+                "submit",
+                "demo-1",
+                "--plan",
+                "-",
+                "--record-decision",
+                "--domain",
+                "core",
+            ],
+        )
+        .with_stdin(raw.to_vec())
+        .with_env(std::collections::BTreeMap::from([
+            ("PATH".into(), bin.to_str().unwrap().into()),
+            ("SENTINEL".into(), "supplied".into()),
+        ]));
+        let out = run(&inv).unwrap();
+        assert_eq!(out.exit_code, 0, "{:?}", out);
+        assert!(String::from_utf8(out.stdout)
+            .unwrap()
+            .contains("recorded luuna-atlas decision decision-id"));
+        let call = fs::read_to_string(t.path().join("atlas-call")).unwrap();
+        assert!(
+            call.starts_with(&format!("{}\nsupplied\nrecord\ncore\n", t.path().display())),
+            "{call}"
+        );
+        assert!(!nested.join("atlas-call").exists());
+        fs::write(
+            &script,
+            b"#!/bin/sh\nprintf 'first line\\nsecond line\\n' >&2\nexit 1\n",
+        )
+        .unwrap();
+        let mut inv = inv;
+        inv.args.push("--overwrite".into());
+        let out = run(&inv).unwrap();
+        assert_eq!(out.exit_code, 0);
+        assert!(String::from_utf8(out.stderr)
+            .unwrap()
+            .contains("record failed: first line\n"));
+    }
+    #[test]
+    fn repeated_query_maps_merge_and_report_earlier_overflow() {
+        let p=normalize(br#"{"domains":[{"records":[{"id":"a","keep":true}]}],"Domains":[{"Records":[{"title":"b"}]}]}"#,false).unwrap();
+        let records = query_records(&p).unwrap();
+        assert_eq!(text(field(records[0], "id")), "a");
+        assert_eq!(text(field(records[0], "title")), "b");
+        assert!(normalize(br#"{"domains":[{"records":[{"n":1e400,"n":1}]}]}"#, false).is_none());
     }
 }

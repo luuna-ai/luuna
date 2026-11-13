@@ -38,6 +38,7 @@ mod prompt;
 )]
 mod raw;
 mod reader;
+mod submit;
 #[allow(dead_code, reason = "native plan show wiring is the next step")]
 mod tree;
 #[allow(dead_code, reason = "native plan reader wiring is the next step")]
@@ -72,7 +73,8 @@ fn run(c: &mut super::Context<'_>, args: &[String]) -> std::result::Result<(), s
         "outcome" => mutate::outcome(c, &args[1..]),
         "review" => mutate::review(c, &args[1..]),
         "edit" => edit::run(c, &args[1..]),
-        "submit" | "adopt" | "reorder" | "release" => {
+        "submit" => submit::run(c, &args[1..]),
+        "adopt" | "reorder" | "release" => {
             Err(Error::unsupported(format!("the plan {name} command"), PLAN_4).into())
         }
         _ => Err(super::Failure::message(format!(
