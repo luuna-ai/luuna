@@ -193,23 +193,97 @@ pub fn query_domain(
 ) -> Result<Vec<Object>> {
     Err(AtlasError::Message("not implemented: query_domain".into()))
 }
-pub fn edit_record(
-    _root: &Path,
-    _domain: &str,
-    _id: &str,
-    _updates: &Object,
-    _registry: Option<&Registry>,
+fn update_record(
+    root: &Path,
+    domain: &str,
+    id: &str,
+    registry: Option<&Registry>,
+    mutate: impl FnOnce(&mut Object, &Path) -> Result<()>,
 ) -> Result<Object> {
-    Err(AtlasError::Message("not implemented: edit_record".into()))
+    let path = domain_path(root, domain)?;
+    let builtin = Registry::from_config(None)?;
+    let registry = registry.unwrap_or(&builtin);
+    store::with_file_lock(&path, || {
+        let mut current = store::read_records(&path, registry, false)?;
+        let index = records::resolve_record_id(&current, id)?;
+        let before = current.clone();
+        let mut updated = current[index].clone();
+        let order: Vec<String> = updated.keys().map(str::to_owned).collect();
+        updated.remember_order(order);
+        mutate(&mut updated, &path)?;
+        current[index] = updated;
+        records::check_lossless_rewrite(&path, registry, &[])?;
+        records::check_retained_ids(&path, before.iter().zip(current.iter()))?;
+        records::check_retained_numbers(&path, before.iter().zip(current.iter()))?;
+        records::assign_record_ids(&mut current, registry)?;
+        store::write_records(&path, &mut current, registry)?;
+        Ok(current[index].clone())
+    })
+}
+pub fn edit_record(
+    root: &Path,
+    domain: &str,
+    id: &str,
+    updates: &Object,
+    registry: Option<&Registry>,
+) -> Result<Object> {
+    update_record(root, domain, id, registry, |record, _| {
+        let fields: &[&str] = match text(record.get("type")).as_str() {
+            "convention" => &["content"],
+            "pattern" | "reference" => &["name", "description", "files"],
+            "failure" => &["description", "resolution"],
+            "decision" => &["title", "rationale"],
+            "guide" => &["name", "description"],
+            _ => &[],
+        };
+        for field in [
+            "classification",
+            "tags",
+            "relates_to",
+            "supersedes",
+            "outcomes",
+        ]
+        .iter()
+        .chain(fields.iter())
+        {
+            if let Some(value) = updates.get(field) {
+                record.insert_unordered(*field, value.clone());
+            }
+        }
+        Ok(())
+    })
 }
 pub fn append_outcome(
-    _root: &Path,
-    _domain: &str,
-    _id: &str,
-    _outcome: &Object,
-    _registry: Option<&Registry>,
+    root: &Path,
+    domain: &str,
+    id: &str,
+    outcome: &Object,
+    registry: Option<&Registry>,
 ) -> Result<AppendOutcomeResult> {
-    Err(AtlasError::Message(
-        "not implemented: append_outcome".into(),
-    ))
+    let mut next = Object::new();
+    for (key, value) in outcome.iter() {
+        next.insert_unordered(key, value.clone());
+    }
+    if matches!(next.get("recorded_at"), None | Some(Value::Null)) {
+        next.insert_unordered("recorded_at", crate::timefmt::now_iso());
+    }
+    let record = update_record(root, domain, id, registry, |record, path| {
+        records::check_outcomes_collection(path, record, false)?;
+        let mut values = match record.get("outcomes") {
+            Some(Value::Array(values)) => values.clone(),
+            _ => Vec::new(),
+        };
+        values.push(Value::Object(next.clone()));
+        record.insert_unordered("outcomes", Value::Array(values));
+        Ok(())
+    })?;
+    let total_outcomes = match record.get("outcomes") {
+        Some(Value::Array(values)) => values.len(),
+        _ => 0,
+    };
+    Ok(AppendOutcomeResult {
+        record,
+        outcome: next,
+        total_outcomes,
+    })
 }

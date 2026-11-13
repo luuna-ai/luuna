@@ -98,6 +98,36 @@ impl Action<'_> {
                 .push_str(&style::error_line(self.level, text));
         }
     }
+    pub fn domain(&mut self, cfg: &Config, domain: &str, command: &str) -> bool {
+        if records::obj(cfg.get("domains")).contains_key(domain) {
+            return true;
+        }
+        let names = domain_names(cfg).join(", ");
+        let names = if names.is_empty() { "(none)" } else { &names };
+        if self.ctx.globals.json {
+            self.error(
+                command,
+                &format!(
+                    "Domain {} not found in config. Available domains: {names}",
+                    records::go_quote(domain)
+                ),
+            );
+        } else {
+            self.output.exit_code = 1;
+            self.output.stderr.push_str(&format!(
+                "{}\n{}\n",
+                self.styled(
+                    "red",
+                    &format!(
+                        "Error: domain {} not found in config.",
+                        records::go_quote(domain)
+                    )
+                ),
+                self.styled("red", &format!("Available domains: {names}"))
+            ));
+        }
+        false
+    }
 }
 pub(crate) fn run(
     ctx: &Context,
