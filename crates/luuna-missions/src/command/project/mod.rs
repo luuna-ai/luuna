@@ -1,20 +1,19 @@
-//! The project commands, owned by s4-missions-lib-3: sync, doctor, tpl,
-//! migrate-from-beads, prime, onboard, upgrade, config, setup and guard.
-//!
-//! The command table in `command/mod.rs` routes each of them to a constant
-//! here. At this commit every constant is `Entry::Deferred` naming
-//! s4-missions-lib-3, so the command returns
-//! [`Error::Unsupported`](crate::Error::Unsupported) exactly as before.
-//! s4-missions-lib-3 points each constant at its handler, adds its files in
-//! this folder and replaces the `checks` it owns, and does not edit
-//! `command/mod.rs`.
+//! Native project commands: config, templates, doctor, sync, beads migration,
+//! prime, onboard, Claude setup, guard and upgrade. Handlers preserve the pinned
+//! Go behavior except documented A8 data-loss refusals. Discovery and external
+//! project-file writes are controlled by the caller's invocation and root.
 
+#[cfg(test)]
 use crate::error::PLAN_3;
 mod config;
 mod doctor;
 mod doctor_fix;
+mod guard;
 mod lossy;
 mod migrate_beads;
+mod onboard;
+mod prime;
+mod setup;
 mod stale_lock;
 mod sync;
 mod template_record;
@@ -30,17 +29,17 @@ pub(super) const TPL: super::Entry = super::Entry::Ported(tpl::run);
 /// `migrate-from-beads`.
 pub(super) const MIGRATE_FROM_BEADS: super::Entry = super::Entry::Ported(migrate_beads::run);
 /// `prime`.
-pub(super) const PRIME: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const PRIME: super::Entry = super::Entry::Ported(prime::run);
 /// `onboard`.
-pub(super) const ONBOARD: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const ONBOARD: super::Entry = super::Entry::Ported(onboard::run);
 /// `upgrade`.
 pub(super) const UPGRADE: super::Entry = super::Entry::Ported(upgrade::run);
 /// `config`.
 pub(super) const CONFIG: super::Entry = super::Entry::Ported(config::run);
 /// `setup`.
-pub(super) const SETUP: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const SETUP: super::Entry = super::Entry::Ported(setup::run);
 /// `guard`.
-pub(super) const GUARD: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const GUARD: super::Entry = super::Entry::Ported(guard::run);
 
 /// The expectations of `every_other_go_command_answers_as_its_plan_states`
 /// in `command/mod.rs` for this module's commands, whose names stay there.
@@ -95,6 +94,37 @@ pub(super) mod checks {
     }
     fn ported(name: &str) {
         match name {
+            "setup" | "guard" => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
+                assert_eq!(out.stdout, b"");
+                assert_eq!(
+                    out.stderr,
+                    if name == "setup" {
+                        b"Error: Unknown setup target \"\"; supported: claude\n".as_slice()
+                    } else {
+                        b"Error: too many arguments for 'guard'\n".as_slice()
+                    }
+                );
+                assert_eq!(out.exit_code, 1);
+            }
+            "onboard" => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
+                assert_eq!(out.stdout,b"{\n  \"success\": false,\n  \"command\": \"onboard\",\n  \"error\": \"Not in a missions project. Run `luuna-missions init` first.\"\n}\n");
+                assert_eq!(out.stderr, b"");
+                assert_eq!(out.exit_code, 1);
+            }
+            "prime" => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
+                let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+                assert_eq!(v["success"], true);
+                assert_eq!(v["command"], "prime");
+                assert_eq!(v["state"], serde_json::Value::Null);
+                assert_eq!(out.stderr, b"");
+                assert_eq!(out.exit_code, 0);
+            }
             "config" | "tpl" => {
                 let temp = tempfile::tempdir().unwrap();
                 let out = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
