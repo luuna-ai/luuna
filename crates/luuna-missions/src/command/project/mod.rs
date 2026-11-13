@@ -10,6 +10,7 @@
 //! `command/mod.rs`.
 
 use crate::error::PLAN_3;
+mod config;
 
 /// `sync`.
 pub(super) const SYNC: super::Entry = super::Entry::Deferred(PLAN_3);
@@ -26,7 +27,7 @@ pub(super) const ONBOARD: super::Entry = super::Entry::Deferred(PLAN_3);
 /// `upgrade`.
 pub(super) const UPGRADE: super::Entry = super::Entry::Deferred(PLAN_3);
 /// `config`.
-pub(super) const CONFIG: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const CONFIG: super::Entry = super::Entry::Ported(config::run);
 /// `setup`.
 pub(super) const SETUP: super::Entry = super::Entry::Deferred(PLAN_3);
 /// `guard`.
@@ -80,7 +81,19 @@ pub(super) mod checks {
                 );
                 assert_eq!(plan_of(error), plan, "{name}");
             }
-            Entry::Ported(_) => unreachable!("{name} is not ported at the slots commit"),
+            Entry::Ported(_) => ported(name),
+        }
+    }
+    fn ported(name: &str) {
+        match name {
+            "config" => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(temp.path(), ["config", "--json"])).unwrap();
+                assert_eq!(out.stdout, b"");
+                assert_eq!(out.stderr, b"error: unknown option '--json'\n");
+                assert_eq!(out.exit_code, 1);
+            }
+            _ => panic!("no Go literal for {name}"),
         }
     }
 }

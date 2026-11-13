@@ -93,6 +93,56 @@ pub(crate) fn decode_document(text: &[u8]) -> Result<Option<TreeValue>> {
     Walk::new(&document, true).run(root)
 }
 
+/// Config flow arguments decode into `any`, through the same pre-build guards.
+pub(crate) fn decode_flow_value(text: &[u8]) -> Result<TreeValue> {
+    let text = checked_text(text)?;
+    let (document, _) = Document::read(text)?;
+    let Some(root) = document.root else {
+        return Ok(TreeValue::Null);
+    };
+    Walk::new(&document, false).run_value(root)?;
+    Ok(Walk::new(&document, true)
+        .run_value(root)?
+        .unwrap_or(TreeValue::Null))
+}
+
+/// Declaration order from unexpanded YAML nodes, as collectKeyOrder does.
+pub(crate) fn key_orders(text: &[u8]) -> Result<std::collections::BTreeMap<String, Vec<String>>> {
+    let text = checked_text(text)?;
+    let (document, _) = Document::read(text)?;
+    let mut result = std::collections::BTreeMap::new();
+    let mut stack = Vec::new();
+    if let Some(root) = document.root {
+        stack.push((root, String::new()));
+    }
+    while let Some((index, path)) = stack.pop() {
+        match &document.nodes[index].kind {
+            Kind::Sequence(children) => {
+                for (i, child) in children.iter().enumerate().rev() {
+                    stack.push((*child, format!("{path}/{i}")));
+                }
+            }
+            Kind::Mapping(children) => {
+                let mut keys = Vec::new();
+                let mut children_in_order = Vec::new();
+                for pair in children.chunks_exact(2) {
+                    let key = match &document.nodes[pair[0]].kind {
+                        Kind::Scalar { text, .. } => text.clone(),
+                        Kind::Alias { ordinal, .. } => document.alias_names[*ordinal].clone(),
+                        _ => String::new(),
+                    };
+                    keys.push(key.clone());
+                    children_in_order.push((pair[1], format!("{path}/{key}")));
+                }
+                stack.extend(children_in_order.into_iter().rev());
+                result.insert(path, keys);
+            }
+            _ => {}
+        }
+    }
+    Ok(result)
+}
+
 /// Whether `text` holds anything after its first YAML document: pulls
 /// exactly one parser event after the first `DocumentEnd`. A parse error in
 /// that event means a later document is there (a broken one).
@@ -752,6 +802,21 @@ impl<'d> Walk<'d> {
             frames: Vec::new(),
             steps: Vec::new(),
             result: None,
+        }
+    }
+
+    fn run_value(mut self, root: usize) -> Result<Option<TreeValue>> {
+        self.steps.push(Step::Value {
+            node: root,
+            depth: 1,
+            build: self.build,
+        });
+        while let Some(step) = self.steps.pop() {
+            self.step(step)?;
+        }
+        match self.refusal {
+            Some(error) => Err(error),
+            None => Ok(self.result),
         }
     }
 

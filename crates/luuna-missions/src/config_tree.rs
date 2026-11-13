@@ -17,8 +17,12 @@ use crate::command::Outcome;
 use crate::config::Config;
 use crate::error::Result;
 
+pub(crate) mod emit;
 pub(crate) mod legacy;
+pub(crate) mod tree;
+pub(crate) mod validate;
 pub(crate) mod yaml;
+pub(crate) use tree::read_tree;
 
 #[allow(unused_imports, reason = "used by t4, t5, t9 and s4-missions-lib-4")]
 pub(crate) use legacy::{legacy_hook_command, upgrade_legacy_config_keys, upgrade_legacy_markers};
