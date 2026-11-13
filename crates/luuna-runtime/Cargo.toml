@@ -14,6 +14,7 @@ luuna-discovery = { path = "../luuna-discovery" }
 luuna-executor = { path = "../luuna-executor" }
 luuna-components = { path = "../luuna-components" }
 luuna-sandbox = { path = "../luuna-sandbox" }
+roots-core = { path = "../../roots/crates/roots-core" }
 sha2 = "0.10.9"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde = { version = "1", features = ["derive"] }
@@ -35,5 +36,6 @@ libc = "0.2"
 sha2 = "0.10.9"
 
 [dev-dependencies]
+luuna-beacon = { path = "../luuna-beacon" }
 tower = { version = "0.5", features = ["util"] }
 tempfile = "3.23.0"

@@ -255,6 +255,10 @@ pub fn provider_keys() -> ProviderKeys {
             keys.empty.push(name.to_owned());
         }
     }
+    if luuna_engine_pi::openai_oauth_configured() {
+        keys.configured
+            .push("OpenAI OAuth (LUUNA_PI_AUTH_FILE)".to_owned());
+    }
     keys
 }
 
@@ -501,7 +505,7 @@ pub fn host_probes(host: Host) -> DoctorProbes {
                 .as_ref()
                 .map(|components| {
                     format!(
-                        "pinned Missions/Atlas/Beacon toolchain discovered: {}",
+                        "pinned Missions/Atlas toolchain discovered: {}; Beacon runs natively",
                         components.describe()
                     )
                 })
@@ -512,7 +516,7 @@ pub fn host_probes(host: Host) -> DoctorProbes {
         bun: Box::new(move || {
             match &components_for_bun {
             Ok(components) => Ok(format!(
-                "bun {} at {} (revalidated before every component call)",
+                "bun {} at {} (revalidated before every legacy component call)",
                 components.runtime_version(),
                 components.bun().display()
             )),

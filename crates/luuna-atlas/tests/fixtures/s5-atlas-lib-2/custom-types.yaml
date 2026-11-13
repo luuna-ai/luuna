@@ -1,0 +1,29 @@
+# Custom record types for the unit tests of plan s5-atlas-lib-2a (records, schema and the
+# rewrite guard). Read as a config.yaml by Registry::from_config.
+custom_types:
+  # A type deduplicated by its whole body text.
+  snippet:
+    required:
+      - body
+    optional:
+      - language
+    dedup_key: content_hash
+    summary: "{language}: {body}"
+  # A type deduplicated by a named key, with legacy field names (aliases).
+  runbook:
+    required:
+      - title
+      - steps
+    optional:
+      - owner_team
+    dedup_key: title
+    summary: "{{title}} ({owner_team})"
+    aliases:
+      title:
+        - heading
+        - headline
+      steps:
+        - procedure
+  # A type that extends a built-in and inherits its summary.
+  lesson:
+    extends: convention
