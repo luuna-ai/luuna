@@ -1,0 +1,119 @@
+[
+  {
+    "args": [
+      "show",
+      "a"
+    ],
+    "stdout": "a  open\nTitle:    T a\nType:     task   Priority: Medium\nCreated:  c\nUpdated:  u\n\n\nPlan: pl-1  [draft]\nplan in draft — run luuna-missions plan submit\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "show",
+      "a",
+      "--json"
+    ],
+    "stdout": "{\n  \"success\": true,\n  \"command\": \"show\",\n  \"issue\": {\n    \"id\": \"a\",\n    \"title\": \"T a\",\n    \"status\": \"open\",\n    \"type\": \"task\",\n    \"priority\": 2,\n    \"createdAt\": \"c\",\n    \"updatedAt\": \"u\",\n    \"plan_id\": \"pl-1\"\n  },\n  \"plan\": {\n    \"id\": \"pl-1\",\n    \"status\": \"draft\",\n    \"revision\": 0,\n    \"template\": \"t\",\n    \"children\": []\n  },\n  \"plan_children\": []\n}\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "show",
+      "a",
+      "--format",
+      "plain"
+    ],
+    "stdout": "a  open\nTitle:    T a\nType:     task   Priority: Medium\nCreated:  c\nUpdated:  u\n\n\nPlan: pl-1  [draft]\nplan in draft — run luuna-missions plan submit\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "show",
+      "a",
+      "b"
+    ],
+    "stdout": "a  open\nTitle:    T a\nType:     task   Priority: Medium\nCreated:  c\nUpdated:  u\n\nPlan: pl-1  [draft]\nplan in draft — run luuna-missions plan submit\n\n\n────────────────────────────────────────────────────────────\n\nb  open\nTitle:    T b\nType:     task   Priority: Medium\nCreated:  c\nUpdated:  u\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "show",
+      "b",
+      "a",
+      "--json"
+    ],
+    "stdout": "{\n  \"command\": \"show\",\n  \"issues\": [\n    {\n      \"id\": \"b\",\n      \"title\": \"T b\",\n      \"status\": \"open\",\n      \"type\": \"task\",\n      \"priority\": 2,\n      \"createdAt\": \"c\",\n      \"updatedAt\": \"u\"\n    },\n    {\n      \"id\": \"a\",\n      \"title\": \"T a\",\n      \"status\": \"open\",\n      \"type\": \"task\",\n      \"priority\": 2,\n      \"createdAt\": \"c\",\n      \"updatedAt\": \"u\",\n      \"plan_id\": \"pl-1\"\n    }\n  ],\n  \"results\": [\n    {\n      \"issue\": {\n        \"id\": \"b\",\n        \"title\": \"T b\",\n        \"status\": \"open\",\n        \"type\": \"task\",\n        \"priority\": 2,\n        \"createdAt\": \"c\",\n        \"updatedAt\": \"u\"\n      }\n    },\n    {\n      \"issue\": {\n        \"id\": \"a\",\n        \"title\": \"T a\",\n        \"status\": \"open\",\n        \"type\": \"task\",\n        \"priority\": 2,\n        \"createdAt\": \"c\",\n        \"updatedAt\": \"u\",\n        \"plan_id\": \"pl-1\"\n      },\n      \"plan\": {\n        \"id\": \"pl-1\",\n        \"status\": \"draft\",\n        \"revision\": 0,\n        \"template\": \"t\",\n        \"children\": []\n      },\n      \"plan_children\": []\n    }\n  ],\n  \"success\": true\n}\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "list"
+    ],
+    "stdout": "- a · T a   [Medium · task] [plan in draft — run luuna-missions plan submit]\n- b · T b   [Medium · task]\n\n2 issue(s)\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "list",
+      "--json"
+    ],
+    "stdout": "{\n  \"success\": true,\n  \"command\": \"list\",\n  \"issues\": [\n    {\n      \"id\": \"a\",\n      \"title\": \"T a\",\n      \"status\": \"open\",\n      \"type\": \"task\",\n      \"priority\": 2,\n      \"createdAt\": \"c\",\n      \"updatedAt\": \"u\",\n      \"plan_id\": \"pl-1\",\n      \"plan_status\": \"draft\",\n      \"plan_children\": []\n    },\n    {\n      \"id\": \"b\",\n      \"title\": \"T b\",\n      \"status\": \"open\",\n      \"type\": \"task\",\n      \"priority\": 2,\n      \"createdAt\": \"c\",\n      \"updatedAt\": \"u\"\n    }\n  ],\n  \"count\": 2\n}\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "search",
+      "T",
+      "--json"
+    ],
+    "stdout": "{\n  \"success\": true,\n  \"command\": \"search\",\n  \"query\": \"T\",\n  \"issues\": [\n    {\n      \"id\": \"a\",\n      \"title\": \"T a\",\n      \"status\": \"open\",\n      \"type\": \"task\",\n      \"priority\": 2,\n      \"createdAt\": \"c\",\n      \"updatedAt\": \"u\",\n      \"plan_id\": \"pl-1\",\n      \"plan_status\": \"draft\",\n      \"plan_children\": []\n    },\n    {\n      \"id\": \"b\",\n      \"title\": \"T b\",\n      \"status\": \"open\",\n      \"type\": \"task\",\n      \"priority\": 2,\n      \"createdAt\": \"c\",\n      \"updatedAt\": \"u\"\n    }\n  ],\n  \"count\": 2\n}\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "search",
+      "T"
+    ],
+    "stdout": "- a · T a   [Medium · task] [plan in draft — run luuna-missions plan submit]\n- b · T b   [Medium · task]\n\n2 match(es)\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "show",
+      "pl-1"
+    ],
+    "stdout": "pl-1  draft  rev 0\nSeed:     a\nTemplate: t\nCreated:  \nUpdated:  \n\nSections:\n\nChildren (0):\n  (none)\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "show",
+      "pl-1",
+      "--json"
+    ],
+    "stdout": "{\n  \"success\": true,\n  \"command\": \"plan show\",\n  \"plan\": {\n    \"id\": \"pl-1\",\n    \"seed\": \"a\",\n    \"template\": \"t\",\n    \"status\": \"draft\",\n    \"children\": [],\n    \"revision\": 0,\n    \"sections\": null,\n    \"createdAt\": \"\",\n    \"updatedAt\": \"\"\n  },\n  \"children\": [],\n  \"children_plans\": []\n}\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "args": [
+      "show",
+      "pl-zz",
+      "--format",
+      "ids"
+    ],
+    "stdout": "",
+    "stderr": "✗ luuna-missions show pl-zz: --format ids is not supported for plan ids; pass --json or use 'luuna-missions plan show pl-zz'\n",
+    "exit": 1
+  }
+]
