@@ -30,6 +30,7 @@ mod edit;
     reason = "mutation handlers consume these guards in following tasks"
 )]
 mod guard;
+mod links;
 mod mutate;
 mod prompt;
 #[allow(
@@ -74,9 +75,9 @@ fn run(c: &mut super::Context<'_>, args: &[String]) -> std::result::Result<(), s
         "review" => mutate::review(c, &args[1..]),
         "edit" => edit::run(c, &args[1..]),
         "submit" => submit::run(c, &args[1..]),
-        "adopt" | "reorder" | "release" => {
-            Err(Error::unsupported(format!("the plan {name} command"), PLAN_4).into())
-        }
+        "adopt" => links::run(c, &args[1..], false),
+        "release" => links::run(c, &args[1..], true),
+        "reorder" => links::reorder(c, &args[1..]),
         _ => Err(super::Failure::message(format!(
             "error: unknown command '{name}'"
         ))),
