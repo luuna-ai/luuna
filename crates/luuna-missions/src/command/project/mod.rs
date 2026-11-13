@@ -11,13 +11,16 @@
 
 use crate::error::PLAN_3;
 mod config;
+mod lossy;
+mod template_record;
+mod tpl;
 
 /// `sync`.
 pub(super) const SYNC: super::Entry = super::Entry::Deferred(PLAN_3);
 /// `doctor`.
 pub(super) const DOCTOR: super::Entry = super::Entry::Deferred(PLAN_3);
 /// `tpl`.
-pub(super) const TPL: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const TPL: super::Entry = super::Entry::Ported(tpl::run);
 /// `migrate-from-beads`.
 pub(super) const MIGRATE_FROM_BEADS: super::Entry = super::Entry::Deferred(PLAN_3);
 /// `prime`.
@@ -86,9 +89,9 @@ pub(super) mod checks {
     }
     fn ported(name: &str) {
         match name {
-            "config" => {
+            "config" | "tpl" => {
                 let temp = tempfile::tempdir().unwrap();
-                let out = run(&Invocation::new(temp.path(), ["config", "--json"])).unwrap();
+                let out = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
                 assert_eq!(out.stdout, b"");
                 assert_eq!(out.stderr, b"error: unknown option '--json'\n");
                 assert_eq!(out.exit_code, 1);
