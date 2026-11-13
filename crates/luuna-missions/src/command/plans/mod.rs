@@ -15,6 +15,8 @@
 )]
 mod record;
 
+#[allow(dead_code, reason = "native plan prompt wiring is the next step")]
+mod atlas;
 #[allow(dead_code, reason = "native plan reader wiring is the next step")]
 mod common;
 #[allow(
