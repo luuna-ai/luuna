@@ -448,11 +448,49 @@ fn copied(go: &GoTool, data: Vec<u8>, command: Vec<String>) -> Vec<String> {
     };
     let gp = TempProject::new();
     let rp = TempProject::new();
+    let read_extra = data
+        .windows(b"\"id\":\"extra\"".len())
+        .any(|w| w == b"\"id\":\"extra\"");
     store(&gp, data.clone());
     store(&rp, data);
+    let extra_command = args(&["show", "extra", "--json"]);
+    let before_extra = read_extra.then(|| {
+        (
+            run_go(
+                go.binary(),
+                gp.root(),
+                &extra_command,
+                b"",
+                &child_env(None),
+            )
+            .unwrap(),
+            run_rust(rp.root(), &extra_command, b"", &child_env(None)).unwrap(),
+        )
+    });
     let g = run_go(go.binary(), gp.root(), &command, b"", &child_env(None)).unwrap();
     assert_eq!(g.exit, expected_exit, "Go control {command:?}");
     let r = run_rust(rp.root(), &command, b"", &child_env(None)).unwrap();
+    if let Some((before_go, before_rust)) = before_extra {
+        let after_go = run_go(
+            go.binary(),
+            gp.root(),
+            &extra_command,
+            b"",
+            &child_env(None),
+        )
+        .unwrap();
+        let after_rust = run_rust(rp.root(), &extra_command, b"", &child_env(None)).unwrap();
+        assert_eq!(before_go.exit, 0);
+        assert_eq!(before_rust.exit, 0);
+        assert_eq!(
+            before_go.stdout, after_go.stdout,
+            "Go extra-record reader is unchanged"
+        );
+        assert_eq!(
+            before_rust.stdout, after_rust.stdout,
+            "native extra-record reader is unchanged"
+        );
+    }
     let gn = Normaliser::new().replace(gp.root().to_string_lossy().as_bytes(), "<PROJECT>");
     let rn = Normaliser::new().replace(rp.root().to_string_lossy().as_bytes(), "<PROJECT>");
     let mut diff = run_differences(&g, &gn, &r, &rn);
@@ -593,6 +631,12 @@ fn copied_cases_match_go() {
             ),
             ("whitespace", b"\n  \n"),
             ("unchanged-byte", b"{\"id\":\"extra\",\"title\":\"\xff\"}\n"),
+            ("root-key-byte", b"{\"id\":\"extra\",\"bad\xff\":true}\n"),
+            (
+                "root-key-surrogate",
+                br#"{"id":"extra","bad\ud800":true}
+"#,
+            ),
         ] {
             for cmd in [
                 args(&["update", "p-t", "--title=Changed", "--json"]),

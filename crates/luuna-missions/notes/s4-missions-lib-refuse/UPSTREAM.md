@@ -67,6 +67,7 @@ Charter A8 requires refusal before silent data loss; A10 permits the two listed 
 | init with config.yaml a dangling link and no data: Go exits 1 `open <p>/.luuna/missions/config.yaml: no such file or directory` and writes nothing | No data, so the check passes and config::init runs as at the base, failing at the same write. What the port prints there is unchanged by this plan (see risks R5). With data in the folder as well, the check runs first and refuses (k) or (l): both exit 1 and write nothing; the message differs (assumption RA9). |
 | init in an empty folder | Control |
 | show and list on the same lossy files | Read-only commands are unchanged (out of scope) |
+| Invalidly encoded unknown root keys | Go already exposes the replacement key through its shared reader before the rewrite, and read-back stays byte-identical. Copied under the same-value rule; both Go and native readers and final trees are checked. |
 
 Checks return exit one with the ordinary JSON error envelope for the literal --json flag, or Error: followed by the text on stderr. Request validation precedes the refusal. Existing locks remain; the issue guard is the last statement before persistence. Unchanged raw fields are retained, and explicit set/clear replacements remain Go behavior.
 
@@ -82,6 +83,7 @@ Regular init files are scanned in 8 KiB chunks with at most four bytes of UTF-8 
 | --- | --- | --- |
 | SD100 | A full rewrite adds zero-valued known members to unchanged records that lacked them; read-back stays equal. | Copied; reference internal/model/json.go and the successful comparison controls. |
 | SD101 | Clear on a wrongly typed raw extensions value retains it because the decoded map was already nil and raw merge sees no change. | Copied; reference internal/cli/issue_mutate.go and internal/model/json.go; update control test. |
+| SD102 | Invalidly encoded unknown root keys normalize on rewrite, but every shared Go record reader already returns the same replacement key beforehand. | Copied under the same-value rule; root-key controls assert pre/post read-back and complete Go/native trees. |
 
 Additional controls confirm that clear plus patch is rejected as mutually exclusive, zero with a large exponent stays zero, and an unchanged extensions patch retains raw precision. Copied symlink comparisons bind only the known outside-project root and separately assert that both original link targets stay unchanged. Shared comparison support remains frozen.
 
