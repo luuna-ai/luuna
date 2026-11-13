@@ -79,3 +79,4 @@ Each later plan records its own suspected Go defects, deliberate differences fro
 | s4-missions-lib-2 | [notes/s4-missions-lib-2/UPSTREAM.md](notes/s4-missions-lib-2/UPSTREAM.md) | SD200 to SD299 | DL200 to DL299 |
 | s4-missions-lib-3 | [notes/s4-missions-lib-3/UPSTREAM.md](notes/s4-missions-lib-3/UPSTREAM.md) | SD300 to SD399 | DL300 to DL399 |
 | s4-missions-lib-4 | [notes/s4-missions-lib-4/UPSTREAM.md](notes/s4-missions-lib-4/UPSTREAM.md) | SD400 to SD499 | DL400 to DL499 |
+| s4-missions-lib-refuse | [notes/s4-missions-lib-refuse/UPSTREAM.md](notes/s4-missions-lib-refuse/UPSTREAM.md) | SD100 to SD199 | DL100 to DL199 |
