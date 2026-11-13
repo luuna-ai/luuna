@@ -302,16 +302,15 @@ pub fn file_lives_under_dir(file: &str, dir: &str) -> bool {
 /// anchor with backslash runs turned into `/`, trailing slashes and one leading `./`
 /// removed, and `.` as `""`.
 ///
-/// The input is quoted as Go's `%q` with the crate's `go_quote`, which escapes control
-/// characters; other characters Go's `strconv.IsPrint` rejects (format characters,
-/// separators other than the space, unassigned code points) are printed as they are.
+/// The input is quoted as Go's percent-q, using the pinned Go Unicode
+/// printability table (s5-atlas-lib-2b correction of inherited D10).
 pub fn normalize_dir_anchor(input: &str) -> Result<String> {
     let v = input.trim();
     if !v.is_empty() {
         if has_drive_prefix(v) || v.starts_with('/') || v.starts_with('\\') {
             return Err(AtlasError::Message(format!(
                 "dir-anchor {} is an absolute path. Use a project-root-relative path like \"src/utils\".",
-                crate::commands::go_quote(input)
+                crate::records::go_quote(input)
             )));
         }
         if backslash_runs_to_slash(v)
@@ -320,7 +319,7 @@ pub fn normalize_dir_anchor(input: &str) -> Result<String> {
         {
             return Err(AtlasError::Message(format!(
                 "dir-anchor {} contains \"..\" (parent traversal). Anchors must stay inside the project root.",
-                crate::commands::go_quote(input)
+                crate::records::go_quote(input)
             )));
         }
     }

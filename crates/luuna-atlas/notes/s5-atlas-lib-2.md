@@ -139,3 +139,70 @@ P2 human output and colour in scope (`style.rs` ignores `NO_COLOR` as Go does); 
 - `git::git` drops stdout on failure; a caller that needs the stdout of a failing command (the -4 case) needs a variant.
 - Hooks need the config passed for a store not yet migrated (D12): the caller reads it and passes `Some(&Config)`, so the legacy `.mulch` migration is not skipped.
 - `validate_record` on an array row: 2b keeps the raw value and calls `validate_record_value`.
+
+
+## Direct-session command port (s5-atlas-lib-2b)
+
+Provenance: the same pinned Go source as the building blocks, especially record.go,
+edit.go, delete.go, read_commands.go, api.go and format.go. All five commands, bulk
+input and the five typed operations now use native code. No registry dependency,
+process-global environment mutation, GitHub CLI invocation or CLI parser was added.
+The ordered flag structs remain the seam for the later dispatcher.
+
+### Additional preservation refusals
+
+- GDL6: retained negative zero is refused before a rewrite. Go successfully changes
+  its sign; the actual readExpertiseFile transport-number markers prove the change.
+  Explicit replacement or removal is allowed; ordinary number spelling is copied.
+- GDL7: implicit outcome merging or append refuses stored values Go would filter
+  away. Typed append preserves arbitrary existing array elements, matching Go;
+  command append and named merge retain their narrower object-list semantics.
+- GDL8: unchanged false/zero IDs are refused before whole-file ID assignment would
+  replace them. Null/empty IDs retain Go generation; truthy raw IDs are retained.
+- The accepted empty/null legacy alias controls are lossless and allowed. Existing
+  guard tests remain unchanged. Every rewrite checks raw retained rows inside its
+  lock; intentionally deleted/replaced records are excluded from raw-row guards.
+- Dynamic array types are still accepted where Go accepts them. Typed recording
+  refuses only the nonempty-dedup comparison that would panic in Go, before write.
+
+### Copied defects and boundaries
+
+Named force may duplicate IDs; convention duplicates still refuse force. Domain
+creation precedes handler validation. Bulk dry-run does not mutate the current
+batch, so its duplicate counts differ from a real write. Bulk reports zero-based
+items and preserves its double-space error text. Detached earlier post-hook maps
+lack an ID after later in-batch replacement; the latest map receives assignment.
+Edit rewrites even with no applicable flags; changing a dedup key keeps its old ID.
+Delete never prompts and even dry-run locks. Search and show ignore quiet; search
+sorts confirmation scores before and after relevance. Show resolves all requested
+IDs before output and fails fast. Typed mutations intentionally omit CLI validation;
+typed named replacement does not merge old outcomes. Plain rendering omits custom
+types; XML retains Go's incomplete attribute escaping. Format IDs remains a Go CLI
+parser error even though the command branch exists. CF2 link behavior, CF5 empty
+serialization past the depth bound and CF6 numeric defaults remain copied.
+
+The new quote helper uses Go 1.27 Unicode 17 printable ranges, fixing directory
+anchor and owned action messages without changing the frozen foundation helper.
+The foundation private JSON diagnostic now uses explicit container frames: the
+old recursive implementation aborted on 10000-level malformed input while Go
+returned Unexpected EOF. Interfaces, scalar diagnostics and frozen tests are kept.
+New ID/text operations are iterative and avoid the recursive registry helper.
+Hook background-child cleanup remains a prerequisite for managed Atlas wiring;
+this command library preserves the existing raw hook process behavior.
+
+### Validation evidence and test correction
+
+All 79 ignored action comparisons pass against the pinned Go clone, including four
+hostile tests, under 4 GiB address-space and 120-second limits with compilation and
+the reference build completed beforehand. Each test uses fresh sandbox projects,
+explicit environments and complete output/tree comparisons. A8 cases independently
+prove a successful lossy Go rewrite and unchanged native bytes/modes. Twenty-two
+malformed-JSON controls exercise the shared diagnostic. Existing foundation tests
+and reference harnesses were not changed.
+
+The new edit-schema test originally assumed an empty content string was invalid.
+Go accepts it. Its separate correction preserves the refusal assertion and uses a
+retained numeric content field, for which actual Go schema validation fails. The
+other test-only parser corrections model Go's pre-handler type choices, leaving
+native typed-handler behavior unchanged. Native macOS/Windows execution remains
+unverified on this Linux host; the later CI plan covers macOS.
