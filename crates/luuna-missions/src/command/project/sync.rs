@@ -394,6 +394,7 @@ esac
         assert_eq!(out.stderr, b"");
         let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(value["error"], "git status failed: ");
+        r.env.insert("PATH".into(), original);
         assert!(r.git(&["status", "--porcelain"]).contains("bin/"));
     }
     #[test]
