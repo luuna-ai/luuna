@@ -1628,29 +1628,35 @@ extra_test!(actions_hostile_large_stdin, {
     assert!(std::fs::metadata(t.rust.expertise("core")).unwrap().len() <= 64 * 1024);
 });
 extra_test!(actions_hostile_deep_stored_line_edit, {
-    let t = base(false);
-    let row=format!("{{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"Deep field\",\"classification\":\"tactical\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\",\"extra\":{}0{}}}\n","[".repeat(9999),"]".repeat(9999));
-    assert!(row.len() <= 64 * 1024);
-    t.prepare(|p| p.write(".luuna/atlas/expertise/core.jsonl", &row));
-    let args = vec![
-        Value::from("core"),
-        Value::from("mx-aaaa"),
-        value(r#"{"content":"Deep edit"}"#),
-    ];
-    let g = go_api(&t.go, "editRecord", &args);
-    assert_eq!(g.exit_code, 0);
-    assert_eq!(g.stdout, "\n");
-    let result = native_api(&t.rust, "editRecord", &args).unwrap();
-    let mut response = Object::new();
-    response.insert("success", true);
-    response.insert("result", result);
-    response.insert("numbers", Value::Array(Vec::new()));
-    let r = CommandOutput::emit(&response);
-    assert_same_output("deep API record", &t.go, &g, &t.rust, &r);
-    t.assert_same_tree("deep API record");
-    assert!(std::fs::metadata(t.rust.expertise("core")).unwrap().len() <= 64 * 1024);
+    for nested_id in [false, true] {
+        let t = base(false);
+        let arrays = |leaf: &str| format!("{}{leaf}", "[".repeat(9999)) + &"]".repeat(9999);
+        let row = if nested_id {
+            format!("{{\"id\":{},\"type\":\"convention\",\"content\":\"Deep field\",\"classification\":\"tactical\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\"}}\n",arrays(r#""mx-aaaa""#))
+        } else {
+            format!("{{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"Deep field\",\"classification\":\"tactical\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\",\"extra\":{}}}\n",arrays("0"))
+        };
+        assert!(row.len() <= 64 * 1024);
+        t.prepare(|p| p.write(".luuna/atlas/expertise/core.jsonl", &row));
+        let args = vec![
+            Value::from("core"),
+            Value::from("mx-aaaa"),
+            value(r#"{"content":"Deep edit"}"#),
+        ];
+        let g = go_api(&t.go, "editRecord", &args);
+        assert_eq!(g.exit_code, 0);
+        assert_eq!(g.stdout, "\n");
+        let result = native_api(&t.rust, "editRecord", &args).unwrap();
+        let mut response = Object::new();
+        response.insert("success", true);
+        response.insert("result", result);
+        response.insert("numbers", Value::Array(Vec::new()));
+        let r = CommandOutput::emit(&response);
+        assert_same_output("deep API record", &t.go, &g, &t.rust, &r);
+        t.assert_same_tree("deep API record");
+        assert!(std::fs::metadata(t.rust.expertise("core")).unwrap().len() <= 64 * 1024);
+    }
 });
-
 extra_test!(actions_record_nonprinting_quotes_match_go, {
     let t = base(false);
     for suffix in ["\u{00a0}", "\u{00ad}", "\u{200b}", "\u{0378}"] {
@@ -1902,4 +1908,98 @@ extra_test!(actions_api_append_keeps_raw_array_elements, {
             value(r#"{"status":"success"}"#),
         ],
     );
+});
+
+#[cfg(unix)]
+extra_test!(actions_record_bulk_post_hook_map_history, {
+    let t = base(false);
+    t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl",
+        "{\"id\":\"mx-aaaa\",\"type\":\"pattern\",\"name\":\"same\",\"description\":\"Old\",\"classification\":\"tactical\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\"}\n"));
+    hook_config(
+        &t,
+        "post-record",
+        "cat >> .luuna/atlas/post.jsonl; printf '\\n' >> .luuna/atlas/post.jsonl",
+    );
+    let input=br#"[{"type":"pattern","name":"same","description":"First"},{"type":"pattern","name":"same","description":"Second"}]"#;
+    compare_mode(&t, &["record", "core", "--stdin"], Some(input), &[], false);
+    let captures = std::fs::read_to_string(t.rust.atlas_dir().join("post.jsonl")).unwrap();
+    let rows: Vec<_> = captures
+        .lines()
+        .filter(|s| !s.is_empty())
+        .map(value)
+        .collect();
+    assert_eq!(rows.len(), 2);
+    let rec = |n: usize| {
+        rows[n]
+            .as_object()
+            .unwrap()
+            .get("payload")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("record")
+            .unwrap()
+            .as_object()
+            .unwrap()
+    };
+    assert_eq!(rec(0).get("description").unwrap().as_str(), Some("First"));
+    assert!(rec(0).get("id").is_none()); // Detached before the writer assigns IDs.
+    assert_eq!(rec(1).get("description").unwrap().as_str(), Some("Second"));
+    assert!(rec(1).get("id").unwrap().as_str().is_some());
+});
+extra_test!(actions_api_noncomparable_types_refuse_before_write, {
+    let t = base(false);
+    let first = value(r#"{"id":"mx-aaaa","type":["pattern"],"name":"same","description":"First"}"#);
+    compare_api(&t, "recordExpertise", &[Value::from("core"), first]);
+    let next = vec![
+        Value::from("core"),
+        value(r#"{"id":"mx-bbbb","type":["pattern"],"name":"same","description":"Second"}"#),
+    ];
+    let before_go = std::fs::read(t.go.expertise("core")).unwrap();
+    let before_rust = std::fs::read(t.rust.expertise("core")).unwrap();
+    let g = go_api(&t.go, "recordExpertise", &next);
+    assert_ne!(g.exit_code, 0);
+    assert!(
+        g.stderr.contains("comparing uncomparable type"),
+        "{}",
+        g.stderr
+    );
+    let error = native_api(&t.rust, "recordExpertise", &next)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("Go would panic"), "{error}");
+    assert_eq!(std::fs::read(t.go.expertise("core")).unwrap(), before_go);
+    assert_eq!(
+        std::fs::read(t.rust.expertise("core")).unwrap(),
+        before_rust
+    );
+    assert!(t.go.leftovers().is_empty());
+    assert!(t.rust.leftovers().is_empty());
+    // With an empty dedup key Go never compares the slice types and succeeds.
+    compare_api(
+        &t,
+        "recordExpertise",
+        &[
+            Value::from("core"),
+            value(r#"{"id":"mx-cccc","type":["pattern"],"description":"No name"}"#),
+        ],
+    );
+});
+
+extra_test!(actions_hostile_deep_invalid_json, {
+    let t = base(false);
+    let input = vec![b'['; 10000];
+    compare_mode(&t, &["record", "core", "--stdin"], Some(&input), &[], false);
+    t.prepare(|p| std::fs::write(p.expertise("core"), &input).unwrap());
+    let g = t.go.go(&["query", "core"]);
+    assert_eq!(g.exit_code, 1);
+    assert!(g.stderr.contains("Unexpected EOF"));
+    let registry = luuna_atlas::registry::Registry::from_config(None).unwrap();
+    let error = luuna_atlas::store::read_records(&t.rust.expertise("core"), &registry, false)
+        .err()
+        .unwrap();
+    let r = CommandOutput::failure("query", &error.to_string());
+    assert_same_output("deep stored diagnostic", &t.go, &g, &t.rust, &r);
+    t.assert_same_tree("deep stored diagnostic");
 });
