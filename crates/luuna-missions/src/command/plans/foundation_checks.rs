@@ -76,3 +76,5 @@ pub(in crate::command) fn update(root: &Path, args: &[&str], _kind: u8) {
         !name.contains(".lock") && !name.contains(".tmp")
     }));
 }
+
+pub(in crate::command) fn close(root:&Path,input:&[u8]){let error=run(&Invocation::new(root,["close","b"])).unwrap_err();assert!(error.to_string().contains("s4-missions-lib-4"));let dir=root.join(".luuna/missions");assert_eq!(fs::read(dir.join("issues.jsonl")).unwrap(),input);assert_eq!(fs::read_dir(dir).unwrap().count(),3);}

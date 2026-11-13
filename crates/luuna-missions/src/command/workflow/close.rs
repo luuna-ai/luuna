@@ -125,16 +125,7 @@ mod tests {
         let input = base();
         let t = project(&input);
         fs::write(t.path().join(".luuna/missions/plans.jsonl"), b"{}\n").unwrap();
-        let error = crate::command::run(&crate::command::Invocation::new(t.path(), ["close", "b"]))
-            .unwrap_err();
-        assert!(error.to_string().contains("s4-missions-lib-4"));
-        assert_eq!(bytes(t.path()), input);
-        assert_eq!(
-            fs::read_dir(t.path().join(".luuna/missions"))
-                .unwrap()
-                .count(),
-            3
-        );
+        crate::command::plans::foundation_checks::close(t.path(), &input);
     }
     #[test]
     fn a_lossy_issues_file_is_refused_unchanged() {
