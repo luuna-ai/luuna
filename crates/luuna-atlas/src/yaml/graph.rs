@@ -23,6 +23,7 @@ struct Node {
 struct Document {
     nodes: Vec<Node>,
     root: Option<usize>,
+    end: usize,
 }
 fn error(text: impl Into<String>) -> AtlasError {
     AtlasError::Message(text.into())
@@ -44,6 +45,7 @@ impl Document {
         let mut doc = Self {
             nodes: Vec::new(),
             root: None,
+            end: 0,
         };
         let mut options = Options::default();
         options.flow_nesting_limit = super::MAX_DEPTH + 1;
@@ -133,6 +135,7 @@ impl Document {
                 open.push(index);
             }
         };
+        doc.end = end;
         // Parser events locate the scalar after its tag/anchor. Go's Node
         // locates the first property, which duplicate diagnostics must quote.
         let mut properties = HashMap::new();
@@ -526,4 +529,17 @@ fn merge(target: &mut Object, value: &Value) {
 }
 pub(super) fn parse(text: &str) -> Result<Value> {
     Document::read(text)?.convert(text)
+}
+
+pub(super) fn has_later_data(text: &str) -> Result<bool> {
+    let document = Document::read(text)?;
+    let offset = text
+        .char_indices()
+        .nth(document.end)
+        .map(|(i, _)| i)
+        .unwrap_or(text.len());
+    Ok(text[offset..].lines().any(|line| {
+        let line = line.trim();
+        !line.is_empty() && !line.starts_with('#') && line != "---" && line != "..."
+    }))
 }

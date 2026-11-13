@@ -829,3 +829,70 @@ fn lifecycle_config_explicit_default_subtree_replacement() {
         None,
     );
 }
+
+#[test]
+#[cfg(unix)]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_config_symlink_write_contracts() {
+    for atomic in [false, true] {
+        let t = base(false);
+        t.prepare(|p| {
+            let file = p.atlas_dir().join("config.yaml");
+            std::fs::rename(&file, p.atlas_dir().join("config-source.yaml")).unwrap();
+            std::os::unix::fs::symlink("config-source.yaml", file).unwrap();
+        });
+        if atomic {
+            compare(
+                &t,
+                &["config", "set", "governance.max_entries", "120"],
+                false,
+                0,
+                None,
+            );
+            assert!(!t.rust.atlas_dir().join("config.yaml").is_symlink());
+        } else {
+            let args = vec![
+                "add".into(),
+                "third".into(),
+                "--json".into(),
+                "--quiet".into(),
+            ];
+            let g = go(&t.go, &args, None, &[]);
+            assert_eq!(g.exit_code, 0);
+            let r = luuna_atlas::commands::run_add(&t.rust.dir, "third");
+            assert_same_output("truncate follows link", &t.go, &g, &t.rust, &r);
+            t.assert_same_tree("truncate follows link");
+            assert!(t.rust.atlas_dir().join("config.yaml").is_symlink());
+        }
+    }
+}
+#[test]
+#[cfg(unix)]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_config_refusal_keeps_link_and_target() {
+    let t = base(false);
+    t.prepare(|p| {
+        let file = p.atlas_dir().join("config.yaml");
+        std::fs::write(&file, "version: '1'\ndomains: {}\n---\nheld-document: 17\n").unwrap();
+        std::fs::rename(&file, p.atlas_dir().join("config-source.yaml")).unwrap();
+        std::os::unix::fs::symlink("config-source.yaml", file).unwrap();
+    });
+    let before = t.rust.snapshot();
+    let args = vec![
+        "config".into(),
+        "set".into(),
+        "governance.max_entries".into(),
+        "120".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 0);
+    assert!(
+        !std::fs::read_to_string(t.go.atlas_dir().join("config.yaml"))
+            .unwrap()
+            .contains("held-document")
+    );
+    let r = native(&t.rust, &args, None);
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+    assert_eq!(before, t.rust.snapshot());
+}

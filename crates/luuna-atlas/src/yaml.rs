@@ -69,6 +69,11 @@ pub fn parse(text: &str) -> Result<Value> {
     }
 }
 mod graph;
+/// Whether rewriting the first YAML document would discard later document data.
+pub fn has_later_data(text: &str) -> Result<bool> {
+    graph::has_later_data(text)
+}
+
 fn parse_subset(text: &str) -> Result<Value> {
     let mut parser = Parser::new(text)?;
     match parser.document()? {

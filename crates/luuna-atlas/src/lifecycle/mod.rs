@@ -1,12 +1,20 @@
 //! Native Atlas lifecycle and config operations, with explicit invocation state.
 use crate::{options::Context, CommandOutput};
+pub mod config;
+pub mod contract;
 #[derive(Clone, Debug, Default)]
 pub struct Options {
     pub flags: Vec<(String, String)>,
     pub input: Vec<u8>,
 }
-pub fn run(_ctx: &Context, command: &str, _args: &[String], _options: &Options) -> CommandOutput {
-    CommandOutput::failure(command, &format!("not implemented: {command}"))
+pub fn run(ctx: &Context, command: &str, args: &[String], options: &Options) -> CommandOutput {
+    match command {
+        "config" => crate::actions::record::run(ctx, "config", |a| {
+            config::run(a, args, &options.flags);
+            Ok(())
+        }),
+        _ => CommandOutput::failure(command, &format!("not implemented: {command}")),
+    }
 }
 
 #[cfg(test)]
