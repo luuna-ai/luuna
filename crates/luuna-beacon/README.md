@@ -140,3 +140,7 @@ notes file of its own:
   GD50 to GD99.
 
 GD1 to GD6 stay in this file.
+
+## Nested frontmatter ownership
+
+Prompt frontmatter values use `JsonValue`, a stack-safe owner that dereferences to `serde_json::Value`. Convert an existing JSON value with `.into()` when inserting it. Its drop, clone and equality operations use explicit stacks, preserving Go's 10,000-level JSON limit. See `notes/s3-beacon-depth-repair.md` for the regression and compatibility boundary.

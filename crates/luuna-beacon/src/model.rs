@@ -2,7 +2,7 @@
 //! byte for byte as the Go tool writes them (`internal/model/model.go`).
 
 use crate::gojson::{self, GoValue, ObjectWriter};
-use serde_json::Value;
+use crate::JsonValue;
 use std::collections::BTreeMap;
 
 /// One named block of a prompt.
@@ -44,7 +44,7 @@ pub struct Prompt {
     pub emit_as: String,
     pub emit_dir: String,
     pub pinned: Option<i64>,
-    pub frontmatter: BTreeMap<String, Value>,
+    pub frontmatter: BTreeMap<String, JsonValue>,
     pub atlas: Option<Atlas>,
     pub extends_atlas: Option<bool>,
     pub status: String,

@@ -14,7 +14,9 @@
 //! from their text with correct rounding; a type mismatch is an error.
 //! serde_json is used for the `serde_json::Value` documents only.
 
+use crate::JsonValue;
 use serde_json::{Map, Number, Value};
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
@@ -108,10 +110,15 @@ pub(crate) fn write_any(out: &mut String, value: &Value) {
 }
 
 /// Appends a Go `map[string]any`; keys bytewise sorted as Go sorts them.
-pub(crate) fn write_map(out: &mut String, map: &BTreeMap<String, Value>) {
+pub(crate) fn write_map<V: Borrow<Value>>(out: &mut String, map: &BTreeMap<String, V>) {
     // BTreeMap<String, _> iterates in byte order of the UTF-8 keys.
     let mut pending = Vec::new();
-    push_object(&mut pending, map.iter().collect());
+    push_object(
+        &mut pending,
+        map.iter()
+            .map(|(key, value)| (key, value.borrow()))
+            .collect(),
+    );
     write_pending(out, &mut pending);
 }
 
@@ -766,7 +773,7 @@ pub(crate) fn strings_into(target: &mut Vec<String>, value: &GoValue) -> Result<
 /// keys to the map that is already there, a later key replacing an earlier
 /// value.
 pub(crate) fn map_into(
-    target: &mut BTreeMap<String, Value>,
+    target: &mut BTreeMap<String, JsonValue>,
     value: &GoValue,
 ) -> Result<(), String> {
     match value {
@@ -787,25 +794,23 @@ pub(crate) fn map_into(
 /// A value decoded into a Go `any`: numbers become `float64`, objects
 /// `map[string]any` (a later repeated key replacing an earlier one). Nesting
 /// is walked with an explicit stack, not by recursion.
-pub(crate) fn to_any(value: &GoValue) -> Result<Value, String> {
+pub(crate) fn to_any(value: &GoValue) -> Result<JsonValue, String> {
     enum Step<'a> {
         Visit(&'a GoValue),
         Array(usize),
         Object(&'a [(String, GoValue)]),
     }
     let mut steps = vec![Step::Visit(value)];
-    let mut done: Vec<Value> = Vec::new();
+    let mut done: Vec<JsonValue> = Vec::new();
     while let Some(step) = steps.pop() {
         match step {
-            Step::Visit(GoValue::Null) => done.push(Value::Null),
-            Step::Visit(GoValue::Bool(flag)) => done.push(Value::Bool(*flag)),
+            Step::Visit(GoValue::Null) => done.push(Value::Null.into()),
+            Step::Visit(GoValue::Bool(flag)) => done.push(Value::Bool(*flag).into()),
             Step::Visit(GoValue::Number(text)) => {
                 let number = parse_float(text)?;
-                done.push(Value::Number(
-                    Number::from_f64(number).expect("a finite float"),
-                ));
+                done.push(Value::Number(Number::from_f64(number).expect("a finite float")).into());
             }
-            Step::Visit(GoValue::String(text)) => done.push(Value::String(text.clone())),
+            Step::Visit(GoValue::String(text)) => done.push(Value::String(text.clone()).into()),
             Step::Visit(GoValue::Array(items)) => {
                 steps.push(Step::Array(items.len()));
                 steps.extend(items.iter().rev().map(Step::Visit));
@@ -816,15 +821,19 @@ pub(crate) fn to_any(value: &GoValue) -> Result<Value, String> {
             }
             Step::Array(length) => {
                 let items = done.split_off(done.len() - length);
-                done.push(Value::Array(items));
+                done.push(
+                    Value::Array(items.into_iter().map(JsonValue::into_inner).collect()).into(),
+                );
             }
             Step::Object(entries) => {
                 let values = done.split_off(done.len() - entries.len());
                 let mut map = Map::new();
                 for ((key, _), item) in entries.iter().zip(values) {
-                    map.insert(key.clone(), item);
+                    if let Some(replaced) = map.insert(key.clone(), item.into_inner()) {
+                        drop(JsonValue::from(replaced));
+                    }
                 }
-                done.push(Value::Object(map));
+                done.push(Value::Object(map).into());
             }
         }
     }
