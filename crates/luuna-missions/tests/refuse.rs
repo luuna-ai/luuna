@@ -436,6 +436,29 @@ fn init_copied_setup(p: &TempProject, case: &str) -> Option<TempProject> {
     }
     None
 }
+// The frozen harness compares link targets literally. Bind only this case's
+// known outside project; the original links are also asserted unchanged.
+fn bound_links(
+    mut tree: std::collections::BTreeMap<String, support::Entry>,
+    outside: Option<&TempProject>,
+) -> std::collections::BTreeMap<String, support::Entry> {
+    if let Some(outside) = outside {
+        for entry in tree.values_mut() {
+            if let support::EntryKind::Symlink(target) = &mut entry.kind {
+                if let Ok(rest) = target.strip_prefix(outside.root()) {
+                    *target = PathBuf::from("<OUTSIDE>").join(rest);
+                }
+            }
+        }
+    }
+    tree
+}
+fn link_targets(p: &TempProject) -> Vec<Option<PathBuf>> {
+    [".luuna/missions/config.yaml", ".gitattributes"]
+        .into_iter()
+        .map(|name| fs::read_link(p.root().join(name)).ok())
+        .collect()
+}
 #[test]
 #[ignore = "requires LUUNA_MISSIONS_REFERENCE and LUUNA_MISSIONS_GO"]
 fn copied_cases_match_go() {
@@ -540,6 +563,8 @@ fn copied_cases_match_go() {
             let rp = TempProject::new();
             let gx = init_copied_setup(&gp, case);
             let rx = init_copied_setup(&rp, case);
+            let go_links = link_targets(&gp);
+            let rust_links = link_targets(&rp);
             let command = args(&["init", "--json"]);
             let g = run_go(go.binary(), gp.root(), &command, b"", &child_env(None)).unwrap();
             assert_eq!(g.exit, 0, "Go init control {case}");
@@ -553,7 +578,18 @@ fn copied_cases_match_go() {
                 rn = rn.replace(rx.root().to_string_lossy().as_bytes(), "<OUTSIDE>");
             }
             let mut diff = run_differences(&g, &gn, &r, &rn);
-            diff.extend(tree_differences(&gp.snapshot(), &gn, &rp.snapshot(), &rn));
+            assert_eq!(link_targets(&gp), go_links, "Go retained original links");
+            assert_eq!(
+                link_targets(&rp),
+                rust_links,
+                "Rust retained original links"
+            );
+            diff.extend(tree_differences(
+                &bound_links(gp.snapshot(), gx.as_ref()),
+                &gn,
+                &bound_links(rp.snapshot(), rx.as_ref()),
+                &rn,
+            ));
             if let (Some(gx), Some(rx)) = (&gx, &rx) {
                 diff.extend(tree_differences(&gx.snapshot(), &gn, &rx.snapshot(), &rn));
             }
