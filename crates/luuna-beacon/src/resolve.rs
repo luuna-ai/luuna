@@ -322,13 +322,13 @@ mod tests {
     fn walk_order_cycles_depth_and_frontmatter() {
         let mut base = record("i1", "base", 1);
         base.frontmatter
-            .insert("k".to_owned(), Value::String("base".to_owned()));
+            .insert("k".to_owned(), Value::String("base".to_owned()).into());
         base.frontmatter
-            .insert("only".to_owned(), Value::String("base".to_owned()));
+            .insert("only".to_owned(), Value::String("base".to_owned()).into());
         let mut mix = record("i2", "mix", 1);
         mix.extends = "base".to_owned();
         mix.frontmatter
-            .insert("k".to_owned(), Value::String("mix".to_owned()));
+            .insert("k".to_owned(), Value::String("mix".to_owned()).into());
         let mut focal = record("i3", "focal", 1);
         focal.extends = "base".to_owned();
         focal.mixins = vec!["mix".to_owned()];

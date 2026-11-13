@@ -189,7 +189,7 @@ impl Beacon {
         let mut frontmatter = std::collections::BTreeMap::new();
         for (key, value) in &input.frontmatter {
             if !key.is_empty() {
-                frontmatter.insert(key.clone(), Value::String(value.clone()));
+                frontmatter.insert(key.clone(), Value::String(value.clone()).into());
             }
         }
         let now = self.now_text();
@@ -319,7 +319,7 @@ impl Beacon {
         for (key, value) in &input.frontmatter {
             if !key.is_empty() {
                 next.frontmatter
-                    .insert(key.clone(), Value::String(value.clone()));
+                    .insert(key.clone(), Value::String(value.clone()).into());
             }
         }
         for key in &input.remove_frontmatter {
