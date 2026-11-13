@@ -3,6 +3,8 @@
 //! Status changes hold plans then issues locks and preflight the prospective
 //! plan transition before writing either file. Other edits retain Go behavior.
 
+pub(super) mod lossy;
+
 use std::collections::BTreeMap;
 
 use super::output::Envelope;
@@ -102,6 +104,8 @@ pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Fail
             return Err(Failure::message(format!("Issue not found: {id}")));
         };
         let ticket = &mut tickets[index];
+        let original_labels = ticket.labels.clone();
+        let original_extensions = ticket.extensions.clone();
         let old_status = ticket.status.clone();
         if claim {
             if ticket.status != "open" {
@@ -187,6 +191,19 @@ pub(super) fn run(context: &mut Context<'_>, args: &[String]) -> Result<(), Fail
             super::plans::check_status_change(&store, &[&updated])?;
             super::workflow::lossy::refuse_lossy_issues_rewrite(&store)?;
         }
+        let mut changed = Vec::new();
+        if (options.has("add-label") || options.has("remove-label"))
+            && !options.has("set-labels")
+            && original_labels != updated.labels
+        {
+            changed.push((id, lossy::Field::Labels));
+        }
+        if options.has("extensions")
+            && lossy::extensions_changed(&original_extensions, &updated.extensions)?
+        {
+            changed.push((id, lossy::Field::Extensions));
+        }
+        lossy::refuse_lossy_issues_rewrite(&store, &changed)?;
         store.write_tickets(&tickets)?;
         if status_changing && old_status != updated.status {
             super::plans::apply_status_change(
