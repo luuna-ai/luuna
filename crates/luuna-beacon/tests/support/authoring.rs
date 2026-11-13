@@ -593,6 +593,9 @@ impl case::PlanStep for ConfigShowPathStep {
     }
 
     fn call(&self, beacon: &Beacon) -> Result<Done, BeaconError> {
+        if self.0.is_empty() {
+            return Ok(Done::Plan(Box::new(ConfigShowDone(beacon.config_show()?))));
+        }
         let value = beacon.config_get(&self.0)?;
         Ok(Done::Plan(Box::new(ConfigShowPathDone {
             path: self.0.clone(),
@@ -1044,7 +1047,8 @@ fn entries_outside_store(top: &Path, root_text: &str) -> BTreeMap<String, Entry>
                 .strip_prefix(top)
                 .expect("under the top folder")
                 .to_string_lossy()
-                .into_owned();
+                .into_owned()
+                .replace(root_text.trim_start_matches('/'), "<root>");
             let metadata = fs::symlink_metadata(&path).expect("metadata of an entry");
             let kind = metadata.file_type();
             if kind.is_symlink() {

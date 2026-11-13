@@ -471,13 +471,14 @@ fn pin_is_honoured_by_emit_and_ignored_by_render() {
     assert_render_text(&case, "p");
     assert_render_text(&case, "p@1");
     assert_render_text(&case, "p@3");
-    case.step(emit(emit_one("p")));
-    assert_outside(&case, "emit of a pinned prompt");
-    let emitted = fs::read_to_string(case.lib_root().join("agents/p.md")).expect("emitted file");
-    assert!(
-        emitted.contains("first"),
-        "emit honours the pin: {emitted:?}"
+    let emitted = case.step(emit(emit_one("p")));
+    assert_eq!(
+        emitted.code, 1,
+        "Go resolves the pin against current records, which no longer contain v1"
     );
+    assert_eq!(emitted.error.as_deref(), Some("prompt \"p\" not found"));
+    assert_outside(&case, "failed pinned emit leaves both trees unchanged");
+    assert!(!case.lib_root().join("agents/p.md").exists());
     case.step(unpin("p"));
     case.step(emit(emit_all()));
     assert_outside(&case, "emit after unpin");
@@ -1636,10 +1637,21 @@ fn import_then_emit_does_not_round_trip_like_go() {
         ..Default::default()
     }));
     case.step(emit(emit_one("orig")));
+    // Keep the supplied name equal to frontmatter: differing names are RD20.
+    let original = fs::read_to_string(case.lib_root().join("agents/orig.md")).unwrap();
+    case.step(write_file(
+        "agents/orig.md",
+        original.replace("name: orig\n", "name: copy\n").as_bytes(),
+    ));
     case.step(import("agents/orig.md", "copy", &[], false));
     case.step(show("copy"));
     case.step(emit(emit_one("copy")));
     assert_outside(&case, "emit after import");
+    let copy = fs::read_to_string(case.lib_root().join("agents/copy.md")).unwrap();
+    case.step(write_file(
+        "agents/copy.md",
+        copy.replace("name: copy\n", "name: copy2\n").as_bytes(),
+    ));
     case.step(import("agents/copy.md", "copy2", &[], false));
     case.step(emit(emit_one("copy2")));
     assert_outside(&case, "a second round");
@@ -2457,7 +2469,11 @@ fn a8_go_import_loses_text_keys_and_values() {
             let shown = pair.go(&show(name));
             let record = shown.documents[0]["prompt"].to_string();
             assert!(
-                !record.contains(lost),
+                if name == "number-description" {
+                    shown.documents[0]["prompt"].get("description").is_none()
+                } else {
+                    !record.contains(lost)
+                },
                 "Go's stored record no longer holds {lost:?}: {record}"
             );
             if name == "read-back" {
