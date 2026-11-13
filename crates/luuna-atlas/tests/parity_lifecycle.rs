@@ -491,7 +491,11 @@ fn yaml_full_reader_forms() {
         "---\nsecond: ignored\n",
     ] {
         let t = base(false);
-        let yaml = format!("version: '1'\ndomains: {{core: {{}}, other: {{}}}}\n{extra}");
+        let yaml = if extra.starts_with("domains:") {
+            format!("version: '1'\n{extra}")
+        } else {
+            format!("version: '1'\ndomains: {{core: {{}}, other: {{}}}}\n{extra}")
+        };
         t.prepare(|p| p.write(".luuna/atlas/config.yaml", &yaml));
         let args = vec!["config".into(), "show".into()];
         let g = go(&t.go, &args, None, &[]);
@@ -506,6 +510,9 @@ fn yaml_full_reader_forms() {
 #[ignore = "needs the pinned Go reference; run -- --ignored"]
 fn yaml_full_roundtrip_forms() {
     for extra in [
+        "governance: {!!binary /w==: one, !!binary gA==: two}\n",
+        "classification_defaults: {!!binary /w==: one, shelf_life: {!!binary gA==: two}}\n",
+        "domains: [!!binary /w==]\n",
         "extra: &x {k: 1}\nother: *x\n",
         "extra: {before: 9, <<: &x {before: 1, inside: 2}, after: 3}\nother: {<<: *x, before: 8}\n",
         "extra: !foo bar\n",
@@ -518,7 +525,11 @@ fn yaml_full_roundtrip_forms() {
         "extra: [1,\n  2]\n",
     ] {
         let t = base(false);
-        let yaml = format!("version: '1'\ndomains: {{core: {{}}, other: {{}}}}\n{extra}");
+        let yaml = if extra.starts_with("domains:") {
+            format!("version: '1'\n{extra}")
+        } else {
+            format!("version: '1'\ndomains: {{core: {{}}, other: {{}}}}\n{extra}")
+        };
         t.prepare(|p| p.write(".luuna/atlas/config.yaml", &yaml));
         let args = vec!["config".into(), "show".into()];
         let before = go(&t.go, &args, None, &[]);
@@ -793,4 +804,28 @@ fn lifecycle_config_implicit_parent_loss_refused() {
     assert_eq!(r.exit_code, 1);
     assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
     assert_eq!(before, t.rust.snapshot());
+}
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_config_explicit_default_subtree_replacement() {
+    let t = base(false);
+    t.prepare(|p| {
+        p.write(
+            ".luuna/atlas/config.yaml",
+            "version: '1'\ndomains: {}\nclassification_defaults: {shelf_life: held-shelf}\n",
+        )
+    });
+    compare(
+        &t,
+        &[
+            "config",
+            "set",
+            "classification_defaults",
+            "{shelf_life: {tactical: 2, observational: 3}}",
+        ],
+        false,
+        0,
+        None,
+    );
 }
