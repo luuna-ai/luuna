@@ -501,3 +501,41 @@ fn yaml_full_reader_forms() {
         t.assert_same_tree(extra);
     }
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn yaml_full_roundtrip_forms() {
+    for extra in [
+        "extra: &x {k: 1}\nother: *x\n",
+        "extra: {before: 9, <<: &x {before: 1, inside: 2}, after: 3}\nother: {<<: *x, before: 8}\n",
+        "extra: !foo bar\n",
+        "extra: !!str 1\n",
+        "extra: !!binary aGVsbG8=\n",
+        "extra: !!binary /w==\n",
+        "extra: {!!binary /w==: one, !!binary gA==: two, '�': unicode}\n",
+        "extra:\n  ? [a, b]\n  : 1\n",
+        "extra: {[a, b]: 1, {x: 2}: 3}\n",
+        "extra: [1,\n  2]\n",
+    ] {
+        let t = base(false);
+        let yaml = format!("version: '1'\ndomains: {{core: {{}}, other: {{}}}}\n{extra}");
+        t.prepare(|p| p.write(".luuna/atlas/config.yaml", &yaml));
+        let args = vec!["config".into(), "show".into()];
+        let before = go(&t.go, &args, None, &[]);
+        assert_eq!(before.exit_code, 0, "{extra}: {}", before.stderr);
+        let add = vec![
+            "add".into(),
+            "third".into(),
+            "--json".into(),
+            "--quiet".into(),
+        ];
+        let g = go(&t.go, &add, None, &[]);
+        assert_eq!(g.exit_code, 0, "{extra}: {}", g.stderr);
+        let r = luuna_atlas::commands::run_add(&t.rust.dir, "third");
+        assert_same_output(extra, &t.go, &g, &t.rust, &r);
+        t.assert_same_tree(extra);
+        let after = go(&t.go, &args, None, &[]);
+        let native = luuna_atlas::commands::run_config_show(&t.rust.dir);
+        assert_same_output(extra, &t.go, &after, &t.rust, &native);
+    }
+}
