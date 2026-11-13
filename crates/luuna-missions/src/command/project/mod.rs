@@ -14,24 +14,27 @@ mod config;
 mod doctor;
 mod doctor_fix;
 mod lossy;
+mod migrate_beads;
 mod stale_lock;
+mod sync;
 mod template_record;
 mod tpl;
+mod upgrade;
 
 /// `sync`.
-pub(super) const SYNC: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const SYNC: super::Entry = super::Entry::Ported(sync::run);
 /// `doctor`.
 pub(super) const DOCTOR: super::Entry = super::Entry::Ported(doctor::run);
 /// `tpl`.
 pub(super) const TPL: super::Entry = super::Entry::Ported(tpl::run);
 /// `migrate-from-beads`.
-pub(super) const MIGRATE_FROM_BEADS: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const MIGRATE_FROM_BEADS: super::Entry = super::Entry::Ported(migrate_beads::run);
 /// `prime`.
 pub(super) const PRIME: super::Entry = super::Entry::Deferred(PLAN_3);
 /// `onboard`.
 pub(super) const ONBOARD: super::Entry = super::Entry::Deferred(PLAN_3);
 /// `upgrade`.
-pub(super) const UPGRADE: super::Entry = super::Entry::Deferred(PLAN_3);
+pub(super) const UPGRADE: super::Entry = super::Entry::Ported(upgrade::run);
 /// `config`.
 pub(super) const CONFIG: super::Entry = super::Entry::Ported(config::run);
 /// `setup`.
@@ -103,6 +106,31 @@ pub(super) mod checks {
                 let temp = tempfile::tempdir().unwrap();
                 let out = run(&Invocation::new(temp.path(), ["doctor", "--json"])).unwrap();
                 assert_eq!(out.stdout,b"{\n  \"success\": false,\n  \"command\": \"doctor\",\n  \"error\": \"Not in a missions project. Run `luuna-missions init` first.\"\n}\n");
+                assert_eq!(out.stderr, b"");
+                assert_eq!(out.exit_code, 1);
+            }
+            "sync" => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(temp.path(), ["sync", "--json"])).unwrap();
+                assert_eq!(out.stdout,b"{\n  \"success\": false,\n  \"command\": \"sync\",\n  \"error\": \"Not in a missions project. Run `luuna-missions init` first.\"\n}\n");
+                assert_eq!(out.stderr, b"");
+                assert_eq!(out.exit_code, 1);
+            }
+            "migrate-from-beads" => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(
+                    temp.path(),
+                    ["migrate-from-beads", "--json"],
+                ))
+                .unwrap();
+                assert_eq!(out.stdout,b"{\n  \"success\": false,\n  \"command\": \"migrate-from-beads\",\n  \"error\": \"Not in a missions project. Run `luuna-missions init` first.\"\n}\n");
+                assert_eq!(out.stderr, b"");
+                assert_eq!(out.exit_code, 1);
+            }
+            "upgrade" => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(temp.path(), ["upgrade", "--json"])).unwrap();
+                assert_eq!(out.stdout,b"{\n  \"success\": false,\n  \"command\": \"upgrade\",\n  \"error\": \"Luuna Missions is not published; update through a reviewed Luuna checkout.\",\n  \"updated\": false\n}\n");
                 assert_eq!(out.stderr, b"");
                 assert_eq!(out.exit_code, 1);
             }
