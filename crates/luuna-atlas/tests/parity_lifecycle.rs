@@ -640,3 +640,157 @@ fn hostile_yaml_graph_depth_limits() {
         }
     }
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn yaml_a8_add_refuses_dropped_config_data() {
+    for (yaml, lost) in [
+        ("[held-root-payload]\n", "held-root-payload"),
+        ("version: '1'\ndomains: [core, 31]\n", "31"),
+        (
+            "version: '1'\ndomains: {}\ngovernance: [held-governance]\n",
+            "held-governance",
+        ),
+        (
+            "version: '1'\ndomains: {}\nclassification_defaults: held-classification\n",
+            "held-classification",
+        ),
+        (
+            "version: '1'\ndomains: {}\nclassification_defaults: {shelf_life: held-shelf}\n",
+            "held-shelf",
+        ),
+        (
+            "version: '1'\ndomains: {}\n---\nheld-document: 17\n",
+            "held-document",
+        ),
+    ] {
+        let t = base(false);
+        t.prepare(|p| p.write(".luuna/atlas/config.yaml", yaml));
+        let before = t.rust.snapshot();
+        let args = vec![
+            "add".into(),
+            "third".into(),
+            "--json".into(),
+            "--quiet".into(),
+        ];
+        let g = go(&t.go, &args, None, &[]);
+        assert_eq!(g.exit_code, 0, "{yaml}: {}", g.stderr);
+        assert!(
+            !std::fs::read_to_string(t.go.atlas_dir().join("config.yaml"))
+                .unwrap()
+                .contains(lost),
+            "Go must actually lose {lost}"
+        );
+        let r = luuna_atlas::commands::run_add(&t.rust.dir, "third");
+        assert_eq!(r.exit_code, 1);
+        assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+        assert_eq!(
+            before,
+            t.rust.snapshot(),
+            "refusal leaves every file/mode unchanged"
+        );
+    }
+}
+fn go_config_number_markers(p: &Project) -> String {
+    let input = format!(
+        "{{\"operation\":\"readConfig\",\"args\":[{}]}}",
+        luuna_atlas::json::to_compact_string(&luuna_atlas::json::Value::from(
+            p.dir.to_string_lossy().into_owned()
+        ))
+        .unwrap()
+    );
+    let g = go(
+        p,
+        &[],
+        Some(input.as_bytes()),
+        &[("LUUNA_ATLAS_API_BRIDGE", "1".into())],
+    );
+    assert_eq!(g.exit_code, 0);
+    let value = luuna_atlas::json::parse(&g.stdout).unwrap();
+    luuna_atlas::json::to_compact_string(value.as_object().unwrap().get("numbers").unwrap())
+        .unwrap()
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn yaml_a8_retained_negative_zero_refused() {
+    let t = base(false);
+    t.prepare(|p| {
+        p.write(
+            ".luuna/atlas/config.yaml",
+            "version: '1'\ndomains: {}\nsearch: {boost_factor: -0.0}\n",
+        )
+    });
+    let before = t.rust.snapshot();
+    let markers = go_config_number_markers(&t.go);
+    assert!(markers.contains("-0"));
+    let args = vec![
+        "add".into(),
+        "third".into(),
+        "--json".into(),
+        "--quiet".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 0);
+    assert_eq!(go_config_number_markers(&t.go), "[]");
+    let r = luuna_atlas::commands::run_add(&t.rust.dir, "third");
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+    assert_eq!(before, t.rust.snapshot());
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_config_explicit_replacement_controls() {
+    for yaml in [
+        "version: '1'\ndomains: {}\nsearch: {boost_factor: -0.0}\n",
+        "version: '1'\ndomains: {}\nprime: held-parent\n",
+    ] {
+        let t = base(false);
+        t.prepare(|p| p.write(".luuna/atlas/config.yaml", yaml));
+        if yaml.contains("search:") {
+            compare(
+                &t,
+                &["config", "set", "search.boost_factor", "0"],
+                false,
+                0,
+                None,
+            );
+        } else {
+            compare(
+                &t,
+                &["config", "set", "prime", "{default_mode: full}"],
+                false,
+                0,
+                None,
+            );
+        }
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_config_implicit_parent_loss_refused() {
+    let t = base(false);
+    t.prepare(|p| {
+        p.write(
+            ".luuna/atlas/config.yaml",
+            "version: '1'\ndomains: {}\nprime: held-parent\n",
+        )
+    });
+    let before = t.rust.snapshot();
+    let args = vec![
+        "config".into(),
+        "set".into(),
+        "prime.default_mode".into(),
+        "full".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 0);
+    assert!(
+        !std::fs::read_to_string(t.go.atlas_dir().join("config.yaml"))
+            .unwrap()
+            .contains("held-parent")
+    );
+    let r = native(&t.rust, &args, None);
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+    assert_eq!(before, t.rust.snapshot());
+}
