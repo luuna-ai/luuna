@@ -109,3 +109,7 @@ Review must examine requirements, the diff, current code, and check evidence ind
 Record material architecture changes in `docs/decisions/` and update `docs/CURRENT-ARCHITECTURE.md`. Package publication requires a deliberate release and verified credentials. New original contributions are MIT licensed; preserve derived components' upstream notices. See [SECURITY.md](SECURITY.md) for sensitive findings.
 
 Changes to this repository itself ship under [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md). During the migration, agents work under a plan audited against the owner's signed migration charter, review the changes, and push, open pull requests and merge only through the ship gate. Agent reviews together with the local check evidence described above are the only gate on a merge until the CI pipeline planned for after the migration exists.
+
+## Native Beacon integration
+
+`cargo test --locked -p luuna-components --test native_beacon` exercises the process-free Beacon adapter, including an isolated empty-PATH child and bounded store/output refusals. `cargo test --locked -p luuna-runtime --lib beacon_native_tests` exercises authenticated prompt routes and source/schema invalidation without a legacy component handle. These tests need no provider, Bun, component checkout or personal store. Fresh full project activation still needs the remaining Missions/Atlas adapters until their ports land. The existing ignored real-component suites retain the pinned setup prerequisites described above.

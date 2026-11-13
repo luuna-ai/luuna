@@ -1709,3 +1709,6 @@ mod ownership_tests {
         drop(replacement);
     }
 }
+
+#[cfg(test)]
+mod beacon_native_tests;

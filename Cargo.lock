@@ -1032,6 +1032,7 @@ name = "luuna-components"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "luuna-beacon",
  "serde",
  "serde_json",
  "sha2",
@@ -1126,6 +1127,7 @@ dependencies = [
  "constant_time_eq",
  "fs2",
  "libc",
+ "luuna-beacon",
  "luuna-components",
  "luuna-discovery",
  "luuna-domain",

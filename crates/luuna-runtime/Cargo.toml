@@ -36,5 +36,6 @@ libc = "0.2"
 sha2 = "0.10.9"
 
 [dev-dependencies]
+luuna-beacon = { path = "../luuna-beacon" }
 tower = { version = "0.5", features = ["util"] }
 tempfile = "3.23.0"
