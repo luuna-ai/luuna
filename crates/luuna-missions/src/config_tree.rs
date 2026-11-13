@@ -1,13 +1,9 @@
-//! The full `config.yaml` and the legacy `.seeds` migration, owned by
-//! s4-missions-lib-3 (`internal/config/tree.go`, `internal/config/legacy.go`).
-//!
-//! [`read_outside_subset`] reads any `config.yaml` as Go's `ReadConfig`
-//! does, through the YAML reader in [`yaml`], which every `config.yaml`
-//! reader of this crate uses. [`migrate_legacy_layout`] migrates or refuses
-//! a legacy `.seeds` store as Go does ([`legacy`]), and
-//! [`with_stderr_notices`] puts the notices Go prints to stderr while a
-//! command runs (the migration's line) before the command's stderr.
-//! `config.rs` and `command/init.rs` are not edited by s4-missions-lib-3.
+//! Full guarded `config.yaml` decoding, tree emission, validation and plan templates.
+//! Legacy `.seeds` discovery migrates or refuses unsafe layouts; notice scopes keep
+//! Go's stderr ordering. Rewrites refuse data loss before touching files. Alias
+//! failures retain Go's messages; other unported YAML error texts and expanded
+//! depths beyond 1000 return explicit Unsupported errors naming no future plan.
+//! The frozen foundation config/init files delegate through this module's seams.
 
 use std::cell::RefCell;
 use std::io::Write;

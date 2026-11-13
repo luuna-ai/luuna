@@ -19,7 +19,7 @@ Check functions it owns and replaces (each is called by a unit test whose inputs
 - `command::project::checks::command`, `pub(in crate::command) fn command(name: &str)`. Caller: `command::tests::every_other_go_command_answers_as_its_plan_states (10 names)`.
   - Until ported: Matches on the module's constant for `name`. Deferred arm: `run(<name> --json)` in `std::env::temp_dir()` is Unsupported naming PLAN_3 with Display `the <name> command is not supported yet; it is ported in s4-missions-lib-3`. Ported arm: `unreachable!`.
   - Once ported: The Deferred arm is kept unchanged; the Ported arm asserts Go's exact outcome of `<name> --json` in a `tempfile::tempdir()` without a store, per name, as literals.
-- `config_tree::checks::outside_subset`, `pub(crate) fn outside_subset(missions_dir: &Path)`. Caller: `config::tests::reading_outside_the_subset_answers_as_config_tree_states (writes `project:\n  nested: x\n` first)`.
+- `config_tree::checks::outside_subset`, `pub(crate) fn outside_subset(missions_dir: &Path)`. Caller: `config::tests::reading_outside_the_subset_answers_as_config_tree_states`, which writes `project:\\n  nested: x\\n` first.
   - Until ported: `read_config(missions_dir)` is Unsupported naming PLAN_3, as at the foundation.
   - Once ported: `Ok(Config)` equal to what Go's `ReadConfig` returns for that file (project "missions", version "1", max_plan_depth None), as literals.
 - `config_tree::checks::legacy_found`, `pub(crate) fn legacy_found(root: &Path, start: &Path)`. Caller: `config::tests::a_legacy_seeds_entry_answers_as_config_tree_states (four cases)`.
