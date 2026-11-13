@@ -1871,7 +1871,7 @@ extra_test!(actions_api_raw_records_are_retained, {
         "recordExpertise",
         &[
             Value::from("core"),
-            value(r#"{"id":true,"type":{"opaque":1},"raw":[1,{"keep":"body"}]}"#),
+            value(r#"{"id":"mx-f00d","type":{"opaque":1},"raw":[1,{"keep":"body"}]}"#),
         ],
     );
     compare_api(
@@ -1879,7 +1879,7 @@ extra_test!(actions_api_raw_records_are_retained, {
         "editRecord",
         &[
             Value::from("core"),
-            Value::from("true"),
+            Value::from("mx-f00d"),
             value(r#"{"classification":"observational","content":"ignored for this raw type"}"#),
         ],
     );
