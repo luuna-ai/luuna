@@ -21,7 +21,7 @@ async fn tickets_are_native_and_preserve_raw_command_contract() {
         ],
     )
     .await;
-    let id = created["issue"]["id"].as_str().unwrap();
+    let id = created["id"].as_str().unwrap();
     assert_eq!(
         call(root, &["show", id]).await["issue"]["description"],
         "literal $(unused)"
