@@ -1034,3 +1034,57 @@ fn lifecycle_validate_custom_aliases() {
     t.prepare(|p|{p.write(".luuna/atlas/config.yaml","version: '1'\ndomains: {core: {}, other: {}}\ncustom_types:\n  hypothesis:\n    required: [statement]\n    dedup_key: statement\n    summary: '{statement}'\n    aliases: {statement: [claim]}\n");p.write(".luuna/atlas/expertise/core.jsonl","{\"id\":\"mx-dddd\",\"type\":\"hypothesis\",\"claim\":\"Original field\",\"classification\":\"tactical\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\"}\n");});
     compare(&t, &["validate"], false, 0, None);
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_read_binary_domain_errors() {
+    for yaml in [
+        "version: '1'\ndomains: {!!binary /w==: {}, !!binary 4oI=: {}}\n",
+        "version: '1'\ndomains: [!!binary /w==]\n",
+    ] {
+        let t = base(false);
+        t.prepare(|p| p.write(".luuna/atlas/config.yaml", yaml));
+        for args in [
+            &["query", "--all"][..],
+            &["query", "missing"],
+            &["rank"],
+            &["ready"],
+            &["ready", "--domain", "missing"],
+            &["status"],
+            &["validate"],
+        ] {
+            compare(&t, args, false, 1, None);
+        }
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_config_binary_registry_errors() {
+    for yaml in [
+        "version: '1'\ndomains: {}\ncustom_types: {!!binary /w==: {required: [statement], summary: '{statement}'}}\n",
+        "version: '1'\ndomains: {}\ndisabled_types: ['�']\ncustom_types:\n  note:\n    extends: !!binary /w==\n",
+        "version: '1'\ndomains: {}\ncustom_types:\n  note:\n    required: [statement]\n    summary: '{statement}'\n    aliases: {!!binary /w==: [old]}\n",
+    ]{let t=base(false);t.prepare(|p|p.write(".luuna/atlas/config.yaml",yaml));compare(&t,&["config","show"],false,1,None);}
+}
+#[test]
+#[ignore = "hostile registry text: compile first, run under prlimit4GiB/timeout120"]
+fn hostile_yaml_registry_deep_text() {
+    let t = base(false);
+    t.prepare(|p| {
+        let mut file = std::io::BufWriter::new(
+            std::fs::File::create(p.atlas_dir().join("config.yaml")).unwrap(),
+        );
+        file.write_all(b"version: '1'\ndomains: {}\ncustom_types:\n  note:\n    extends: &deep ")
+            .unwrap();
+        for _ in 0..9999 {
+            file.write_all(b"[").unwrap();
+        }
+        file.write_all(b"convention").unwrap();
+        for _ in 0..9999 {
+            file.write_all(b"]").unwrap();
+        }
+        file.write_all(b"\n").unwrap();
+        file.flush().unwrap();
+    });
+    compare(&t, &["config", "show"], false, 1, None);
+}
