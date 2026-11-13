@@ -18,7 +18,18 @@ pub(super) fn value(value: &YamlValue, root: usize) -> String {
                 Node::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
                 Node::Int(n) => out.push_str(&n.to_string()),
                 Node::Uint(n) => out.push_str(&format!("0x{n:x}")),
-                Node::Float(n) => out.push_str(&n.to_string()),
+                Node::Float(n) => {
+                    let text = if n.is_nan() {
+                        "NaN".into()
+                    } else if *n == f64::INFINITY {
+                        "+Inf".into()
+                    } else if *n == f64::NEG_INFINITY {
+                        "-Inf".into()
+                    } else {
+                        super::yaml_encode::float(*n)
+                    };
+                    out.push_str(&text)
+                }
                 Node::String(s) => out.push_str(&crate::gofmt::quote(&yaml_json::lossy(s))),
                 Node::Time(s) => {
                     use chrono::{Datelike, Timelike};
@@ -72,9 +83,12 @@ pub(super) fn value(value: &YamlValue, root: usize) -> String {
                         "map[interface {}]interface {}{"
                     });
                     let mut fields = fields.clone();
-                    fields.sort_by(|(a, _), (b, _)| {
-                        super::yaml_sort::compare(&value.nodes[*a], &value.nodes[*b])
-                    });
+                    fields.sort_by(
+                        |(a, _), (b, _)| match (&value.nodes[*a], &value.nodes[*b]) {
+                            (Node::String(a), Node::String(b)) => a.cmp(b),
+                            _ => super::yaml_sort::compare(&value.nodes[*a], &value.nodes[*b]),
+                        },
+                    );
                     work.push(Step::Text("}".into()));
                     for (i, (key, v)) in fields.into_iter().enumerate().rev() {
                         work.push(Step::Node(v));

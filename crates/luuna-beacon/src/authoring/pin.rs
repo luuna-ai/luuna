@@ -44,6 +44,7 @@ enum Shape {
     ArraySection,
     ArrayFree,
     Scalar(bool),
+    Integer(bool),
 }
 fn shape(field: &str, parent: Shape) -> Shape {
     match (parent, field) {
@@ -54,8 +55,12 @@ fn shape(field: &str, parent: Shape) -> Shape {
         (Shape::Prompt, "mixins" | "tags") | (Shape::Prime, "domains" | "files") => {
             Shape::ArrayFree
         }
-        (Shape::Prompt, "pinned" | "extends_atlas" | "extends_mulch")
-        | (Shape::Section, "required") => Shape::Scalar(false),
+        (Shape::Prompt, "version") => Shape::Integer(true),
+        (Shape::Prompt, "pinned") => Shape::Integer(false),
+        (Shape::Atlas, "budget") => Shape::Scalar(false),
+        (Shape::Prompt, "extends_atlas" | "extends_mulch") | (Shape::Section, "required") => {
+            Shape::Scalar(false)
+        }
         _ => Shape::Scalar(true),
     }
 }
@@ -135,15 +140,36 @@ impl Beacon {
             }
         }
         prompt.pinned = pinned;
-        prompt.version += 1;
+        prompt.version = prompt.version.wrapping_add(1);
         prompt.updated_at = self.now_text();
         store::append_jsonl(&path, &prompt)?;
         Ok(prompt)
     }
 }
+enum Check<'a> {
+    Visit(&'a GoValue, Shape, String),
+    Repeat(&'a GoValue, &'a GoValue, Shape, String),
+    Legacy(&'a GoValue, &'a GoValue, String),
+}
+fn retains_null(shape: Shape) -> bool {
+    matches!(shape, Shape::Scalar(true) | Shape::Integer(true))
+}
 fn check(raw: &GoValue, prompt: &Prompt) -> Result<(), BeaconError> {
-    let mut work = vec![(raw, Shape::Prompt, String::new())];
-    while let Some((value, context, path)) = work.pop() {
+    let mut work = vec![Check::Visit(raw, Shape::Prompt, String::new())];
+    while let Some(task) = work.pop() {
+        let (value, context, path) = match task {
+            Check::Visit(value, context, path) => (value, context, path),
+            Check::Repeat(old, new, shape, path) => {
+                repeat(old, new, shape, &path, &prompt.name)?;
+                continue;
+            }
+            Check::Legacy(old, new, path) => {
+                if !matches!(old, GoValue::Null) && !equal(old, new).unwrap_or(false) {
+                    return Err(E::PinRecordKeyRepeated(prompt.name.clone(), path).into());
+                }
+                continue;
+            }
+        };
         if matches!(context, Shape::Unknown) {
             return Err(E::PinRecordKeyUnknown(prompt.name.clone(), path).into());
         }
@@ -174,18 +200,12 @@ fn check(raw: &GoValue, prompt: &Prompt) -> Result<(), BeaconError> {
                                 .find(|(later, _)| later == key)
                                 .unwrap()
                                 .1;
-                            if !matches!(value, GoValue::Null) && !equal(value, last)? {
-                                return Err(E::PinRecordKeyRepeated(
-                                    prompt.name.clone(),
-                                    joined(&path, key),
-                                )
-                                .into());
-                            }
+                            children.push(Check::Legacy(value, last, joined(&path, key)));
                             continue;
                         }
                         key.as_str()
                     } else {
-                        children.push((value, Shape::Unknown, joined(&path, key)));
+                        children.push(Check::Visit(value, Shape::Unknown, joined(&path, key)));
                         continue;
                     };
                     let next = if matches!(context, Shape::Free | Shape::ArrayFree) {
@@ -199,7 +219,7 @@ fn check(raw: &GoValue, prompt: &Prompt) -> Result<(), BeaconError> {
                     };
                     let prior = seen.entry(canonical.into()).or_default();
                     for &old in prior.iter() {
-                        repeat(
+                        children.push(Check::Repeat(
                             old,
                             value,
                             if matches!(context, Shape::Free) {
@@ -207,9 +227,8 @@ fn check(raw: &GoValue, prompt: &Prompt) -> Result<(), BeaconError> {
                             } else {
                                 next
                             },
-                            &joined(&path, key),
-                            &prompt.name,
-                        )?
+                            joined(&path, key),
+                        ))
                     }
                     // Bound objects merge into the previous object. Keep all contributors
                     // so a disjoint intermediate object cannot conceal an overwritten key.
@@ -225,11 +244,11 @@ fn check(raw: &GoValue, prompt: &Prompt) -> Result<(), BeaconError> {
                             prior.clear();
                             prior.push(value)
                         }
-                    } else if !matches!(next, Shape::Scalar(true)) {
+                    } else if !retains_null(next) {
                         prior.clear();
                         prior.push(value)
                     }
-                    children.push((value, next, joined(&path, key)));
+                    children.push(Check::Visit(value, next, joined(&path, key)));
                 }
                 work.extend(children.into_iter().rev());
             }
@@ -240,7 +259,7 @@ fn check(raw: &GoValue, prompt: &Prompt) -> Result<(), BeaconError> {
                     Shape::Free
                 };
                 for (index, v) in values.iter().enumerate().rev() {
-                    work.push((v, child, joined(&path, &index.to_string())))
+                    work.push(Check::Visit(v, child, joined(&path, &index.to_string())))
                 }
             }
             _ => {}
@@ -267,7 +286,7 @@ fn repeat(
         if matches!(old, GoValue::Null) {
             continue;
         }
-        if matches!(new, GoValue::Null) && matches!(context, Shape::Scalar(true)) {
+        if matches!(new, GoValue::Null) && retains_null(context) {
             continue;
         }
         match (old, new, context) {
@@ -323,13 +342,26 @@ fn repeat(
                 }
             }
             _ => {
-                if !equal(old, new)? {
+                if !same(old, new, context)? {
                     return Err(E::PinRecordKeyRepeated(name.into(), path).into());
                 }
             }
         }
     }
     Ok(())
+}
+fn same(a: &GoValue, b: &GoValue, shape: Shape) -> Result<bool, BeaconError> {
+    if matches!(shape, Shape::Integer(_))
+        && !matches!(a, GoValue::Null)
+        && !matches!(b, GoValue::Null)
+    {
+        let mut x = 0;
+        let mut y = 0;
+        gojson::int_into(&mut x, a).map_err(BeaconError::Yaml)?;
+        gojson::int_into(&mut y, b).map_err(BeaconError::Yaml)?;
+        return Ok(x == y);
+    }
+    equal(a, b)
 }
 fn equal(a: &GoValue, b: &GoValue) -> Result<bool, BeaconError> {
     let a = gojson::to_any(a).map_err(BeaconError::Yaml)?;
@@ -436,5 +468,60 @@ mod tests {
         assert_eq!(stats.total, 1);
         assert_eq!(stats.by_tag.get("x"), Some(&2));
         assert_eq!(stats.by_status.get("active"), Some(&1))
+    }
+    #[test]
+    fn repeated_integer_fields_compare_without_float_rounding() {
+        let source = RECORD.replace(
+            "\"version\":1",
+            "\"version\":9007199254740993,\"version\":9007199254740992",
+        );
+        let (_d, b) = fixture(source.as_bytes());
+        assert!(
+            matches!(b.unpin("p"),Err(BeaconError::Authoring(E::PinRecordKeyRepeated(_,ref path)))if path=="version")
+        );
+        assert_eq!(
+            fs::read(b.prompts_path().unwrap()).unwrap(),
+            source.as_bytes()
+        )
+    }
+    #[test]
+    fn optional_budget_null_does_not_retain_earlier_value() {
+        let source = RECORD.replace(
+            "\"sections\":[]",
+            "\"atlas\":{\"budget\":1},\"atlas\":{\"budget\":null},\"sections\":[]",
+        );
+        let (_d, b) = fixture(source.as_bytes());
+        assert!(
+            matches!(b.unpin("p"),Err(BeaconError::Authoring(E::PinRecordKeyRepeated(_,ref path)))if path=="atlas.budget")
+        );
+        assert_eq!(
+            fs::read(b.prompts_path().unwrap()).unwrap(),
+            source.as_bytes()
+        )
+    }
+    #[test]
+    fn earlier_nested_unknown_precedes_a_later_repeated_object() {
+        let source = RECORD.replace(
+            "\"sections\":[]",
+            "\"atlas\":{\"zzz\":1e400},\"atlas\":{\"zzz\":2},\"sections\":[]",
+        );
+        let (_d, b) = fixture(source.as_bytes());
+        assert!(
+            matches!(b.unpin("p"),Err(BeaconError::Authoring(E::PinRecordKeyUnknown(_,ref path)))if path=="atlas.zzz")
+        );
+        assert_eq!(
+            fs::read(b.prompts_path().unwrap()).unwrap(),
+            source.as_bytes()
+        )
+    }
+    #[test]
+    fn version_overflow_wraps_like_go() {
+        let source = RECORD.replace("\"version\":1", "\"version\":9223372036854775807");
+        let (_d, b) = fixture(source.as_bytes());
+        let next = b.unpin("p").unwrap();
+        assert_eq!(next.version, i64::MIN);
+        let bytes = fs::read_to_string(b.prompts_path().unwrap()).unwrap();
+        assert!(bytes.starts_with(&source));
+        assert_eq!(bytes.lines().count(), 2)
     }
 }

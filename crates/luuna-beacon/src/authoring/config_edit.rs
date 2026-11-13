@@ -22,7 +22,7 @@ pub(super) fn read(beacon: &Beacon) -> Result<(Vec<u8>, Decoded), BeaconError> {
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| BeaconError::Yaml("invalid leading UTF-8 octet".into()))?;
     let doc = yaml_decode::decode(text, true)?;
-    if !doc.value.is_null() && doc.value.fields(doc.value.root).is_none() {
+    if !doc.value.is_null() && doc.value.string_fields(doc.value.root).is_none() {
         return Err(BeaconError::Yaml(
             "unmarshal errors:\n  line 1: cannot unmarshal !!seq into map[string]interface {}"
                 .into(),
@@ -62,7 +62,7 @@ impl Beacon {
         let mut current = doc.value.root;
         for &part in &parts[..parts.len() - 1] {
             current = match doc.value.field(current, part) {
-                Some(id) if doc.value.fields(id).is_some() => id,
+                Some(id) if doc.value.string_fields(id).is_some() => id,
                 Some(_) => return Err(E::NotAnObject(part.into()).into()),
                 None => {
                     let id = doc.value.push(Node::Map(Vec::new()));
@@ -85,12 +85,12 @@ impl Beacon {
             let Some(id) = doc.value.field(current, part) else {
                 return Ok(false);
             };
-            if doc.value.fields(id).is_none() {
+            if doc.value.string_fields(id).is_none() {
                 return Ok(false);
             }
             current = id
         }
-        let Some(fields) = doc.value.fields(current) else {
+        let Some(fields) = doc.value.string_fields(current) else {
             return Ok(false);
         };
         let Some(at) = fields
@@ -108,7 +108,7 @@ impl Beacon {
     }
 }
 fn put(value: &mut YamlValue, parent: usize, name: &str, id: usize) {
-    let existing = value.fields(parent).and_then(|fields| {
+    let existing = value.string_fields(parent).and_then(|fields| {
         fields
             .iter()
             .position(|(key, _)| value.string(*key) == Some(name))
@@ -155,7 +155,7 @@ fn validate(value: &YamlValue) -> Result<(), BeaconError> {
             return Err(fail(format!("{name} must be a non-empty string")));
         }
     }
-    for &(key, _) in value.fields(root).unwrap_or(&[]) {
+    for &(key, _) in value.string_fields(root).unwrap_or(&[]) {
         let key = value.string(key).unwrap_or("");
         if !["project", "version", "targets"].contains(&key) {
             return Err(fail(format!(
@@ -166,7 +166,7 @@ fn validate(value: &YamlValue) -> Result<(), BeaconError> {
     }
     if let Some(targets) = value.field(root, "targets") {
         let fields = value
-            .fields(targets)
+            .string_fields(targets)
             .ok_or_else(|| fail("targets must be an object".into()))?;
         for &(key, target) in fields {
             let name = value.string(key).unwrap_or("");
@@ -289,5 +289,24 @@ mod tests {
         );
         assert!(targets[0].default);
         assert_eq!(targets[0].tags, ["one"])
+    }
+    #[test]
+    fn mixed_key_targets_use_legacy_fallback() {
+        let (_d, b) =
+            fixture("project: p\nversion: '1'\ntargets: {a: {dir: output}, 1: {dir: other}}\n");
+        assert!(b.config_targets().unwrap().targets.is_none());
+        assert!(
+            matches!(b.config_set("project","q"),Err(BeaconError::Authoring(E::ConfigValidation(ref s)))if s=="targets must be an object")
+        )
+    }
+    #[test]
+    fn set_path_refuses_a_general_map_without_mutation() {
+        let source =
+            "project: p\nversion: '1'\ntargets: {a: {dir: output, extra: {k: one, 1: two}}}\n";
+        let (_d, b) = fixture(source);
+        assert!(
+            matches!(b.config_set("targets.a.extra.k","changed"),Err(BeaconError::Authoring(E::NotAnObject(ref s)))if s=="extra")
+        );
+        assert_eq!(b.config_show().unwrap().text, source.as_bytes())
     }
 }

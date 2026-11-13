@@ -29,7 +29,7 @@ Every refusal leaves source bytes and the complete file tree unchanged, includin
 | RD15–RD20 | Import refuses unrecognised BOM/CRLF/empty frontmatter, non-whitespace introduction before the first heading, non-string descriptions, dropped null keys, later documents and a differing frontmatter name. |
 | RD21 | Import refuses frontmatter whose JSON store representation changes its value, including nonrepresentable integers and non-UTF-8 binary strings. Go encoding errors take precedence and retain record-relative pointers and offsets. |
 | RD22 | Emit precomputes every target and refuses replacement of differing existing content inside canonical `.luuna/`, including links. Check/dry-run do not write; identical content and new files remain allowed. |
-| RD23–RD24 | Pin/unpin retain raw record lines from a single read, select current/version records first, then refuse unbound keys and repeated values that would be lost. Null/scalar rules, merged objects, reused array elements and used legacy fields follow Go's reading. Every line equal to the selected decoded record is inspected. |
+| RD23–RD24 | Pin/unpin retain raw record lines from a single read, select current/version records first, then refuse unbound keys and repeated values that would be lost. Null/scalar rules, merged objects, reused array elements and used legacy fields follow Go's reading. Every line equal to the selected decoded record is inspected. Repeated integer fields compare int64 values exactly, optional numeric nulls clear their fields, and nested checks follow file order. Version increment overflow deliberately wraps as Go does. |
 
 ## Preserved Go defects
 
@@ -77,13 +77,15 @@ Every refusal leaves source bytes and the complete file tree unchanged, includin
 
 Additional observed emitter defects are copied: a leading BOM makes the double-quoted writer escape subsequent characters, and a leading newline contributes the block header break. Config/import read-back checks still refuse a lossy write where required.
 
+Malformed UTF-8 in a recognised frontmatter block keeps the YAML error boundary. Malformed UTF-8 in Markdown body text is additionally refused before append: an observed Go run replaces those source bytes during JSON storage. The source and store are retained; a read/invalid-data error explains the refusal. This is the same A8 value-preservation rule, applied to body text as well as frontmatter.
+
 ## Event parser provenance
 
 `src/authoring/yaml_events/` contains the production parser/scanner/character helpers from yaml-rust2 0.10.4, under the adjacent MIT and Apache licenses. Local adaptations are module paths, removal of optional debug output/loader-oriented test code, standard `VecDeque` lookahead, a u32 flow counter, no invented block-scalar EOF newline, Go-compatible Unicode line breaks/folding, closing-quote indentation and a clippy-equivalent predicate. The outer decoder applies yaml.v3's independent 10,000 block/flow limits. No dependency or foundation parser was changed. Additional pinned-Go probes cover underscore-prefixed strings, short timestamps, mixed and complex keys, exact large-integer key order, binary top-level keys, null-key ignored values, duplicate-key error precedence and byte-wise malformed UTF-8 replacement. This local event implementation is exercised by the complete authoring parity and hostile suites; it does not claim upstream's full test suite was run.
 
 ## Verification
 
-- 68 focused library tests; 28 public API tests; 42 ignored Go authoring comparisons; 10 ignored hostile cases.
+- 76 focused library tests; 28 public API tests; 42 ignored Go authoring comparisons; 10 ignored hostile cases.
 - The hostile cases cover config/value/import alias bombs, many documents/anchors, flow depth exactly 10,000 on a 2 MiB stack, block/flow refusal above Go's limits, 9,999-level JSON rendering, a streamed 24 MiB Markdown source and ancestor cycles. The Go cycle child has a positive normal-tree control, a separate 1 GiB limit and a 30-second kill bound.
 - Additional foundation Go-reference, parity and format comparisons, workspace Rust checks, hygiene and frontend checks are required before merge.
 

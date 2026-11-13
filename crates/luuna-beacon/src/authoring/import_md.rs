@@ -31,8 +31,18 @@ impl Beacon {
         source
             .read_to_end(&mut bytes)
             .map_err(|e| BeaconError::os("read", &input.path, e))?;
-        let text = String::from_utf8_lossy(&bytes);
-        let mut body = text.as_ref();
+        let invalid_text = std::str::from_utf8(&bytes).is_err();
+        if bytes.starts_with(b"---\n") {
+            if let Some(end) = bytes[4..].windows(5).position(|w| w == b"\n---\n") {
+                if std::str::from_utf8(&bytes[4..end + 4]).is_err() {
+                    return Err(
+                        E::InvalidFrontmatter("yaml: invalid leading UTF-8 octet".into()).into(),
+                    );
+                }
+            }
+        }
+        let text = super::yaml_json::lossy(&bytes);
+        let mut body = text.as_str();
         let mut frontmatter = YamlValue::null();
         frontmatter.nodes[0] = Node::Map(Vec::new());
         let mut later = false;
@@ -193,6 +203,9 @@ impl Beacon {
             return Err(E::ImportReadBack(path).into());
         }
         prompt.frontmatter = map;
+        if invalid_text {
+            return Err(BeaconError::os("read",&input.path,std::io::Error::new(std::io::ErrorKind::InvalidData,"refused: Markdown contains invalid UTF-8 that JSON storage would replace; nothing was stored")));
+        }
         store::append_jsonl(&path, &prompt)?;
         Ok(Imported {
             prompt,
@@ -287,5 +300,30 @@ mod tests {
             out.prompt.frontmatter["extra"].as_str(),
             Some("2001-12-14T00:00:00Z")
         )
+    }
+    #[test]
+    fn malformed_body_bytes_are_refused_before_append() {
+        let (_d, b, i) = fixture("placeholder");
+        let source = b"## S\nbody \xf0\x90\x80\n";
+        fs::write(b.project_root().join("input.md"), source).unwrap();
+        let error = b.import_markdown(&i).unwrap_err().to_string();
+        assert!(error.contains("refused: Markdown contains invalid UTF-8"));
+        assert_eq!(fs::read(b.prompts_path().unwrap()).unwrap(), b"");
+        assert_eq!(fs::read(b.project_root().join("input.md")).unwrap(), source)
+    }
+    #[test]
+    fn malformed_frontmatter_keeps_yaml_error_precedence() {
+        let (_d, b, i) = fixture("placeholder");
+        fs::write(
+            b.project_root().join("input.md"),
+            b"---\nk: \xff\n---\nbody\n",
+        )
+        .unwrap();
+        assert!(b
+            .import_markdown(&i)
+            .unwrap_err()
+            .to_string()
+            .starts_with("invalid frontmatter: yaml: "));
+        assert_eq!(fs::read(b.prompts_path().unwrap()).unwrap(), b"")
     }
 }

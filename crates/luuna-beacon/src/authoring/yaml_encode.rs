@@ -4,7 +4,7 @@ use super::{
     yaml_resolve,
     yaml_value::{Node, YamlValue},
 };
-fn float(n: f64) -> String {
+pub(super) fn float(n: f64) -> String {
     if n.is_nan() {
         return ".nan".into();
     }
