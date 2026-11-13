@@ -4,7 +4,7 @@ use crate::{config, records, store, AtlasStore};
 use crate::{
     json::{Object, Value},
     registry::Registry,
-    AtlasError, Result,
+    Result,
 };
 use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Default)]
@@ -176,22 +176,84 @@ pub fn record_expertise_mut(
     })
 }
 pub fn search_expertise(
-    _root: &Path,
-    _query: &str,
-    _options: &SearchOptions,
-    _registry: Option<&Registry>,
+    root: &Path,
+    query: &str,
+    options: &SearchOptions,
+    registry: Option<&Registry>,
 ) -> Result<Vec<SearchResult>> {
-    Err(AtlasError::Message(
-        "not implemented: search_expertise".into(),
-    ))
+    let store = AtlasStore::open(root)?;
+    let cfg = config::read_config(&store.atlas_dir())?;
+    let mut domains = domain_names(&cfg);
+    if !options.domain.is_empty() {
+        if !records::obj(cfg.get("domains")).contains_key(&options.domain) {
+            return Err(message(format!(
+                "Domain \"{}\" not found in config. Available domains: {}",
+                options.domain,
+                domains.join(", ")
+            )));
+        }
+        domains = vec![options.domain.clone()];
+    }
+    let builtin = Registry::from_config(None)?;
+    let registry = registry.unwrap_or(&builtin);
+    let mut out = Vec::new();
+    for domain in domains {
+        let rows = store::read_records(&store.expertise_path(&domain)?, registry, false)?;
+        let rows = filter(
+            rows,
+            &options.type_name,
+            &options.tag,
+            &options.classification,
+            &options.file,
+        );
+        let matches = records::search_records(&rows, query, 0.0);
+        if !matches.is_empty() {
+            out.push(SearchResult {
+                domain,
+                records: matches,
+            });
+        }
+    }
+    Ok(out)
 }
 pub fn query_domain(
-    _root: &Path,
-    _domain: &str,
-    _options: &QueryOptions,
-    _registry: Option<&Registry>,
+    root: &Path,
+    domain: &str,
+    options: &QueryOptions,
+    registry: Option<&Registry>,
 ) -> Result<Vec<Object>> {
-    Err(AtlasError::Message("not implemented: query_domain".into()))
+    let path = domain_path(root, domain)?;
+    let builtin = Registry::from_config(None)?;
+    let registry = registry.unwrap_or(&builtin);
+    Ok(filter(
+        store::read_records(&path, registry, false)?,
+        &options.type_name,
+        "",
+        &options.classification,
+        &options.file,
+    ))
+}
+pub(crate) fn filter(
+    rows: Vec<Object>,
+    typ: &str,
+    tag: &str,
+    class: &str,
+    file: &str,
+) -> Vec<Object> {
+    rows.into_iter()
+        .filter(|r| {
+            (typ.is_empty() || text(r.get("type")) == typ)
+                && (class.is_empty() || text(r.get("classification")) == class)
+                && (tag.is_empty()
+                    || records::list(r.get("tags"))
+                        .iter()
+                        .any(|t| records::js_lower(t) == records::js_lower(tag)))
+                && (file.is_empty()
+                    || records::list(r.get("files"))
+                        .iter()
+                        .any(|f| records::js_lower(f).contains(&records::js_lower(file))))
+        })
+        .collect()
 }
 fn update_record(
     root: &Path,
