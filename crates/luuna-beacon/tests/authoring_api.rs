@@ -1178,9 +1178,24 @@ fn a8_config_set_refuses_later_documents_and_leaves_the_file_unchanged() {
     }
     let (_dir, root, beacon) = project();
     write_config(&root, PROBE_BASE_CONFIG.as_bytes());
+    // A map is valid at an extra target property, but invalid as `dir`.
+    // The pinned Go command returns validation before any rewrite here.
+    assert_eq!(
+        error_of(
+            beacon.config_set("targets.other.dir", "{a: 1}\n---\n[b]\n"),
+            "validation before refusal"
+        )
+        .to_string(),
+        "config validation failed: targets.other.dir must be a non-empty string"
+    );
     for value in ["o2\n---\nlost", "o2\n--- x\n", "{a: 1}\n---\n[b]\n"] {
         assert_refused(&root, value, LATER_DOCUMENTS_VALUE, || {
-            beacon.config_set("targets.other.dir", value)
+            let path = if value.starts_with('{') {
+                "targets.other.extra"
+            } else {
+                "targets.other.dir"
+            };
+            beacon.config_set(path, value)
         });
     }
     // A single document with markers is one document.
