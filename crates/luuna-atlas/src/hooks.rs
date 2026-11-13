@@ -978,7 +978,7 @@ mod tests {
     fn env_is_env_plus_hook_marker() {
         let dir = tempfile::tempdir().expect("tempdir");
         let cwd = dir.path().canonicalize().expect("canonical");
-        // dash exports PWD; giving it the hook's own cwd keeps the output exactly Env's.
+        // Shells export PWD; supply the hook's cwd so it stays unchanged.
         let vars: Vec<(OsString, OsString)> = vec![
             ("PATH".into(), process_path()),
             ("PWD".into(), cwd.as_os_str().to_owned()),
@@ -992,7 +992,13 @@ mod tests {
             run_hooks(&ctx, Some(&cfg), "post-record", &payload(), &mut stderr).expect("run");
         assert!(result.warnings.is_empty(), "{:?}", result.warnings);
         let printed = std::fs::read_to_string(cwd.join("env.txt")).expect("env.txt");
-        let mut got: Vec<String> = printed.lines().map(str::to_owned).collect();
+        // macOS sh also exports SHLVL and _ (dash does not). These are shell
+        // bookkeeping, not variables inherited from the parent process.
+        let mut got: Vec<String> = printed
+            .lines()
+            .filter(|line| !line.starts_with("SHLVL=") && !line.starts_with("_="))
+            .map(str::to_owned)
+            .collect();
         got.sort();
         let mut want: Vec<String> = vars
             .iter()

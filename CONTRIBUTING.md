@@ -84,7 +84,7 @@ Install the pinned Pi package `@earendil-works/pi-coding-agent@1.3.0` in a priva
 | `LUUNA_PORT` | Loopback service port, default `4242` |
 | `LUUNA_RUN_TIMEOUT_SECONDS` | Positive run deadline, default `600` |
 
-Supported inherited key names currently include `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`, and `OPENROUTER_API_KEY`. An existing OAuth login alone does not configure this isolated demo. Never copy credentials into repository configuration or diagnostic output.
+Supported inherited key names currently include `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`, and `OPENROUTER_API_KEY`. An existing OAuth login alone does not configure the default isolated demo. For explicitly opted-in OpenAI OAuth, use `tools/pi/oauth-launch.mjs` as Node's launcher argument, followed by `--luuna-auth-file <absolute-private-auth.json>` and `--luuna-pi-root <absolute-pinned-package-directory>`, and set `LUUNA_PI_AUTH_FILE` to the same auth file for diagnostics and redaction. This shares only the selected OpenAI grant and Pi's locked refresh, with no token copies or API-key fallback; see [ADR 0049](docs/decisions/0049-opt-in-openai-oauth.md). Never copy credentials into repository configuration or diagnostic output.
 
 With the necessary private settings present, launch from the repository root:
 

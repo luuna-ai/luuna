@@ -1,5 +1,17 @@
 # Current Luuna architecture
 
+Local opt-in authentication: [ADR 0049](decisions/0049-opt-in-openai-oauth.md)
+adds a pinned Pi OAuth launcher for the explicitly selected OpenAI grant. It
+shares only credential storage and locked refresh; worker settings, resources
+and history remain isolated. API-key environment bindings remain the default.
+
+The configured macOS desktop profile connects through the fixed private
+`~/.config/luuna/launch.py` helper, sharing the terminal's runtime settings.
+The native command receives the URL and token through an anonymous pipe;
+tokens do not enter app launch arguments or bundled frontend assets. The
+local `script/build_and_run.sh` builds and opens a Tauri app bundle. This
+machine-local helper is not provisioned by the generic release installer.
+
 Windows native development startup invokes a fixed local bootstrap command,
 starts or authenticates/reuses the independent runtime and connects without
 manual token entry. DPAPI records live in `%USERPROFILE%\.luuna\credentials`;
