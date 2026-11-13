@@ -22,7 +22,7 @@ fn git(context: &Context<'_>) -> Option<PathBuf> {
             dir
         };
         let path = dir.join("git");
-        if let Ok(m) = std::fs::metadata(&path) {
+        if let Ok(m) = std::fs::metadata(context.cwd.join(&path)) {
             if !m.is_dir() && m.permissions().mode() & 0o111 != 0 {
                 return path.is_absolute().then_some(path);
             }
@@ -375,6 +375,27 @@ esac
             assert_eq!(out.exit_code, 1);
             assert_eq!(out.stderr, expected.as_bytes());
         }
+    }
+    #[cfg(unix)]
+    #[test]
+    fn relative_path_executable_is_checked_at_invocation_cwd_and_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let mut r = Repo::at(temp.path().join("project"));
+        let bin = r.root.join("bin");
+        fs::create_dir(&bin).unwrap();
+        let fake = bin.join("git");
+        fs::write(&fake, b"#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(fake, fs::Permissions::from_mode(0o755)).unwrap();
+        let original = r.env.get("PATH").cloned().unwrap();
+        r.env.insert("PATH".into(), format!("bin:{original}"));
+        let out = r.invoke(&r.root, &["sync", "--status", "--json"]);
+        assert_eq!(out.exit_code, 1);
+        assert_eq!(out.stderr, b"");
+        let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(value["error"], "git status failed: ");
+        r.env.insert("PATH".into(), original);
+        assert!(r.git(&["status", "--porcelain"]).contains("bin/"));
     }
     #[test]
     fn sync_leaves_the_parent_of_the_temporary_project_unchanged() {

@@ -1033,6 +1033,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "luuna-beacon",
+ "luuna-missions",
  "serde",
  "serde_json",
  "sha2",
@@ -1179,6 +1180,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "crossterm",
+ "luuna-components",
  "portable-pty",
  "ratatui",
  "serde",

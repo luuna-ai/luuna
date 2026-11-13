@@ -17,7 +17,7 @@ fn conflict(message: &str) -> ApiError {
 fn unavailable() -> ApiError {
     ApiError(
         StatusCode::SERVICE_UNAVAILABLE,
-        "Missions is unavailable; restore the pinned component before retrying".into(),
+        "Missions refused the request; check the project store before retrying".into(),
     )
 }
 fn malformed() -> ApiError {
@@ -51,11 +51,7 @@ impl Intent {
 
 async fn call(state: &AppState, project: &str, args: &[String]) -> Result<Value, ApiError> {
     let workspace = integrations::workspace(state, project)?;
-    state
-        .components
-        .as_ref()
-        .ok_or_else(unavailable)?
-        .call("missions", &workspace, args)
+    luuna_components::call_missions_native(&workspace, args)
         .await
         .map_err(|_| unavailable())
 }
@@ -641,6 +637,149 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn native_projection_edit_and_reconciliation_need_no_legacy_handle() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = AppState::open(config(directory.path()))
+            .unwrap()
+            .without_components();
+        register(&state);
+        let original = legacy();
+        let project = &original.project_id;
+        state
+            .store
+            .lock()
+            .unwrap()
+            .begin_component_enable(project)
+            .unwrap();
+        call(&state, project, &["init".into()]).await.unwrap();
+        state
+            .store
+            .lock()
+            .unwrap()
+            .finish_component_enable(project)
+            .unwrap();
+        let (created, fresh) = create_projection(&state, &original, "native-request")
+            .await
+            .unwrap();
+        assert!(fresh);
+        assert_eq!(created.source, TicketSource::Missions);
+        let (replayed, fresh) = create_projection(&state, &original, "native-request")
+            .await
+            .unwrap();
+        assert!(!fresh);
+        assert_eq!(replayed.id, created.id);
+        assert_eq!(issues(&state, project).await.unwrap().len(), 1);
+        let changed = update(
+            &state,
+            &created,
+            1,
+            &TicketRevision {
+                title: Some("Native edit".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(changed.title, "Native edit");
+        assert_eq!(changed.revision, 2);
+        assert_eq!(
+            update(&state, &changed, 1, &TicketRevision::default())
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::CONFLICT
+        );
+        ensure_current(&state, &changed).await.unwrap();
+        let source_id = source(&state, &changed).await.unwrap()["source_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        call(
+            &state,
+            project,
+            &[
+                "update".into(),
+                source_id.clone(),
+                "--title=External edit".into(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            ensure_current(&state, &changed).await.unwrap_err().0,
+            StatusCode::CONFLICT
+        );
+        let reconciled = reconcile(&state, &changed, 2).await.unwrap();
+        assert_eq!(reconciled.title, "External edit");
+        assert_eq!(reconciled.revision, 3);
+        call(
+            &state,
+            project,
+            &["update".into(), source_id, "--status=closed".into()],
+        )
+        .await
+        .unwrap();
+        let closed = reconcile(&state, &reconciled, 3).await.unwrap();
+        assert_eq!(
+            ensure_current(&state, &closed).await.unwrap_err().0,
+            StatusCode::CONFLICT
+        );
+        let store = integrations::workspace(&state, project)
+            .unwrap()
+            .join(".luuna/missions/issues.jsonl");
+        let bytes = std::fs::read(&store).unwrap();
+        std::fs::write(&store, b"invalid").unwrap();
+        assert_eq!(
+            source(&state, &closed).await.unwrap_err().0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(std::fs::read(&store).unwrap(), b"invalid");
+        std::fs::write(store, bytes).unwrap();
+        // The authenticated HTTP boundary also dispatches to the native path.
+        use axum::{
+            body::{to_bytes, Body},
+            http::Request,
+        };
+        use tower::ServiceExt;
+        let body = json!({
+            "idempotency_key":"native-http", "title":"Native HTTP ticket",
+            "intent":"Run through authenticated routes",
+            "acceptance_criteria":["Native delivery remains idempotent"],
+            "repository_ids":["app"]
+        });
+        let mut first_id = None;
+        for (authenticated, expected) in [
+            (false, StatusCode::UNAUTHORIZED),
+            (true, StatusCode::CREATED),
+            (true, StatusCode::OK),
+        ] {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/projects/{project}/tickets"))
+                .header("content-type", "application/json");
+            if authenticated {
+                request = request.header("authorization", format!("Bearer {}", state.config.token));
+            }
+            let response = crate::router(state.clone())
+                .oneshot(request.body(Body::from(body.to_string())).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+            if authenticated {
+                let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+                let ticket: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(ticket["source"], "missions");
+                let id = ticket["id"].as_str().unwrap().to_owned();
+                if let Some(first) = &first_id {
+                    assert_eq!(&id, first);
+                }
+                first_id = Some(id);
+            }
+        }
+        assert_eq!(issues(&state, project).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
     #[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
     async fn missions_real_migration_external_edit_reconciliation_and_dependency_gate() {
         let directory = tempfile::tempdir().unwrap();
@@ -992,14 +1131,13 @@ mod tests {
         unavailable.components = None;
         let mut next = original.clone();
         next.id = "ticket-unavailable".into();
-        assert_eq!(
-            create_projection(&unavailable, &next, "unavailable")
-                .await
-                .unwrap_err()
-                .0,
-            StatusCode::SERVICE_UNAVAILABLE
-        );
-        assert_eq!(issues(&state, &original.project_id).await.unwrap().len(), 2);
+        // Missing legacy tools no longer makes a valid native store unavailable.
+        let (native, created) = create_projection(&unavailable, &next, "unavailable")
+            .await
+            .unwrap();
+        assert!(created);
+        assert_eq!(native.source, TicketSource::Missions);
+        assert_eq!(issues(&state, &original.project_id).await.unwrap().len(), 3);
     }
 }
 

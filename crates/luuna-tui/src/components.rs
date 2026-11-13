@@ -1,10 +1,7 @@
-//! The component CLIs (Missions, Atlas, Beacon) run in a developer's checkout for the agents that
-//! open it directly: `init`, `onboard`, `setup claude` and `prime`. They are found where the
-//! launcher finds them (scripts/start-terminal.ps1: the independently installed checkouts beside
-//! Luuna) or, in a development checkout, at the pinned submodules under components/. They run with
-//! Bun's own executable (never a shell shim), no shell, the repository as working directory, a
-//! bounded time and output, and an environment without the runtime's URL or token. These are
-//! repo-local stores, separate from the runtime's private managed stores (ADR 0014, ADR 0028).
+//! Repo-local component commands for the terminal guide.
+//! Missions runs through its native Rust library without a toolchain checkout.
+//! Atlas and Beacon retain their legacy runners until the remaining CLI wiring.
+//! All command environments exclude the runtime connection URL and token.
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -199,7 +196,7 @@ impl Runner for ComponentRunner {
     fn available(&self) -> Vec<Component> {
         COMPONENTS
             .iter()
-            .filter(|c| self.entries.iter().any(|(n, _)| n == c.name))
+            .filter(|c| c.name == "missions" || self.entries.iter().any(|(n, _)| n == c.name))
             .cloned()
             .collect()
     }
@@ -210,6 +207,37 @@ impl Runner for ComponentRunner {
         cwd: &'a str,
     ) -> crate::commands::Fut<'a, Outcome> {
         Box::pin(async move {
+            if name == "missions" {
+                let env = std::env::vars()
+                    .filter(|(key, _)| {
+                        !key.eq_ignore_ascii_case("LUUNA_API_TOKEN")
+                            && !key.eq_ignore_ascii_case("LUUNA_URL")
+                    })
+                    .chain([
+                        ("NO_COLOR".into(), "1".into()),
+                        ("FORCE_COLOR".into(), "0".into()),
+                    ])
+                    .collect();
+                return match luuna_components::run_missions_native(
+                    Path::new(cwd),
+                    &args,
+                    env,
+                    Vec::new(),
+                )
+                .await
+                {
+                    Ok(out) => Outcome {
+                        code: out.exit_code,
+                        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+                        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+                    },
+                    Err(error) => Outcome {
+                        code: 1,
+                        stdout: String::new(),
+                        stderr: format!("{error}\n"),
+                    },
+                };
+            }
             let Some((_, entry)) = self.entries.iter().find(|(n, _)| n == name) else {
                 return Outcome {
                     code: 127,
@@ -321,5 +349,24 @@ mod tests {
         let none = resolve_bun(&|_: &str| None, &|_: &Path| false);
         assert_eq!(none, PathBuf::from(exe));
         assert_eq!(strip_ansi("\u{1b}[32mok\u{1b}[0m"), "ok");
+    }
+}
+
+#[cfg(test)]
+mod native_missions_tests {
+    use super::*;
+    #[tokio::test]
+    async fn missing_install_still_exposes_native_missions() {
+        let root = tempfile::tempdir().unwrap();
+        let runner = ComponentRunner::locate(root.path());
+        assert!(runner.available().iter().any(|c| c.name == "missions"));
+        let cwd = root.path().to_str().unwrap();
+        let init = runner.run("missions", vec!["init".into()], cwd).await;
+        assert_eq!(init.code, 0, "{}", init.stderr);
+        let prime = runner
+            .run("missions", vec!["prime".into(), "--compact".into()], cwd)
+            .await;
+        assert_eq!(prime.code, 0, "{}", prime.stderr);
+        assert!(!prime.stdout.is_empty());
     }
 }

@@ -142,6 +142,8 @@ async fn call(
 ) -> Result<Value, ApiError> {
     let result = if component == "beacon" {
         luuna_components::call_beacon_native(directory, &args).await
+    } else if component == "missions" {
+        luuna_components::call_missions_native(directory, &args).await
     } else {
         available(state)?.call(component, directory, &args).await
     };
@@ -169,7 +171,7 @@ pub async fn status(
         .component_state(&id)
         .map_err(internal)?;
     let reason = if state.components.is_none() {
-        Some("Ticket and memory tools are unavailable; prompts remain usable in already enabled projects")
+        Some("Memory tools are unavailable; tickets and prompts remain usable in already enabled projects")
     } else if phase.as_deref() == Some("initializing") {
         Some("Activation is incomplete; retry to reconcile it")
     } else {
