@@ -173,6 +173,12 @@ pub fn contains(values: &[String], value: &str) -> bool {
 pub(crate) fn go_deep_equal(a: &Value, b: &Value) -> bool {
     let mut pending: Vec<(&Value, &Value)> = vec![(a, b)];
     while let Some((x, y)) = pending.pop() {
+        if let (Some(x), Some(y)) = (x.string_bytes(), y.string_bytes()) {
+            if x != y {
+                return false;
+            }
+            continue;
+        }
         match (x, y) {
             (Value::Null, Value::Null) => {}
             (Value::Bool(p), Value::Bool(q)) => {
@@ -203,16 +209,19 @@ pub(crate) fn go_deep_equal(a: &Value, b: &Value) -> bool {
                 }
                 if q.len() <= 16 {
                     for (key, value) in p.iter() {
-                        match q.get(key) {
+                        match q.get_go_key(p.key_bytes(key)) {
                             Some(other) => pending.push((value, other)),
                             None => return false,
                         }
                     }
                 } else {
                     // A lookup table keeps large objects linear.
-                    let index: HashMap<&str, &Value> = q.iter().collect();
+                    let index: HashMap<&[u8], &Value> = q
+                        .iter()
+                        .map(|(key, value)| (q.key_bytes(key), value))
+                        .collect();
                     for (key, value) in p.iter() {
-                        match index.get(key) {
+                        match index.get(p.key_bytes(key)) {
                             Some(other) => pending.push((value, *other)),
                             None => return false,
                         }
@@ -1190,6 +1199,7 @@ fn joined(value: Option<&Value>, float: impl Fn(f64) -> String) -> String {
     let scalar = |out: &mut String, v: &Value| match v {
         Value::Null | Value::Array(_) => {}
         Value::String(s) => out.push_str(s),
+        Value::RawString(s) => out.push_str(s.text()),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) => out.push_str(&float(*n)),
         // An `int` or `uint64` from config.yaml prints its decimal digits in both.

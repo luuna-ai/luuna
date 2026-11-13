@@ -602,6 +602,7 @@ pub(crate) fn go_text(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => String::new(),
         Some(Value::String(s)) => s.clone(),
+        Some(Value::RawString(s)) => s.text().to_owned(),
         Some(Value::Bool(b)) => b.to_string(),
         Some(Value::Number(n)) => go_format_float(*n),
         // strconv.Itoa for an int, fmt.Sprint for a uint64: the decimal digits.
@@ -635,6 +636,7 @@ pub(crate) fn go_bool(value: Option<&Value>) -> bool {
         None | Some(Value::Null) => false,
         Some(Value::Bool(b)) => *b,
         Some(Value::String(s)) => !s.is_empty(),
+        Some(Value::RawString(s)) => !s.bytes().is_empty(),
         Some(Value::Number(n)) => *n != 0.0 && !n.is_nan(),
         // An int counts when it is not 0; a uint64 (always above the int range) always does.
         Some(Value::Integer(i)) => *i != 0,
