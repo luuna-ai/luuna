@@ -945,3 +945,83 @@ fn lifecycle_query_array_rows_preserved() {
     );
     t.assert_same_tree("raw array read");
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_ready_unicode_duration_errors() {
+    for since in ["1é", "é", "1🙂", "👩‍💻", "1 h"] {
+        let t = base(true);
+        compare(&t, &["ready", "--since", since], false, 1, None);
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_read_quiet_is_ignored_and_ids_work() {
+    let t = base(true);
+    for args in [
+        &["query", "core", "--quiet"][..],
+        &["rank", "--quiet"],
+        &["ready", "--quiet"],
+        &["status", "--quiet"],
+        &["validate", "--quiet"],
+        &["query", "core", "--format", "ids"],
+    ] {
+        compare(&t, args, true, 0, None);
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_read_empty_domains() {
+    let t = base(false);
+    compare(&t, &["config", "unset", "domains.core"], false, 0, None);
+    compare(&t, &["config", "unset", "domains.other"], false, 0, None);
+    for args in [
+        &["query", "--all"][..],
+        &["rank"],
+        &["ready"],
+        &["status"],
+        &["validate"],
+    ] {
+        compare(&t, args, false, 0, None);
+        compare(&t, args, true, 0, None);
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_query_rank_ready_raw_array_output() {
+    let t = base(false);
+    t.prepare(|p| {
+        p.write(
+            ".luuna/atlas/expertise/core.jsonl",
+            &format!("[]\n[{{\"nested\":true}}]\n{ROWS}"),
+        )
+    });
+    for args in [&["query", "core"][..], &["rank"], &["ready"]] {
+        compare(&t, args, false, 0, None);
+    }
+    for format in ["compact", "plain", "xml"] {
+        compare(&t, &["query", "core", "--format", format], true, 0, None);
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_validate_errors_warnings_and_escape_hatches() {
+    let t = base(true);
+    t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl",&format!("{ROWS}# comment is a validation error\n[]\n{{\"id\":\"mx-dddd\",\"type\":\"mystery\"}}\n{{\"id\":\"mx-eeee\",\"type\":\"convention\",\"outcome\":null}}\n")));
+    for args in [&["validate"][..], &["validate", "--allow-unknown-types"]] {
+        compare(&t, args, false, 1, None);
+        compare(&t, args, true, 1, None);
+    }
+    let t = base(true);
+    t.prepare(|p|p.write(".luuna/atlas/config.yaml","version: '1'\ndomains:\n  core: {allowed_types: [failure], required_fields: [tags]}\n  other: {}\n"));
+    compare(&t, &["validate"], false, 1, None);
+    compare(&t, &["validate"], true, 1, None);
+    compare(&t, &["validate", "--allow-domain-mismatch"], false, 0, None);
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_validate_custom_aliases() {
+    let t = base(false);
+    t.prepare(|p|{p.write(".luuna/atlas/config.yaml","version: '1'\ndomains: {core: {}, other: {}}\ncustom_types:\n  hypothesis:\n    required: [statement]\n    dedup_key: statement\n    aliases: {statement: [claim]}\n");p.write(".luuna/atlas/expertise/core.jsonl","{\"id\":\"mx-dddd\",\"type\":\"hypothesis\",\"claim\":\"Original field\",\"classification\":\"tactical\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\"}\n");});
+    compare(&t, &["validate"], false, 0, None);
+}
