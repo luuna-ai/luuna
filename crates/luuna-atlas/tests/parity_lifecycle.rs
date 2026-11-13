@@ -896,3 +896,52 @@ fn lifecycle_config_refusal_keeps_link_and_target() {
     assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
     assert_eq!(before, t.rust.snapshot());
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_query_array_rows_preserved() {
+    use luuna_atlas::{
+        json::{self, Value},
+        registry::Registry,
+        store,
+    };
+    let t = base(false);
+    t.prepare(|p| {
+        p.write(
+            ".luuna/atlas/expertise/core.jsonl",
+            &format!("[]\n[{{\"nested\":true}}]\n{ROWS}"),
+        )
+    });
+    let args = vec![
+        "query".into(),
+        "core".into(),
+        "--json".into(),
+        "--quiet".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 0);
+    let output = json::parse(&g.stdout).unwrap();
+    let rows = output
+        .as_object()
+        .unwrap()
+        .get("domains")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .as_object()
+        .unwrap()
+        .get("records")
+        .unwrap();
+    let native = store::read_records(
+        &t.rust.expertise("core"),
+        &Registry::from_config(None).unwrap(),
+        false,
+    )
+    .unwrap();
+    let native = Value::Array(native.into_iter().map(Value::Object).collect());
+    assert_eq!(
+        json::to_compact_string(&native).unwrap(),
+        json::to_compact_string(rows).unwrap()
+    );
+    t.assert_same_tree("raw array read");
+}
