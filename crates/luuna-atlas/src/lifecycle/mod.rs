@@ -1,2 +1,10 @@
-//! Query, rank, ready, status, stale, validate, outcome, move, archive, restore, delete-domain,
-//! prune, compact, retention and config set/unset/schema. Owner: s5-atlas-lib-3. Empty until that plan lands.
+//! Native Atlas lifecycle and config operations, with explicit invocation state.
+use crate::{options::Context, CommandOutput};
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+    pub flags: Vec<(String, String)>,
+    pub input: Vec<u8>,
+}
+pub fn run(_ctx: &Context, command: &str, _args: &[String], _options: &Options) -> CommandOutput {
+    CommandOutput::failure(command, &format!("not implemented: {command}"))
+}
