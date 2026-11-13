@@ -729,11 +729,21 @@ fn record(a: &mut Action<'_>, domain: &str, options: &RecordOptions) -> Result<(
             index = Some(d);
             if is_named(&def) {
                 let before = current.clone();
+                records::check_outcomes_collection(&path, &current[d], true)?;
                 r = merge_outcomes(&current[d], &r);
                 current[d] = r.clone();
                 action = "updated";
                 records::check_lossless_rewrite(&path, &a.registry, &[d])?;
+                records::check_retained_ids(
+                    &path,
+                    before
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, _)| *index != d)
+                        .map(|(index, record)| (record, &current[index])),
+                )?;
                 records::check_retained_numbers(&path, before.iter().zip(current.iter()))?;
+                records::assign_record_ids(&mut current, &a.registry)?;
                 store::write_records(&path, &mut current, &a.registry)?;
                 r = current[d].clone();
                 return Ok(());
@@ -818,4 +828,11 @@ fn near_message(domain: &str, near: &[records::NearDuplicate]) -> String {
     let id = id_text(&near[0].record, "<id>");
     lines.push(format!("Replace it: add --supersedes {id}. Update it: luuna-atlas edit {domain} {id}. Confirm it helped: luuna-atlas outcome {domain} {id} --status success. Record anyway: add --force."));
     lines.join("\n")
+}
+
+pub(crate) fn domain_names(cfg: &Config) -> Vec<String> {
+    records::obj(cfg.get("domains"))
+        .keys()
+        .map(str::to_owned)
+        .collect()
 }

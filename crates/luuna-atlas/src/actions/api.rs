@@ -1,10 +1,12 @@
 //! Typed API operations; intentionally thinner than command validation.
+use super::record::{domain_names, message, text};
+use crate::{config, records, store, AtlasStore};
 use crate::{
     json::{Object, Value},
     registry::Registry,
     AtlasError, Result,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Default)]
 pub struct RecordOptions {
     pub force: bool,
@@ -67,16 +69,111 @@ impl AppendOutcomeResult {
         Value::Object(o)
     }
 }
+
+pub(crate) fn domain_path(root: &Path, domain: &str) -> Result<PathBuf> {
+    let store = AtlasStore::open(root)?;
+    let cfg = config::read_config(&store.atlas_dir())?;
+    if !records::obj(cfg.get("domains")).contains_key(domain) {
+        let names = domain_names(&cfg).join(", ");
+        return Err(message(format!(
+            "Domain \"{domain}\" not found in config. Available domains: {}",
+            if names.is_empty() { "(none)" } else { &names }
+        )));
+    }
+    store.expertise_path(domain)
+}
 pub fn record_expertise(
-    _root: &Path,
-    _domain: &str,
-    _record: Object,
-    _options: &RecordOptions,
-    _registry: Option<&Registry>,
+    root: &Path,
+    domain: &str,
+    mut record: Object,
+    options: &RecordOptions,
+    registry: Option<&Registry>,
 ) -> Result<RecordResult> {
-    Err(AtlasError::Message(
-        "not implemented: record_expertise".into(),
-    ))
+    record_expertise_mut(root, domain, &mut record, options, registry)
+}
+/// The bridge uses the mutable form to preserve Go's input mutation even if
+/// ID assignment succeeds and the subsequent file operation fails.
+pub fn record_expertise_mut(
+    root: &Path,
+    domain: &str,
+    record: &mut Object,
+    options: &RecordOptions,
+    registry: Option<&Registry>,
+) -> Result<RecordResult> {
+    let path = domain_path(root, domain)?;
+    let builtin = Registry::from_config(None)?;
+    let registry = registry.unwrap_or(&builtin);
+    store::with_file_lock(&path, || {
+        let mut current = store::read_records(&path, registry, false)?;
+        // An uncomparable dynamic slice type makes Go panic once a nonempty
+        // dedup value causes comparison with another slice. Refuse before write.
+        if matches!(record.get("type"), Some(Value::Array(_))) {
+            if let Some(def) = registry.get(&text(record.get("type"))) {
+                let key = if def.dedup_key == "content_hash" {
+                    records::normalize_text(&records::record_body_text(record, registry))
+                } else {
+                    record
+                        .get(&def.dedup_key)
+                        .and_then(Value::as_str)
+                        .map(records::normalize_text)
+                        .unwrap_or_default()
+                };
+                if !key.is_empty()
+                    && current
+                        .iter()
+                        .any(|r| matches!(r.get("type"), Some(Value::Array(_))))
+                {
+                    return Err(message("Refusing the record comparison: Go would panic on non-comparable array types. The file is unchanged."));
+                }
+            }
+        }
+        if let Some(index) =
+            records::find_duplicate(&current, record, registry).filter(|_| !options.force)
+        {
+            if ["pattern", "decision", "reference", "guide"]
+                .contains(&text(record.get("type")).as_str())
+            {
+                let before = current.clone();
+                current[index] = record.clone();
+                records::check_lossless_rewrite(&path, registry, &[index])?;
+                records::check_retained_ids(
+                    &path,
+                    before
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| *i != index)
+                        .map(|(i, r)| (r, &current[i])),
+                )?;
+                records::check_retained_numbers(&path, before.iter().zip(current.iter()))?;
+                // Match Go's per-map assignment/encoding order, including
+                // input-map mutations visible when a later row fails.
+                for (position, row) in current.iter_mut().enumerate() {
+                    let assigned = records::assign_record_ids(std::slice::from_mut(row), registry);
+                    if position == index {
+                        *record = row.clone();
+                    }
+                    assigned?;
+                    let _ = crate::json::to_compact_string(&Value::Object(row.clone()))?;
+                }
+                store::write_records(&path, &mut current, registry)?;
+                *record = current[index].clone();
+                return Ok(RecordResult {
+                    action: "updated".into(),
+                    record: record.clone(),
+                });
+            }
+            return Ok(RecordResult {
+                action: "skipped".into(),
+                record: current[index].clone(),
+            });
+        }
+        records::assign_record_ids(std::slice::from_mut(record), registry)?;
+        store::append_record(&path, record, registry)?;
+        Ok(RecordResult {
+            action: "created".into(),
+            record: record.clone(),
+        })
+    })
 }
 pub fn search_expertise(
     _root: &Path,

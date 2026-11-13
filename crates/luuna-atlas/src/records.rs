@@ -2505,3 +2505,105 @@ const GO_PRINTABLE_RANGES: &[(u32, u32)] = &[
 pub fn text_value(value: Option<&Value>) -> String {
     text(value)
 }
+
+/// Check an implicit outcomes append/merge before it filters stored values.
+/// Objects-only matches the CLI merge; the typed API keeps all array elements.
+pub fn check_outcomes_collection(
+    path: &std::path::Path,
+    record: &Record,
+    objects_only: bool,
+) -> crate::Result<()> {
+    let no_data =
+        |value: &Value| value.is_null() || matches!(value,Value::String(s) if s.is_empty());
+    let loses = match record.get("outcomes") {
+        None => false,
+        Some(Value::Array(values)) => {
+            objects_only
+                && values
+                    .iter()
+                    .any(|v| !matches!(v, Value::Object(_)) && !no_data(v))
+        }
+        Some(value) => !no_data(value),
+    };
+    if loses {
+        Err(crate::AtlasError::Message(format!(
+            "Refusing to rewrite {}: stored outcomes would lose a value during append or merge. The file is unchanged.",
+            path.display()
+        )))
+    } else {
+        Ok(())
+    }
+}
+/// WriteRecords treats false and numeric zero IDs as missing. Check only
+/// retained records; an intentional whole-record replacement has no such pair.
+pub fn check_retained_ids<'a>(
+    path: &std::path::Path,
+    pairs: impl IntoIterator<Item = (&'a Record, &'a Record)>,
+) -> crate::Result<()> {
+    let false_id = |v: Option<&Value>| match v {
+        Some(Value::Bool(false)) => true,
+        Some(Value::Number(n)) => *n == 0.0,
+        Some(Value::Integer(n)) => *n == 0,
+        _ => false,
+    };
+    for (index, (before, after)) in pairs.into_iter().enumerate() {
+        if false_id(before.get("id")) && false_id(after.get("id")) {
+            return Err(crate::AtlasError::Message(format!(
+                "Refusing to rewrite {}: retained record {} has a false or zero id that would be replaced automatically. The file is unchanged.",
+                path.display(),index+1
+            )));
+        }
+    }
+    Ok(())
+}
+/// Resolve a Go-style ID without the foundation helper's recursive Text call.
+/// Truthy non-string IDs remain readable; only Go's mx-prefixed lookup matches.
+pub fn resolve_record_id(records: &[Record], id: &str) -> crate::Result<usize> {
+    let hash = id.strip_prefix("mx-").unwrap_or(id);
+    let wanted = format!("mx-{hash}");
+    if let Some(index) = records.iter().position(|r| text(r.get("id")) == wanted) {
+        return Ok(index);
+    }
+    let matches: Vec<_> = records
+        .iter()
+        .enumerate()
+        .map(|(index, r)| (index, text(r.get("id"))))
+        .filter(|(_, value)| value.starts_with(&wanted))
+        .collect();
+    match matches.as_slice() {
+        [(index,_)]=>Ok(*index),
+        []=>Err(crate::AtlasError::Message(format!(
+            "Record \"{id}\" not found. Run {}luuna-atlas query{} to see record IDs.",
+            char::from(96),char::from(96)
+        ))),
+        _=>Err(crate::AtlasError::Message(format!(
+            "Ambiguous identifier \"{id}\" matches {} records: {}. Use more characters to disambiguate.",
+            matches.len(),matches.iter().map(|(_,id)|id.as_str()).collect::<Vec<_>>().join(", ")
+        )))
+    }
+}
+
+/// Go's ID derivation using nonrecursive Text for arbitrary typed API values.
+pub fn generate_record_id(record: &Record, registry: &Registry) -> crate::Result<String> {
+    use sha2::{Digest, Sha256};
+    let typ = text(record.get("type"));
+    let definition = registry
+        .get(&typ)
+        .ok_or_else(|| crate::AtlasError::Message(format!("Unknown record type: {typ}")))?;
+    let key = format!("{typ}:{}", text(record.get(&definition.id_key)));
+    let digest = Sha256::digest(key.as_bytes());
+    Ok(format!(
+        "mx-{:02x}{:02x}{:02x}",
+        digest[0], digest[1], digest[2]
+    ))
+}
+/// Prepare IDs exactly as the writer does, without recursive Text. Call the
+/// preservation checks first when records came from an existing file.
+pub fn assign_record_ids(records: &mut [Record], registry: &Registry) -> crate::Result<()> {
+    for record in records {
+        if !crate::registry::go_bool(record.get("id")) {
+            record.insert_unordered("id", generate_record_id(record, registry)?);
+        }
+    }
+    Ok(())
+}
