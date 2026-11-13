@@ -1,0 +1,7 @@
+{
+  "exit": 0,
+  "stdout": "✓ Closed b\n",
+  "stderr": "",
+  "plans": "{}\n",
+  "issues": "{\"id\":\"t\",\"title\":\"T t\",\"status\":\"open\",\"type\":\"task\",\"priority\":2,\"createdAt\":\"c\",\"updatedAt\":\"<time>\",\"labels\":[\"a\"]}\n{\"id\":\"b\",\"title\":\"T b\",\"status\":\"closed\",\"type\":\"task\",\"priority\":2,\"createdAt\":\"c\",\"updatedAt\":\"<time>\",\"blocks\":[\"t\"],\"closedAt\":\"<time>\"}\n{\"id\":\"o\",\"title\":\"T o\",\"status\":\"open\",\"type\":\"task\",\"priority\":2,\"createdAt\":\"c\",\"updatedAt\":\"u\"}\n"
+}

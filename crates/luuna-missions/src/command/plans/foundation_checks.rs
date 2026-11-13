@@ -77,4 +77,38 @@ pub(in crate::command) fn update(root: &Path, args: &[&str], _kind: u8) {
     }));
 }
 
-pub(in crate::command) fn close(root:&Path,input:&[u8]){let error=run(&Invocation::new(root,["close","b"])).unwrap_err();assert!(error.to_string().contains("s4-missions-lib-4"));let dir=root.join(".luuna/missions");assert_eq!(fs::read(dir.join("issues.jsonl")).unwrap(),input);assert_eq!(fs::read_dir(dir).unwrap().count(),3);}
+pub(in crate::command) fn close(root: &Path, input: &[u8]) {
+    let dir = root.join(".luuna/missions");
+    let mode = fs::metadata(dir.join("issues.jsonl"))
+        .unwrap()
+        .permissions();
+    let out = run(&Invocation::new(root, ["close", "b"])).unwrap();
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../assets/s4-missions-lib-4/foundation-close-go.json"
+    ))
+    .unwrap();
+    assert_eq!(out.exit_code, 0);
+    assert_eq!(out.stdout, expected["stdout"].as_str().unwrap().as_bytes());
+    assert_eq!(out.stderr, expected["stderr"].as_str().unwrap().as_bytes());
+    assert_eq!(
+        fs::read(dir.join("plans.jsonl")).unwrap(),
+        expected["plans"].as_str().unwrap().as_bytes()
+    );
+    let after = fs::read_to_string(dir.join("issues.jsonl")).unwrap();
+    assert_ne!(after.as_bytes(), input);
+    let store = crate::store::Store::open(&dir).unwrap();
+    let tickets = store.read_tickets().unwrap();
+    let time = &tickets.iter().find(|t| t.id == "b").unwrap().closed_at;
+    chrono::DateTime::parse_from_rfc3339(time).unwrap();
+    assert_eq!(
+        after.replace(time, "<time>"),
+        expected["issues"].as_str().unwrap()
+    );
+    assert_eq!(
+        fs::metadata(dir.join("issues.jsonl"))
+            .unwrap()
+            .permissions(),
+        mode
+    );
+    assert_eq!(fs::read_dir(dir).unwrap().count(), 3);
+}
