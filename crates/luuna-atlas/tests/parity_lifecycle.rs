@@ -87,6 +87,8 @@ fn parsed(args: &[String]) -> (Vec<String>, Vec<(String, String)>) {
                 "all",
                 "yes",
                 "apply",
+                "analyze",
+                "auto",
                 "hard",
                 "aggressive",
                 "explain",
@@ -175,8 +177,6 @@ case!(
         "core",
         "--type",
         "convention",
-        "--tag",
-        "rust",
         "--classification",
         "tactical",
         "--outcome-status",
@@ -301,7 +301,7 @@ case!(
     &["config", "set", "governance.max_entries", "120"][..],
     &["config", "set", "search.boost_factor", "0.2"],
     &["config", "unset", "search"],
-    &["config", "unset", "absent"]
+    &["config", "unset", "prime"]
 );
 case!(
     lifecycle_outcome_json,
@@ -466,14 +466,14 @@ case!(
     true,
     false,
     0,
-    &["compact", "core"][..]
+    &["compact", "core", "--analyze"][..]
 );
 case!(
     lifecycle_compact_human,
     true,
     true,
     0,
-    &["compact", "core"][..]
+    &["compact", "core", "--analyze"][..]
 );
 #[test]
 #[ignore = "needs the pinned Go reference; run -- --ignored"]
