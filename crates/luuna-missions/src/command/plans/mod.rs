@@ -25,6 +25,8 @@ mod backref;
 #[allow(dead_code, reason = "native plan reader wiring is the next step")]
 mod common;
 mod edit;
+#[cfg(test)]
+pub(in crate::command) mod foundation_checks;
 #[allow(
     dead_code,
     reason = "mutation handlers consume these guards in following tasks"

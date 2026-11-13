@@ -333,18 +333,12 @@ mod tests {
     #[test]
     fn a_status_change_on_a_ticket_with_a_plan_id_is_refused() {
         let temp = project(&[record(r#","plan_id":"pl-1""#)], "");
-        let before = files(temp.path());
         for args in [
             &["p-1", "--status", "in_progress"][..],
             &["p-1", "--status", "closed", "--title", "other"],
             &["p-1", "--claim", "--as", "me"],
         ] {
-            match update(temp.path(), args) {
-                Err(Error::Unsupported { plan, .. }) => assert_eq!(plan, "s4-missions-lib-4"),
-                other => panic!("{args:?}: expected Unsupported, got {other:?}"),
-            }
-            assert_eq!(files(temp.path()), before, "{args:?}");
-            assert_eq!(leftover_locks(temp.path()), Vec::<String>::new());
+            super::super::plans::foundation_checks::update(temp.path(), args, 0);
         }
     }
 
@@ -352,16 +346,11 @@ mod tests {
     fn a_status_change_on_the_seed_of_a_plan_is_refused() {
         let plan = r#"{"id":"pl-1","seed":"p-1","template":"t","status":"draft","children":[]}"#;
         let temp = project(&[record("")], &format!("{plan}\n"));
-        let before = files(temp.path());
-        match update(temp.path(), &["p-1", "--status", "closed", "--json"]) {
-            Err(Error::Unsupported { plan, feature }) => {
-                assert_eq!(plan, "s4-missions-lib-4");
-                assert!(feature.contains("p-1"), "{feature}");
-            }
-            other => panic!("expected Unsupported, got {other:?}"),
-        }
-        assert_eq!(files(temp.path()), before);
-        assert_eq!(leftover_locks(temp.path()), Vec::<String>::new());
+        super::super::plans::foundation_checks::update(
+            temp.path(),
+            &["p-1", "--status", "closed", "--json"],
+            1,
+        );
     }
 
     #[test]
@@ -369,13 +358,11 @@ mod tests {
         let plan =
             r#"{"id":"pl-1","seed":"s","template":"t","status":"active","children":["p-1"]}"#;
         let temp = project(&[record("")], &format!("{plan}\n"));
-        let before = files(temp.path());
-        let result = update(temp.path(), &["p-1", "--status", "in_progress"]);
-        assert!(
-            matches!(result, Err(Error::Unsupported { .. })),
-            "{result:?}"
+        super::super::plans::foundation_checks::update(
+            temp.path(),
+            &["p-1", "--status", "in_progress"],
+            2,
         );
-        assert_eq!(files(temp.path()), before);
     }
 
     #[test]

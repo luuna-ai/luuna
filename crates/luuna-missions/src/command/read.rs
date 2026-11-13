@@ -773,13 +773,6 @@ mod tests {
 
     const PLAN: &str = r#"{"id":"pl-1","seed":"a","template":"t","status":"draft","children":[]}"#;
 
-    fn assert_plan_refusal(result: Result<Outcome>) {
-        match result {
-            Err(Error::Unsupported { plan, .. }) => assert_eq!(plan, "s4-missions-lib-4"),
-            other => panic!("expected Unsupported, got {other:?}"),
-        }
-    }
-
     #[test]
     fn plan_context_and_plan_ids_are_refused() {
         let temp = project(
@@ -787,18 +780,18 @@ mod tests {
             &format!("{PLAN}\n"),
         );
         let root = temp.path();
-        assert_plan_refusal(go(root, &["show", "a"]));
-        assert_plan_refusal(go(root, &["show", "a", "--json"]));
-        assert_plan_refusal(go(root, &["show", "a", "--format", "plain"]));
-        assert_plan_refusal(go(root, &["show", "a", "b"]));
-        assert_plan_refusal(go(root, &["show", "b", "a", "--json"]));
-        assert_plan_refusal(go(root, &["list"]));
-        assert_plan_refusal(go(root, &["list", "--json"]));
-        assert_plan_refusal(go(root, &["search", "T", "--json"]));
-        assert_plan_refusal(go(root, &["search", "T"]));
-        assert_plan_refusal(go(root, &["show", "pl-1"]));
-        assert_plan_refusal(go(root, &["show", "pl-1", "--json"]));
-        assert_plan_refusal(go(root, &["show", "pl-zz", "--format", "ids"]));
+        super::super::plans::foundation_checks::read(root, &["show", "a"]);
+        super::super::plans::foundation_checks::read(root, &["show", "a", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["show", "a", "--format", "plain"]);
+        super::super::plans::foundation_checks::read(root, &["show", "a", "b"]);
+        super::super::plans::foundation_checks::read(root, &["show", "b", "a", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["list"]);
+        super::super::plans::foundation_checks::read(root, &["list", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["search", "T", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["search", "T"]);
+        super::super::plans::foundation_checks::read(root, &["show", "pl-1"]);
+        super::super::plans::foundation_checks::read(root, &["show", "pl-1", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["show", "pl-zz", "--format", "ids"]);
         // Formats that never print plan context, a filter that hides the
         // ticket, and a plan id that names no plan are ported.
         assert_eq!(
