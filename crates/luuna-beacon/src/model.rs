@@ -513,8 +513,8 @@ mod tests {
     #[test]
     fn every_field_is_written_in_go_order() {
         let mut frontmatter = BTreeMap::new();
-        frontmatter.insert("z".to_owned(), json!("<tag>"));
-        frontmatter.insert("a".to_owned(), json!({"n": 1.5, "l": [null, true]}));
+        frontmatter.insert("z".to_owned(), json!("<tag>").into());
+        frontmatter.insert("a".to_owned(), json!({"n": 1.5, "l": [null, true]}).into());
         let prompt = Prompt {
             id: "luuna-beacon-18a3".to_owned(),
             name: "full".to_owned(),
