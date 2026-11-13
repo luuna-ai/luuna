@@ -1,0 +1,11 @@
+Usage: luuna-missions block [options] <id>
+
+Add a blocker to an issue
+
+Arguments:
+  id                 Issue ID to block
+
+Options:
+  --by <blocker-id>  Issue that blocks this issue
+  --json             Output as JSON
+  -h, --help         display help for command

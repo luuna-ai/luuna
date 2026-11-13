@@ -1,0 +1,10 @@
+Usage: luuna-missions tpl step add [options] <id>
+
+Add a step to a template
+
+Options:
+  --title <text>  Step title
+  --type <type>   Step type (task|bug|feature|epic) (default: "task")
+  --priority <n>  Step priority 0-4 (default: "2")
+  --json          Output as JSON
+  -h, --help      display help for command

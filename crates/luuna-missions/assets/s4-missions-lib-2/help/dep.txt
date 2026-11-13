@@ -1,0 +1,12 @@
+Usage: luuna-missions dep [options] [command]
+
+Manage issue dependencies
+
+Options:
+  -h, --help                             display help for command
+
+Commands:
+  add [options] <issue> <depends-on>     Add a dependency (issue depends on depends-on)
+  remove [options] <issue> <depends-on>  Remove a dependency
+  list [options] <issue>                 Show dependencies for an issue
+  help [command]                         display help for command

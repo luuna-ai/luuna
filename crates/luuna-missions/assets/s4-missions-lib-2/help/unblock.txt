@@ -1,0 +1,12 @@
+Usage: luuna-missions unblock [options] <id>
+
+Remove blockers from an issue
+
+Arguments:
+  id                   Issue ID to unblock
+
+Options:
+  --from <blocker-id>  Remove a specific blocker
+  --all                Remove all closed blockers
+  --json               Output as JSON
+  -h, --help           display help for command

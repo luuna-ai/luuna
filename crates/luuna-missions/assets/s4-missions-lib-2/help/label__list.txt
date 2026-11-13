@@ -1,0 +1,7 @@
+Usage: luuna-missions label list [options] <issue>
+
+List labels on an issue
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

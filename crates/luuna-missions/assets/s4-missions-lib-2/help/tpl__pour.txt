@@ -1,0 +1,8 @@
+Usage: luuna-missions tpl pour [options] <id>
+
+Instantiate template into issues
+
+Options:
+  --prefix <text>  Prefix for issue titles
+  --json           Output as JSON
+  -h, --help       display help for command

@@ -1,0 +1,113 @@
+# bash completion for luuna-missions
+_luuna_missions_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    if [[ ${COMP_CWORD} -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "init create show list ready search update close dep label blocked stats sync doctor tpl migrate-from-beads prime onboard upgrade completions block unblock plan config setup guard" -- "$cur") )
+        return 0
+    fi
+
+    case "${COMP_WORDS[1]}" in
+        init)
+            COMPREPLY=( $(compgen -W "--json" -- "$cur") )
+            return 0
+            ;;
+        create)
+            COMPREPLY=( $(compgen -W "--title --type --priority --assignee --description --desc --body --labels --label --from --intent --json" -- "$cur") )
+            return 0
+            ;;
+        show)
+            COMPREPLY=( $(compgen -W "--format --json" -- "$cur") )
+            return 0
+            ;;
+        list)
+            COMPREPLY=( $(compgen -W "--status --type --assignee --all --label --label-any --unlabeled --priority --priority-max --limit --sort --format --json" -- "$cur") )
+            return 0
+            ;;
+        ready)
+            COMPREPLY=( $(compgen -W "--type --assignee --label --label-any --unlabeled --priority --priority-max --limit --sort --format --json --respect-schedule" -- "$cur") )
+            return 0
+            ;;
+        search)
+            COMPREPLY=( $(compgen -W "--status --type --assignee --label --label-any --unlabeled --priority --priority-max --limit --sort --format --json" -- "$cur") )
+            return 0
+            ;;
+        update)
+            COMPREPLY=( $(compgen -W "--status --title --assignee --description --desc --body --type --priority --add-label --remove-label --set-labels --extensions --clear-extensions --claim --as --intent --json" -- "$cur") )
+            return 0
+            ;;
+        close)
+            COMPREPLY=( $(compgen -W "--reason --json" -- "$cur") )
+            return 0
+            ;;
+        dep)
+            COMPREPLY=( $(compgen -W "add remove list" -- "$cur") )
+            return 0
+            ;;
+        label)
+            COMPREPLY=( $(compgen -W "add remove list list-all" -- "$cur") )
+            return 0
+            ;;
+        blocked)
+            COMPREPLY=( $(compgen -W "--format --json" -- "$cur") )
+            return 0
+            ;;
+        stats)
+            COMPREPLY=( $(compgen -W "--format --json" -- "$cur") )
+            return 0
+            ;;
+        sync)
+            COMPREPLY=( $(compgen -W "--status --dry-run --json" -- "$cur") )
+            return 0
+            ;;
+        doctor)
+            COMPREPLY=( $(compgen -W "--fix --verbose --json" -- "$cur") )
+            return 0
+            ;;
+        tpl)
+            COMPREPLY=( $(compgen -W "create step list show pour status" -- "$cur") )
+            return 0
+            ;;
+        migrate-from-beads)
+            COMPREPLY=( $(compgen -W "--json" -- "$cur") )
+            return 0
+            ;;
+        prime)
+            COMPREPLY=( $(compgen -W "--compact --export --json" -- "$cur") )
+            return 0
+            ;;
+        onboard)
+            COMPREPLY=( $(compgen -W "--stdout --check --json" -- "$cur") )
+            return 0
+            ;;
+        upgrade)
+            COMPREPLY=( $(compgen -W "--check --json" -- "$cur") )
+            return 0
+            ;;
+        block)
+            COMPREPLY=( $(compgen -W "--by --json" -- "$cur") )
+            return 0
+            ;;
+        unblock)
+            COMPREPLY=( $(compgen -W "--from --all --json" -- "$cur") )
+            return 0
+            ;;
+        plan)
+            COMPREPLY=( $(compgen -W "templates prompt submit show validate outcome review edit create adopt reorder release list" -- "$cur") )
+            return 0
+            ;;
+        config)
+            COMPREPLY=( $(compgen -W "schema show set unset" -- "$cur") )
+            return 0
+            ;;
+        setup)
+            COMPREPLY=( $(compgen -W "--remove --json" -- "$cur") )
+            return 0
+            ;;
+    esac
+}
+
+complete -F _luuna_missions_completions luuna-missions lms lm
+

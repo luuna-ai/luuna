@@ -1,0 +1,7 @@
+Usage: luuna-missions tpl status [options] <id>
+
+Show convoy status for a template
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

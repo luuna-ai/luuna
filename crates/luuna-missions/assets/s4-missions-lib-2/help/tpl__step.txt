@@ -1,0 +1,10 @@
+Usage: luuna-missions tpl step [options] [command]
+
+Manage template steps
+
+Options:
+  -h, --help          display help for command
+
+Commands:
+  add [options] <id>  Add a step to a template
+  help [command]      display help for command
