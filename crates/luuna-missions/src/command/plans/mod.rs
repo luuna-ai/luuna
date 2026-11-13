@@ -9,6 +9,22 @@
 //! involved and the second does nothing. s4-missions-lib-4 replaces them,
 //! adds its files in this folder and replaces the `checks` it owns.
 
+#[allow(
+    dead_code,
+    reason = "plan handlers are implemented in the following tasks"
+)]
+mod record;
+
+#[allow(
+    dead_code,
+    reason = "mutation handlers consume these guards in following tasks"
+)]
+mod guard;
+#[allow(
+    dead_code,
+    reason = "mutation handlers consume these guards in following tasks"
+)]
+mod raw;
 use std::io;
 
 use crate::error::{Error, Result, PLAN_4};
