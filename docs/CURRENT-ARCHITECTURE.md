@@ -1,5 +1,7 @@
 # Current Luuna architecture
 
+Native Missions runtime ticket operations and terminal component commands follow [ADR 0052](decisions/0052-missions-called-natively.md). Tickets and prompts in enabled projects need no legacy toolchain; Atlas and full activation retain their adapter until Atlas wiring.
+
 Terminal first-run setup and persisted user/project settings follow [ADR 0050](decisions/0050-first-run-terminal-setup.md). Interactive `lu init` prepares private tools and credentials before connecting; local dirty changes can be explicitly stashed before the runtime baseline.
 
 Local opt-in authentication: [ADR 0049](decisions/0049-opt-in-openai-oauth.md)

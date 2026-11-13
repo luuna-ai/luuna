@@ -1,10 +1,7 @@
-//! The component CLIs (Missions, Atlas, Beacon) run in a developer's checkout for the agents that
-//! open it directly: `init`, `onboard`, `setup claude` and `prime`. They are found where the
-//! launcher finds them (scripts/start-terminal.ps1: the independently installed checkouts beside
-//! Luuna) or, in a development checkout, at the pinned submodules under components/. They run with
-//! Bun's own executable (never a shell shim), no shell, the repository as working directory, a
-//! bounded time and output, and an environment without the runtime's URL or token. These are
-//! repo-local stores, separate from the runtime's private managed stores (ADR 0014, ADR 0028).
+//! Repo-local component commands for the terminal guide.
+//! Missions runs through its native Rust library without a toolchain checkout.
+//! Atlas and Beacon retain their legacy runners until the remaining CLI wiring.
+//! All command environments exclude the runtime connection URL and token.
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
