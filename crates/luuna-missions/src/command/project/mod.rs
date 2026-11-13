@@ -94,34 +94,208 @@ pub(super) mod checks {
     }
     fn ported(name: &str) {
         match name {
-            "setup" | "guard" => {
+            "setup" => {
                 let temp = tempfile::tempdir().unwrap();
-                let out = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
-                assert_eq!(out.stdout, b"");
+                let out = run(&Invocation::new(temp.path(), ["setup", "--json"])).unwrap();
+                // Literal stdout observed with the pinned Go reference in an empty project.
                 assert_eq!(
-                    out.stderr,
-                    if name == "setup" {
-                        b"Error: Unknown setup target \"\"; supported: claude\n".as_slice()
-                    } else {
-                        b"Error: too many arguments for 'guard'\n".as_slice()
-                    }
+                    out.stdout.as_slice(),
+                    r####"{
+  "success": false,
+  "command": "setup",
+  "error": "Unknown setup target \"\"; supported: claude"
+}
+"####
+                        .as_bytes()
                 );
+                assert_eq!(out.stderr, b"");
+                assert_eq!(out.exit_code, 1);
+            }
+            "guard" => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(temp.path(), ["guard", "--json"])).unwrap();
+                // Literal stdout observed with the pinned Go reference in an empty project.
+                assert_eq!(
+                    out.stdout.as_slice(),
+                    r####"{
+  "success": false,
+  "command": "guard",
+  "error": "too many arguments for 'guard'"
+}
+"####
+                        .as_bytes()
+                );
+                assert_eq!(out.stderr, b"");
                 assert_eq!(out.exit_code, 1);
             }
             "onboard" => {
                 let temp = tempfile::tempdir().unwrap();
-                let out = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
-                assert_eq!(out.stdout,b"{\n  \"success\": false,\n  \"command\": \"onboard\",\n  \"error\": \"Not in a missions project. Run `luuna-missions init` first.\"\n}\n");
+                let out = run(&Invocation::new(temp.path(), ["onboard", "--json"])).unwrap();
+                // Literal stdout observed with the pinned Go reference in an empty project.
+                assert_eq!(
+                    out.stdout.as_slice(),
+                    r####"{
+  "success": false,
+  "command": "onboard",
+  "error": "Not in a missions project. Run `luuna-missions init` first."
+}
+"####
+                        .as_bytes()
+                );
                 assert_eq!(out.stderr, b"");
                 assert_eq!(out.exit_code, 1);
             }
             "prime" => {
                 let temp = tempfile::tempdir().unwrap();
-                let out = run(&Invocation::new(temp.path(), [name, "--json"])).unwrap();
-                let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-                assert_eq!(v["success"], true);
-                assert_eq!(v["command"], "prime");
-                assert_eq!(v["state"], serde_json::Value::Null);
+                let out = run(&Invocation::new(temp.path(), ["prime", "--json"])).unwrap();
+                // Literal stdout observed with the pinned Go reference in an empty project.
+                assert_eq!(out.stdout.as_slice(),r####"{
+  "success": true,
+  "command": "prime",
+  "sections": {
+    "closeProtocol": {
+      "footer": "Then push or open a PR as the repo's conventions say.",
+      "steps": [
+        "Close completed issues:    luuna-missions close <id1> <id2> ...",
+        "File remaining work:       luuna-missions create --title \"...\" --from <id>",
+        "Run quality gates:         the project's quality gates (tests, lint, typecheck)",
+        "Commit issue changes:      luuna-missions sync"
+      ],
+      "warning": "Before saying \"done\", run this checklist:"
+    },
+    "commandGroups": [
+      {
+        "commands": [
+          {
+            "command": "luuna-missions ready",
+            "description": "Show issues ready to work (no blockers)"
+          },
+          {
+            "command": "luuna-missions list --status=in_progress",
+            "description": "Active work"
+          },
+          {
+            "command": "luuna-missions show <id> [<id2> ...]",
+            "description": "Detailed issue view"
+          },
+          {
+            "command": "luuna-missions search <query>",
+            "description": "Full-text search"
+          }
+        ],
+        "name": "Finding Work"
+      },
+      {
+        "commands": [
+          {
+            "command": "luuna-missions create --title=\"...\" --type=task|bug|feature|epic --priority=2",
+            "description": "New issue (priority 0-4, 0=critical)"
+          },
+          {
+            "command": "luuna-missions update <id> --claim --as <agent>",
+            "description": "Claim work atomically (fails if already taken)"
+          },
+          {
+            "command": "luuna-missions create --title=\"...\" --from <id>",
+            "description": "File work discovered while on <id> (non-blocking provenance)"
+          },
+          {
+            "command": "luuna-missions close <id1> <id2> ...",
+            "description": "Close one or more issues"
+          }
+        ],
+        "name": "Creating & Updating"
+      },
+      {
+        "commands": [
+          {
+            "command": "luuna-missions dep add <issue> <depends-on>",
+            "description": "Add dependency"
+          },
+          {
+            "command": "luuna-missions blocked",
+            "description": "Show all blocked issues"
+          }
+        ],
+        "name": "Dependencies & Blocking"
+      },
+      {
+        "commands": [
+          {
+            "command": "luuna-missions label add <id> bug ui",
+            "description": "Add labels to an issue"
+          },
+          {
+            "command": "luuna-missions list --label=bug",
+            "description": "Filter by label"
+          }
+        ],
+        "name": "Labels"
+      },
+      {
+        "commands": [
+          {
+            "command": "luuna-missions sync",
+            "description": "Stage and commit .luuna/missions/ changes"
+          },
+          {
+            "command": "luuna-missions doctor",
+            "description": "Check for data integrity issues"
+          }
+        ],
+        "name": "Sync & Project Health"
+      },
+      {
+        "commands": [
+          {
+            "command": "luuna-missions plan prompt <seed-id>",
+            "description": "Emit prompt JSON for the LLM to fill"
+          },
+          {
+            "command": "luuna-missions plan submit <seed-id> --plan <file>",
+            "description": "Validate + spawn children"
+          },
+          {
+            "command": "luuna-missions plan show <pl-id>",
+            "description": "Sections, children, nested sub-plans"
+          }
+        ],
+        "name": "Planning",
+        "notes": [
+          "Use `luuna-missions plan` when work is large or ambiguous; submit spawns one child seed per step. For small, well-scoped tasks, just `luuna-missions create`."
+        ]
+      }
+    ],
+    "contextRecovery": "Run `luuna-missions prime` after compaction, clear, or new session",
+    "mode": "full",
+    "rules": [
+      "**Track durable work in missions** (`luuna-missions create`, `luuna-missions ready`, `luuna-missions close`), not markdown task files. In-session checklists (TodoWrite) are fine.",
+      "**Claim before starting**: `luuna-missions update <id> --claim` (atomic; fails if someone else has it)",
+      "**Never hand-edit `.luuna/missions/*.jsonl`**: `luuna-missions` commands lock, validate, and dedup; hand edits skip all three"
+    ],
+    "title": "Missions Workflow Context",
+    "workflows": [
+      {
+        "commands": [
+          "luuna-missions ready                    # Find available work",
+          "luuna-missions show <id>                # Review issue details",
+          "luuna-missions update <id> --claim      # Claim it"
+        ],
+        "name": "Starting work"
+      },
+      {
+        "commands": [
+          "luuna-missions close <id1> <id2> ...    # Close all completed issues at once",
+          "luuna-missions sync                     # Stage + commit .luuna/missions/"
+        ],
+        "name": "Completing work"
+      }
+    ]
+  },
+  "state": null,
+  "content": "# Missions Workflow Context\n\n> **Context Recovery**: Run `luuna-missions prime` after compaction, clear, or new session\n\n# Session Close Protocol\n\nBefore saying \"done\", run this checklist:\n\n```\n[ ] 1. Close completed issues:    luuna-missions close <id1> <id2> ...\n[ ] 2. File remaining work:       luuna-missions create --title \"...\" --from <id>\n[ ] 3. Run quality gates:         the project's quality gates (tests, lint, typecheck)\n[ ] 4. Commit issue changes:      luuna-missions sync\n```\n\nThen push or open a PR as the repo's conventions say.\n\n## Core Rules\n- **Track durable work in missions** (`luuna-missions create`, `luuna-missions ready`, `luuna-missions close`), not markdown task files. In-session checklists (TodoWrite) are fine.\n- **Claim before starting**: `luuna-missions update <id> --claim` (atomic; fails if someone else has it)\n- **Never hand-edit `.luuna/missions/*.jsonl`**: `luuna-missions` commands lock, validate, and dedup; hand edits skip all three\n\n## Essential Commands\n\n### Finding Work\n- `luuna-missions ready` — Show issues ready to work (no blockers)\n- `luuna-missions list --status=in_progress` — Active work\n- `luuna-missions show <id> [<id2> ...]` — Detailed issue view\n- `luuna-missions search <query>` — Full-text search\n\n### Creating & Updating\n- `luuna-missions create --title=\"...\" --type=task|bug|feature|epic --priority=2` — New issue (priority 0-4, 0=critical)\n- `luuna-missions update <id> --claim --as <agent>` — Claim work atomically (fails if already taken)\n- `luuna-missions create --title=\"...\" --from <id>` — File work discovered while on <id> (non-blocking provenance)\n- `luuna-missions close <id1> <id2> ...` — Close one or more issues\n\n### Dependencies & Blocking\n- `luuna-missions dep add <issue> <depends-on>` — Add dependency\n- `luuna-missions blocked` — Show all blocked issues\n\n### Labels\n- `luuna-missions label add <id> bug ui` — Add labels to an issue\n- `luuna-missions list --label=bug` — Filter by label\n\n### Sync & Project Health\n- `luuna-missions sync` — Stage and commit .luuna/missions/ changes\n- `luuna-missions doctor` — Check for data integrity issues\n\n### Planning\nUse `luuna-missions plan` when work is large or ambiguous; submit spawns one child seed per step. For small, well-scoped tasks, just `luuna-missions create`.\n\n- `luuna-missions plan prompt <seed-id>` — Emit prompt JSON for the LLM to fill\n- `luuna-missions plan submit <seed-id> --plan <file>` — Validate + spawn children\n- `luuna-missions plan show <pl-id>` — Sections, children, nested sub-plans\n\n## Common Workflows\n\n**Starting work:**\n```bash\nluuna-missions ready                    # Find available work\nluuna-missions show <id>                # Review issue details\nluuna-missions update <id> --claim      # Claim it\n```\n\n**Completing work:**\n```bash\nluuna-missions close <id1> <id2> ...    # Close all completed issues at once\nluuna-missions sync                     # Stage + commit .luuna/missions/\n```\n"
+}
+"####.as_bytes());
                 assert_eq!(out.stderr, b"");
                 assert_eq!(out.exit_code, 0);
             }
