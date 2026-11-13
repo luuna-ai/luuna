@@ -735,6 +735,48 @@ mod tests {
         );
         assert_eq!(std::fs::read(&store).unwrap(), b"invalid");
         std::fs::write(store, bytes).unwrap();
+        // The authenticated HTTP boundary also dispatches to the native path.
+        use axum::{
+            body::{to_bytes, Body},
+            http::Request,
+        };
+        use tower::ServiceExt;
+        let body = json!({
+            "idempotency_key":"native-http", "title":"Native HTTP ticket",
+            "intent":"Run through authenticated routes",
+            "acceptance_criteria":["Native delivery remains idempotent"],
+            "repository_ids":["app"]
+        });
+        let mut first_id = None;
+        for (authenticated, expected) in [
+            (false, StatusCode::UNAUTHORIZED),
+            (true, StatusCode::CREATED),
+            (true, StatusCode::OK),
+        ] {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/projects/{project}/tickets"))
+                .header("content-type", "application/json");
+            if authenticated {
+                request = request.header("authorization", format!("Bearer {}", state.config.token));
+            }
+            let response = crate::router(state.clone())
+                .oneshot(request.body(Body::from(body.to_string())).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+            if authenticated {
+                let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+                let ticket: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(ticket["source"], "missions");
+                let id = ticket["id"].as_str().unwrap().to_owned();
+                if let Some(first) = &first_id {
+                    assert_eq!(&id, first);
+                }
+                first_id = Some(id);
+            }
+        }
+        assert_eq!(issues(&state, project).await.unwrap().len(), 2);
     }
 
     #[tokio::test]

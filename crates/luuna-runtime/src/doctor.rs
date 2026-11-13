@@ -505,7 +505,7 @@ pub fn host_probes(host: Host) -> DoctorProbes {
                 .as_ref()
                 .map(|components| {
                     format!(
-                        "pinned Missions/Atlas toolchain discovered: {}; Beacon runs natively",
+                        "pinned Atlas toolchain discovered: {}; Missions and Beacon run natively",
                         components.describe()
                     )
                 })

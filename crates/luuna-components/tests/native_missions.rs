@@ -77,6 +77,20 @@ async fn managed_refusals_leave_store_untouched() {
             .is_err());
         assert_eq!(fs::read(&file).unwrap(), bytes);
     }
+    let lossy = b"{\"id\":\"a\"}\ninvalid\n";
+    fs::write(&file, lossy).unwrap();
+    let error = run_missions_native(
+        root,
+        &args(&["update", "a", "--title=changed"]),
+        BTreeMap::new(),
+        Vec::new(),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("issues.jsonl"), "{error}");
+    assert!(error.contains("line"), "{error}");
+    assert_eq!(fs::read(&file).unwrap(), lossy);
     fs::write(&file, b"").unwrap();
     assert!(matches!(
         call_missions_native(root, &args(&["sync"])).await,
@@ -108,4 +122,42 @@ async fn managed_links_are_refused() {
             .is_err()
     );
     assert_eq!(fs::read(outside).unwrap(), b"original");
+}
+
+#[test]
+fn native_workflow_runs_in_an_empty_environment() {
+    use std::{
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "tickets_are_native_and_preserve_raw_command_contract",
+        ])
+        .env_clear()
+        .env("PATH", "")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            break;
+        }
+        if start.elapsed() > Duration::from_secs(20) {
+            child.kill().unwrap();
+            let _ = child.wait();
+            panic!("native workflow exceeded its deadline");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
 }
