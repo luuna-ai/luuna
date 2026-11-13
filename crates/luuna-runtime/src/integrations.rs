@@ -64,6 +64,18 @@ fn require_beacon_enabled(state: &AppState, id: &str) -> Result<(), ApiError> {
             "Enable project components before using memory or prompts",
         ));
     }
+    if state.components.is_none() {
+        // A native backend removes the toolchain dependency only for a
+        // store the authoritative resolver makes available. Retain the
+        // existing resource-availability refusal before attempting data I/O.
+        workspace(state, id).map_err(|_| {
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "This project's prompt store is unavailable; check its store mode configuration"
+                    .into(),
+            )
+        })?;
+    }
     Ok(())
 }
 fn require_enabled(state: &AppState, id: &str) -> Result<(), ApiError> {

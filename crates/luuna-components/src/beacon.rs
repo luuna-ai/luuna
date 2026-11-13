@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs, io::Read, path::Path, sync::Mutex};
 
 const MAX_INPUT: usize = 64 * 1024 * 1024;
+const MAX_RECORDS: usize = 100_000;
 // The gate lives in the blocking job: dropping an HTTP future cannot admit a
 // second native call while an earlier writer is still completing. The runtime's
 // durable intent marker reconciles uncertain completion as it did for the CLI.
@@ -31,7 +32,7 @@ pub async fn call_beacon_native(workspace: &Path, args: &[String]) -> Result<Val
             return Err(ComponentError::Workspace);
         }
         check_project_data_links(&root, ".luuna/beacon")?;
-        preflight(&root)?;
+        preflight(&root, matches!(request, Request::Init))?;
         let beacon = Beacon::open(&root).map_err(|_| ComponentError::Workspace)?;
         let value = request.execute(&beacon)?;
         if serde_json::to_vec(&value)
@@ -47,10 +48,23 @@ pub async fn call_beacon_native(workspace: &Path, args: &[String]) -> Result<Val
     .map_err(|_| ComponentError::Refused)?
 }
 
-fn preflight(root: &Path) -> Result<()> {
+fn preflight(root: &Path, initializing: bool) -> Result<()> {
     let mut remaining = MAX_INPUT;
-    for name in ["config.yaml", "prompts.jsonl", "schemas.jsonl"] {
-        let path = root.join(".luuna/beacon").join(name);
+    let mut records = 0usize;
+    for name in [
+        "config.yaml",
+        "prompts.jsonl",
+        "schemas.jsonl",
+        ".gitattributes",
+    ] {
+        if name == ".gitattributes" && !initializing {
+            continue;
+        }
+        let path = if name == ".gitattributes" {
+            root.join(name)
+        } else {
+            root.join(".luuna/beacon").join(name)
+        };
         let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -84,6 +98,10 @@ fn preflight(root: &Path) -> Result<()> {
             for line in bytes.split(|b| *b == b'\n') {
                 if std::str::from_utf8(line).is_ok_and(|s| s.trim().is_empty()) {
                     continue;
+                }
+                records += 1;
+                if records > MAX_RECORDS || line.len() > MAX_STDOUT {
+                    return Err(ComponentError::OutputLimit);
                 }
                 // This bounds the JSON structure later materialised for an API
                 // answer, before any write can append a new current record.

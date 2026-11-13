@@ -38,6 +38,19 @@ fn native_workflows_need_no_toolchain_or_checkout() {
             .build()
             .unwrap()
             .block_on(async {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::ffi::OsStrExt;
+                    let file = root.join(".gitattributes");
+                    let path = std::ffi::CString::new(file.as_os_str().as_bytes()).unwrap();
+                    // The parent deadline also bounds the initialization-only input.
+                    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+                    assert!(matches!(
+                        call_beacon_native(&root, &args(&["init"])).await,
+                        Err(ComponentError::Workspace)
+                    ));
+                    fs::remove_file(file).unwrap();
+                }
                 call(&root, &["init"]).await;
                 let body = "literal shell-looking $(unused) ${unused} and private long content "
                     .repeat(1000);
@@ -287,4 +300,37 @@ async fn native_version_overflow_preserves_go_behavior_and_other_stores() {
     let other = other.path().canonicalize().unwrap();
     assert_eq!(call(&other, &["init"]).await["success"], true);
     assert_eq!(call(&other, &["list"]).await["count"], 0);
+}
+
+#[tokio::test]
+async fn many_small_records_are_bounded_before_model_allocation() {
+    let dir = fixture();
+    let root = dir.path().canonicalize().unwrap();
+    call(&root, &["init"]).await;
+    let path = root.join(".luuna/beacon/prompts.jsonl");
+    let source = "null\n".repeat(100_001);
+    fs::write(&path, &source).unwrap();
+    assert!(matches!(
+        call_beacon_native(&root, &args(&["create", "--name", "p"])).await,
+        Err(ComponentError::OutputLimit)
+    ));
+    assert!(
+        fs::read_to_string(path).unwrap() == source,
+        "record count refusal changed source bytes"
+    )
+}
+#[tokio::test]
+async fn an_oversized_record_is_refused_before_any_update() {
+    let dir = fixture();
+    let root = dir.path().canonicalize().unwrap();
+    call(&root, &["init"]).await;
+    let path = root.join(".luuna/beacon/prompts.jsonl");
+    let source=format!("{{\"id\":\"p\",\"name\":\"p\",\"version\":1,\"status\":\"active\",\"description\":\"{}\"}}\n","x".repeat(4*1024*1024));
+    fs::write(&path, &source).unwrap();
+    let before = digest(&path);
+    assert!(matches!(
+        call_beacon_native(&root, &args(&["update", "p", "--description", "changed"])).await,
+        Err(ComponentError::OutputLimit)
+    ));
+    assert_eq!(digest(&path), before)
 }
