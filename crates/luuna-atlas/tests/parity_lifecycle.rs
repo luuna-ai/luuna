@@ -129,6 +129,15 @@ fn native(p: &Project, args: &[String], input: Option<&[u8]>) -> CommandOutput {
         env: Env::fixed(vars(p, &[]), args.to_vec(), false),
         globals,
     };
+    // The product parser is plan5. Go's common format choices override the
+    // advertised query ids choice before its handler; keep this parser case
+    // distinct from the typed handler's still-present ids output branch.
+    if flags
+        .iter()
+        .any(|(key, value)| key == "format" && value == "ids")
+    {
+        return CommandOutput::plain_failure("error: option '--format <format>' argument 'ids' is invalid. Allowed choices are markdown, compact, xml, plain.");
+    }
     lifecycle::run(
         &ctx,
         &args[0],
@@ -964,10 +973,10 @@ fn lifecycle_read_quiet_is_ignored_and_ids_work() {
         &["ready", "--quiet"],
         &["status", "--quiet"],
         &["validate", "--quiet"],
-        &["query", "core", "--format", "ids"],
     ] {
         compare(&t, args, true, 0, None);
     }
+    compare(&t, &["query", "core", "--format", "ids"], true, 1, None);
 }
 #[test]
 #[ignore = "needs the pinned Go reference; run -- --ignored"]
@@ -1022,6 +1031,6 @@ fn lifecycle_validate_errors_warnings_and_escape_hatches() {
 #[ignore = "needs the pinned Go reference; run -- --ignored"]
 fn lifecycle_validate_custom_aliases() {
     let t = base(false);
-    t.prepare(|p|{p.write(".luuna/atlas/config.yaml","version: '1'\ndomains: {core: {}, other: {}}\ncustom_types:\n  hypothesis:\n    required: [statement]\n    dedup_key: statement\n    aliases: {statement: [claim]}\n");p.write(".luuna/atlas/expertise/core.jsonl","{\"id\":\"mx-dddd\",\"type\":\"hypothesis\",\"claim\":\"Original field\",\"classification\":\"tactical\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\"}\n");});
+    t.prepare(|p|{p.write(".luuna/atlas/config.yaml","version: '1'\ndomains: {core: {}, other: {}}\ncustom_types:\n  hypothesis:\n    required: [statement]\n    dedup_key: statement\n    summary: '{statement}'\n    aliases: {statement: [claim]}\n");p.write(".luuna/atlas/expertise/core.jsonl","{\"id\":\"mx-dddd\",\"type\":\"hypothesis\",\"claim\":\"Original field\",\"classification\":\"tactical\",\"recorded_at\":\"2026-01-01T00:00:00.000Z\"}\n");});
     compare(&t, &["validate"], false, 0, None);
 }
