@@ -17,6 +17,11 @@ mod record;
 
 #[allow(dead_code, reason = "native plan prompt wiring is the next step")]
 mod atlas;
+#[allow(
+    dead_code,
+    reason = "plan edit/submit/link handlers consume backrefs in following tasks"
+)]
+mod backref;
 #[allow(dead_code, reason = "native plan reader wiring is the next step")]
 mod common;
 #[allow(
@@ -24,6 +29,7 @@ mod common;
     reason = "mutation handlers consume these guards in following tasks"
 )]
 mod guard;
+mod mutate;
 mod prompt;
 #[allow(
     dead_code,
@@ -61,7 +67,10 @@ fn run(c: &mut super::Context<'_>, args: &[String]) -> std::result::Result<(), s
         "show" => reader::show(c, &args[1..]),
         "validate" => reader::validate(c, &args[1..]),
         "prompt" => prompt::run(c, &args[1..]),
-        "create" | "outcome" | "review" | "edit" | "submit" | "adopt" | "reorder" | "release" => {
+        "create" => mutate::create(c, &args[1..]),
+        "outcome" => mutate::outcome(c, &args[1..]),
+        "review" => mutate::review(c, &args[1..]),
+        "edit" | "submit" | "adopt" | "reorder" | "release" => {
             Err(Error::unsupported(format!("the plan {name} command"), PLAN_4).into())
         }
         _ => Err(super::Failure::message(format!(
