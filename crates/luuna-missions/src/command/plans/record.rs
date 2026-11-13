@@ -177,6 +177,12 @@ impl Plan {
         out.push(b'}');
         Ok(out)
     }
+    pub fn original_keys(&self) -> &[String] {
+        self.state
+            .as_ref()
+            .map(|s| s.original.keys())
+            .unwrap_or_default()
+    }
     pub fn raw_field(&self, key: &str) -> Option<&[u8]> {
         self.state.as_ref()?.original.get(key)
     }

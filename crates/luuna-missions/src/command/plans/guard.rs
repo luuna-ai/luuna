@@ -99,6 +99,96 @@ pub(super) fn array_changes(store: &Store, after: &Plan) -> Result<()> {
     }
     Ok(())
 }
+
+/// Fresh draft replacement is an own change for standard identity/state fields,
+/// never permission to discard unrelated metadata, body text or old child links.
+pub(super) fn replace_draft(store: &Store, old: &Plan, explicit_blueprint: bool) -> Result<()> {
+    let refuse = |why: &str| {
+        refusal(format!("Refusing to replace draft \"{}\" in {}: {why}, and the Go tool would discard it without a message. Nothing was written.",old.id,store.path(DataFile::Plans).display()))
+    };
+    let own = [
+        "id",
+        "seed",
+        "template",
+        "name",
+        "status",
+        "revision",
+        "sections",
+        "children",
+        "createdAt",
+        "updatedAt",
+    ];
+    for key in old.original_keys() {
+        if !own.contains(&key.as_str()) {
+            return Err(refuse(&format!("it holds the unrelated key \"{key}\"")));
+        }
+    }
+    if let Some(raw) = old.raw_field("children") {
+        if raw != b"null" && raw::array(raw).is_none_or(|a| !a.is_empty()) {
+            return Err(refuse("it holds existing child-link data"));
+        }
+    }
+    if !explicit_blueprint {
+        if let Some(raw) = old.raw_sections().filter(|r| *r != b"null") {
+            if raw.first() != Some(&b'{') {
+                return Err(refuse("it holds a non-object sections value"));
+            }
+            let mut seen = HashSet::new();
+            for (key, value) in raw::pairs(raw) {
+                let key = json::unquote(key);
+                if !seen.insert(key.clone())
+                    || key != "steps"
+                    || value != b"null" && raw::array(value).is_none_or(|a| !a.is_empty())
+                {
+                    return Err(refuse("it holds existing blueprint body data"));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+/// Only backref mutations call this: explicit full-description updates remain
+/// the command's own change. The caller also runs lib-2's whole-file/array guard.
+pub(super) fn ticket_backrefs(
+    store: &Store,
+    before: &[crate::model::Ticket],
+    after: &[crate::model::Ticket],
+) -> Result<()> {
+    let path = store.path(DataFile::Issues);
+    let bytes = match fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(Error::io("read", &path, e)),
+    };
+    let old: HashMap<_, _> = before.iter().map(|t| (t.id.as_str(), t)).collect();
+    let new: HashMap<_, _> = after.iter().map(|t| (t.id.as_str(), t)).collect();
+    for (i, line) in bytes.split(|b| *b == b'\n').enumerate() {
+        let line = trim_space(line);
+        let Some(ticket) = crate::model::Ticket::from_json(line) else {
+            continue;
+        };
+        let (Some(old), Some(new)) = (old.get(ticket.id.as_str()), new.get(ticket.id.as_str()))
+        else {
+            continue;
+        };
+        if old.description == new.description {
+            continue;
+        }
+        let members = json::parse_object(line).expect("a decoded ticket is an object");
+        let Some(raw) = members.get("description").filter(|r| *r != b"null") else {
+            continue;
+        };
+        let problem = if raw.first() != Some(&b'"') {
+            Some("is not a string".into())
+        } else {
+            raw::string_problem(raw).map(|why| format!("holds {why}"))
+        };
+        if let Some(problem) = problem {
+            return Err(refusal(format!("Refusing to rewrite {}: line {} issue \"{}\" description {problem}, and updating its plan backref would drop or change user text. Nothing was written.",path.display(),i+1,ticket.id)));
+        }
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +350,94 @@ mod tests {
                 .get_or_insert_with(Vec::new)
                 .push("new".into());
             array_changes(&s, &p).unwrap();
+        }
+    }
+    #[test]
+    fn fresh_draft_replacement_refuses_unrelated_metadata_and_old_links() {
+        for suffix in [
+            r#","future":{"keep":"user"}"#,
+            r#","outcomeNote":"keep note""#,
+        ] {
+            let bytes = format!(
+                "{{\"id\":\"pl-old\",\"sections\":{{\"steps\":[]}},\"children\":[]{suffix}}}"
+            );
+            let (_t, s) = store(bytes.as_bytes());
+            let p = Plan::from_line(bytes.as_bytes()).unwrap();
+            for explicit in [false, true] {
+                assert!(replace_draft(&s, &p, explicit)
+                    .unwrap_err()
+                    .to_string()
+                    .ends_with("Nothing was written."));
+                assert_eq!(fs::read(s.path(DataFile::Plans)).unwrap(), bytes.as_bytes());
+            }
+        }
+        let bytes = br#"{"id":"pl-old","children":["child"]}"#;
+        let (_t, s) = store(bytes);
+        let p = Plan::from_line(bytes).unwrap();
+        assert!(replace_draft(&s, &p, true).is_err());
+    }
+    #[test]
+    fn explicit_blueprint_replacement_and_empty_draft_controls_follow_go() {
+        for raw in [
+            br#"{"sections":{}}"#.as_slice(),
+            br#"{"sections":{"steps":[]},"children":[]}"#,
+            br#"{"sections":null,"children":null}"#,
+        ] {
+            let (_t, s) = store(raw);
+            let p = Plan::from_line(raw).unwrap();
+            replace_draft(&s, &p, false).unwrap();
+            replace_draft(&s, &p, true).unwrap();
+        }
+        let raw = br#"{"sections":{"context":"old body","steps":[]},"children":[]}"#;
+        let (_t, s) = store(raw);
+        let p = Plan::from_line(raw).unwrap();
+        assert!(replace_draft(&s, &p, false).is_err());
+        replace_draft(&s, &p, true).unwrap();
+    }
+    #[test]
+    fn backref_changes_refuse_unrelated_description_loss() {
+        for desc in [
+            br#"{"keep":"user"}"#.as_slice(),
+            b"\"manual\xffbody\"",
+            br#""manual\ud800body""#,
+        ] {
+            let raw = [
+                b"{\"id\":\"child\",\"description\":".as_slice(),
+                desc,
+                b"}\n",
+            ]
+            .concat();
+            let (_t, s) = store(b"");
+            let path = s.path(DataFile::Issues);
+            fs::write(&path, &raw).unwrap();
+            let before = s.read_tickets().unwrap();
+            let mut after = before.clone();
+            after[0].description = format!("block\n\n{}", before[0].description);
+            let mode = fs::metadata(&path).unwrap().permissions();
+            assert!(ticket_backrefs(&s, &before, &after)
+                .unwrap_err()
+                .to_string()
+                .contains("user text. Nothing was written."));
+            assert_eq!(fs::read(&path).unwrap(), raw);
+            assert_eq!(fs::metadata(&path).unwrap().permissions(), mode);
+            ticket_backrefs(&s, &before, &before).unwrap();
+        }
+    }
+    #[test]
+    fn backref_empty_and_normal_manual_text_controls_follow_go() {
+        for desc in [b"null".as_slice(), br#""manual body""#, br#""""#] {
+            let raw = [
+                b"{\"id\":\"child\",\"description\":".as_slice(),
+                desc,
+                b"}\n",
+            ]
+            .concat();
+            let (_t, s) = store(b"");
+            fs::write(s.path(DataFile::Issues), raw).unwrap();
+            let before = s.read_tickets().unwrap();
+            let mut after = before.clone();
+            after[0].description = format!("block\n\n{}", before[0].description);
+            ticket_backrefs(&s, &before, &after).unwrap();
         }
     }
 }
