@@ -24,6 +24,7 @@ mod atlas;
 mod backref;
 #[allow(dead_code, reason = "native plan reader wiring is the next step")]
 mod common;
+mod edit;
 #[allow(
     dead_code,
     reason = "mutation handlers consume these guards in following tasks"
@@ -70,7 +71,8 @@ fn run(c: &mut super::Context<'_>, args: &[String]) -> std::result::Result<(), s
         "create" => mutate::create(c, &args[1..]),
         "outcome" => mutate::outcome(c, &args[1..]),
         "review" => mutate::review(c, &args[1..]),
-        "edit" | "submit" | "adopt" | "reorder" | "release" => {
+        "edit" => edit::run(c, &args[1..]),
+        "submit" | "adopt" | "reorder" | "release" => {
             Err(Error::unsupported(format!("the plan {name} command"), PLAN_4).into())
         }
         _ => Err(super::Failure::message(format!(
