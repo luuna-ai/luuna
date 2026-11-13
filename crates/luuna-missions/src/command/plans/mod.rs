@@ -24,11 +24,15 @@ mod common;
     reason = "mutation handlers consume these guards in following tasks"
 )]
 mod guard;
+mod prompt;
 #[allow(
     dead_code,
     reason = "mutation handlers consume these guards in following tasks"
 )]
 mod raw;
+mod reader;
+#[allow(dead_code, reason = "native plan show wiring is the next step")]
+mod tree;
 #[allow(dead_code, reason = "native plan reader wiring is the next step")]
 mod validation;
 use std::io;
@@ -37,9 +41,34 @@ use crate::error::{Error, Result, PLAN_4};
 use crate::model::Ticket;
 use crate::store::{DataFile, Store};
 
-/// `plan`.
-pub(super) const PLAN: super::Entry = super::Entry::Deferred(PLAN_4);
+// The foundation's unchanged check functions retain their Deferred arms.
+// Keep that representation constructed without adding a deferred live route.
+const _: super::Entry = super::Entry::Deferred(PLAN_4);
 
+/// `plan`.
+pub(super) const PLAN: super::Entry = super::Entry::Ported(run);
+
+fn run(c: &mut super::Context<'_>, args: &[String]) -> std::result::Result<(), super::Failure> {
+    let Some(name) = args.first() else {
+        let help = super::app::command_help(&["plan".into(), "--help".into()])?;
+        c.stdout.extend(help.stdout);
+        c.exit_code = 1;
+        return Ok(());
+    };
+    match name.as_str() {
+        "templates" => reader::templates(c, &args[1..]),
+        "list" => reader::list(c, &args[1..]),
+        "show" => reader::show(c, &args[1..]),
+        "validate" => reader::validate(c, &args[1..]),
+        "prompt" => prompt::run(c, &args[1..]),
+        "create" | "outcome" | "review" | "edit" | "submit" | "adopt" | "reorder" | "release" => {
+            Err(Error::unsupported(format!("the plan {name} command"), PLAN_4).into())
+        }
+        _ => Err(super::Failure::message(format!(
+            "error: unknown command '{name}'"
+        ))),
+    }
+}
 /// Checks, before anything is written, that changing the status of
 /// `tickets` needs no plan transition. At this commit: refused, naming
 /// s4-missions-lib-4, when a ticket has a `plan_id` or `plans.jsonl` holds
@@ -145,7 +174,13 @@ pub(super) mod checks {
                 );
                 assert_eq!(plan_of(error), plan, "{name}");
             }
-            Entry::Ported(_) => unreachable!("{name} is not ported at the slots commit"),
+            Entry::Ported(_) => {
+                let temp = tempfile::tempdir().unwrap();
+                let out = run(&Invocation::new(temp.path(), ["plan", "--json"])).unwrap();
+                assert_eq!(out.stdout,b"{\n  \"success\": false,\n  \"command\": \"plan\",\n  \"error\": \"error: unknown command '--json'\"\n}\n");
+                assert_eq!(out.stderr, b"");
+                assert_eq!(out.exit_code, 1);
+            }
         }
     }
 

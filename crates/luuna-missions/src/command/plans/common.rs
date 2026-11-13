@@ -139,6 +139,49 @@ pub(super) fn template_names(ts: &BTreeMap<String, PlanTemplate>) -> Vec<String>
     );
     names
 }
+
+pub(super) fn object_json(fields: impl IntoIterator<Item = (&'static str, Vec<u8>)>) -> Vec<u8> {
+    let mut out = vec![b'{'];
+    for (i, (key, raw)) in fields.into_iter().enumerate() {
+        if i > 0 {
+            out.push(b',');
+        }
+        json::quote(&mut out, key, false);
+        out.push(b':');
+        out.extend(raw);
+    }
+    out.push(b'}');
+    out
+}
+pub(super) fn quoted(text: &str) -> Vec<u8> {
+    let mut out = vec![];
+    json::quote(&mut out, text, false);
+    out
+}
+pub(super) fn output(
+    c: &mut crate::command::Context<'_>,
+    raw: &[u8],
+    ty: &str,
+) -> std::result::Result<(), Failure> {
+    if json::exceeds_max_depth(raw) {
+        return Err(Error::Encode {
+            message: json::marshaler_too_deep(ty),
+        }
+        .into());
+    }
+    if !super::raw::pretty_fits(raw, 128 * 1024 * 1024) {
+        return Err(Error::unsupported(
+            "plan output beyond 128 MiB",
+            "none (bounded native plan output)",
+        )
+        .into());
+    }
+    c.stdout
+        .extend(json::to_output(raw).map_err(|e| Error::Encode {
+            message: e.to_string(),
+        })?);
+    Ok(())
+}
 fn quote(s: &str) -> Vec<u8> {
     let mut out = vec![];
     json::quote(&mut out, s, false);

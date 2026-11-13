@@ -150,7 +150,7 @@ fn ws(raw: &[u8], mut i: usize) -> usize {
     }
     i
 }
-fn pairs(raw: &[u8]) -> Vec<(&[u8], &[u8])> {
+pub(super) fn pairs(raw: &[u8]) -> Vec<(&[u8], &[u8])> {
     let mut out = Vec::new();
     let mut i = ws(raw, 1);
     while i < raw.len() && raw[i] != b'}' {
@@ -253,4 +253,106 @@ pub(super) fn problem(raw: &[u8], ignored: &[Vec<String>]) -> Option<String> {
         }
     }
     number.or(repeated).or(invalid)
+}
+
+/// Count indentation and JS escapes before the shared pretty-printer allocates.
+pub(super) fn pretty_fits(raw: &[u8], limit: usize) -> bool {
+    let (mut i, mut depth, mut size, mut previous) = (0usize, 0usize, 1usize, b' ');
+    while i < raw.len() {
+        let b = raw[i];
+        if b.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        match b {
+            b'"' => {
+                let end = string_end(raw, i);
+                size = size.saturating_add(end - i);
+                let mut j = i + 1;
+                while j + 2 < end {
+                    if raw[j] == b'\\' {
+                        j += 2;
+                        continue;
+                    }
+                    if raw[j..].starts_with(&[0xe2, 0x80, 0xa8])
+                        || raw[j..].starts_with(&[0xe2, 0x80, 0xa9])
+                    {
+                        size = size.saturating_add(3);
+                        j += 3;
+                    } else {
+                        j += 1
+                    }
+                }
+                i = end;
+                previous = b'v';
+            }
+            b'{' | b'[' => {
+                size = size.saturating_add(1);
+                depth += 1;
+                let mut j = i + 1;
+                while raw.get(j).is_some_and(u8::is_ascii_whitespace) {
+                    j += 1
+                }
+                if !matches!(raw.get(j), Some(b'}' | b']')) {
+                    size = size.saturating_add(1 + 2 * depth);
+                }
+                previous = b;
+                i += 1;
+            }
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                if !matches!((previous, b), (b'{', b'}') | (b'[', b']')) {
+                    size = size.saturating_add(1 + 2 * depth);
+                }
+                size = size.saturating_add(1);
+                previous = b;
+                i += 1;
+            }
+            b',' => {
+                size = size.saturating_add(2 + 2 * depth);
+                previous = b;
+                i += 1;
+            }
+            b':' => {
+                size = size.saturating_add(2);
+                previous = b;
+                i += 1;
+            }
+            _ => {
+                let start = i;
+                while i < raw.len()
+                    && !matches!(raw[i], b',' | b'}' | b']')
+                    && !raw[i].is_ascii_whitespace()
+                {
+                    i += 1
+                }
+                size = size.saturating_add(i - start);
+                previous = b'v';
+            }
+        }
+        if size > limit {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pretty_budget_matches_the_shared_formatter_at_the_boundary() {
+        for raw in [
+            b"{}".as_slice(),
+            b"[]",
+            b"0",
+            br#"{"a":[],"b":[{},1,true,null,{"x":"<"}]}"#,
+            br#""\u2028""#,
+            "\"\u{2028}\"".as_bytes(),
+        ] {
+            let size = json::to_output(raw).unwrap().len();
+            assert!(pretty_fits(raw, size));
+            assert!(!pretty_fits(raw, size - 1));
+        }
+    }
 }

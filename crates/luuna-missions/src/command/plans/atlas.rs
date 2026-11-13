@@ -54,9 +54,65 @@ fn capture(c: &Context<'_>, name: &str, args: &[&str]) -> Option<Vec<u8>> {
     let out = cmd.output().ok()?;
     out.status.success().then_some(out.stdout)
 }
+
+fn fold(name: &str) -> String {
+    name.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| if c == 'ſ' { 's' } else { c })
+        .collect()
+}
+fn last_field<'a>(raw: &'a [u8], name: &str) -> Option<&'a [u8]> {
+    let mut value = None;
+    for (key, v) in super::raw::pairs(raw) {
+        if fold(&json::unquote(key)) == name {
+            value = Some(v)
+        }
+    }
+    value
+}
+// Go's typed structs fold field names and apply alias occurrences in source
+// order. Record maps remain case-sensitive, including their unknown metadata.
+fn normalize(raw: &[u8], status: bool) -> Option<V> {
+    if !json::is_valid(raw) {
+        return None;
+    }
+    let raw = crate::store::trim_space(raw);
+    if raw == b"null" {
+        return Some(V::Null);
+    }
+    if raw.first() != Some(&b'{') {
+        return None;
+    }
+    let mut result = std::collections::BTreeMap::new();
+    let Some(domains) = last_field(raw, "domains") else {
+        return Some(V::Object(result));
+    };
+    if domains == b"null" {
+        result.insert("domains".into(), V::Null);
+        return Some(V::Object(result));
+    }
+    let mut entries = vec![];
+    for item in super::raw::array(domains)? {
+        if item == b"null" {
+            entries.push(V::Null);
+            continue;
+        }
+        if item.first() != Some(&b'{') {
+            return None;
+        }
+        let key = if status { "domain" } else { "records" };
+        let mut entry = std::collections::BTreeMap::new();
+        if let Some(value) = last_field(item, key) {
+            entry.insert(key.into(), V::decode(value).ok()?);
+        }
+        entries.push(V::Object(entry));
+    }
+    result.insert("domains".into(), V::Array(entries));
+    Some(V::Object(result))
+}
 fn payload(c: &Context<'_>, args: &[&str]) -> Option<V> {
     let out = capture(c, "luuna-atlas", args)?;
-    V::decode(&out).ok()
+    normalize(&out, args.get(1) == Some(&"status"))
 }
 fn field<'a>(v: &'a V, name: &str) -> Option<&'a V> {
     object(v)?.get(name)
@@ -369,5 +425,20 @@ mod tests {
         let p = V::decode(br#"{"domains":[{"records":[null,{"id":"good"}],"ignored":1e400}]}"#)
             .unwrap();
         assert_eq!(query_records(&p).unwrap().len(), 2);
+    }
+    #[test]
+    fn struct_aliases_follow_go_case_folding_and_last_source_occurrence() {
+        for raw in [br#"{"Domains":[{"Domain":"parity"}]}"#.as_slice(),br#"{"domains":[{"domain":"wrong"}],"Domains":[{"domain":"wrong"}],"domains":[{"domain":"parity"}]}"#,"{\"domainſ\":[{\"domain\":\"parity\"}]}".as_bytes()]{let p=normalize(raw,true).unwrap();let names=status_domains(&p).unwrap();assert!(names.contains("parity"));assert!(!names.contains("wrong"));}
+    }
+    #[test]
+    fn query_struct_aliases_leave_record_maps_case_sensitive() {
+        let p = normalize(
+            br#"{"Domains":[{"Records":[{"ID":"not-id","id":"p"}]}]}"#,
+            false,
+        )
+        .unwrap();
+        let records = query_records(&p).unwrap();
+        assert_eq!(text(field(records[0], "id")), "p");
+        assert_eq!(text(field(records[0], "ID")), "not-id");
     }
 }

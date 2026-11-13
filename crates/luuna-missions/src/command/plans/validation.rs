@@ -58,21 +58,20 @@ fn min_items(path: &str, n: i64, got: usize) -> Entry {
     )
 }
 pub(super) fn diff_json(errors: &[Entry], current: &V) -> crate::Result<Vec<u8>> {
-    Ok(compact(
-        Envelope::object()
-            .raw(
-                "errors",
-                &array_json(errors.iter().map(|e| {
-                    compact(
-                        Envelope::object()
-                            .string("path", &e.path)
-                            .string("code", &e.code)
-                            .string("fix", &e.fix),
-                    )
-                })),
-            )
-            .raw("current", &encoded(current, false)?),
-    ))
+    Ok(object_json([
+        (
+            "errors",
+            array_json(errors.iter().map(|e| {
+                compact(
+                    Envelope::object()
+                        .string("path", &e.path)
+                        .string("code", &e.code)
+                        .string("fix", &e.fix),
+                )
+            })),
+        ),
+        ("current", encoded(current, false)?),
+    ]))
 }
 pub(super) fn validate(template: &PlanTemplate, submitted: &V) -> Vec<Entry> {
     let mut errors = vec![];
