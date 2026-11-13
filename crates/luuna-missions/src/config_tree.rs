@@ -659,3 +659,17 @@ mod tests {
         }
     }
 }
+
+#[allow(
+    dead_code,
+    reason = "plan lifecycle consumes these APIs in s4-missions-lib-4"
+)]
+pub(crate) mod templates;
+#[allow(
+    unused_imports,
+    reason = "plan lifecycle consumes these APIs in s4-missions-lib-4"
+)]
+pub(crate) use templates::{
+    built_in_templates, default_template_for_type, load_plan_templates, max_plan_depth,
+    PlanTemplate, SectionItem, SectionKind, SectionSpec,
+};
