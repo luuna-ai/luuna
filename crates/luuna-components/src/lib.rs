@@ -13,7 +13,9 @@
 //! identity is proved by recomputing those digests; a mismatch is refused by
 //! component name and never silently degraded.
 mod beacon;
+mod missions;
 pub use beacon::call_beacon_native;
+pub use missions::{call_missions_native, run_missions_native};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -46,6 +48,8 @@ const DIGEST_MAX_DEPTH: usize = 64;
 
 #[derive(Debug, Error)]
 pub enum ComponentError {
+    #[error("{0}")]
+    Missions(luuna_missions::Error),
     #[error(
         "component integration is unavailable; install the pinned component dependencies and Bun"
     )]
@@ -344,6 +348,9 @@ impl Components {
         }
         if name == "beacon" {
             return call_beacon_native(&workspace, args).await;
+        }
+        if name == "missions" {
+            return call_missions_native(&workspace, args).await;
         }
         let value = self.invoke(pin, &workspace, args).await?;
         if value.get("success").and_then(Value::as_bool) != Some(true) {

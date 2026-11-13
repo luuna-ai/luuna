@@ -17,7 +17,7 @@ fn conflict(message: &str) -> ApiError {
 fn unavailable() -> ApiError {
     ApiError(
         StatusCode::SERVICE_UNAVAILABLE,
-        "Missions is unavailable; restore the pinned component before retrying".into(),
+        "Missions refused the request; check the project store before retrying".into(),
     )
 }
 fn malformed() -> ApiError {
@@ -51,11 +51,7 @@ impl Intent {
 
 async fn call(state: &AppState, project: &str, args: &[String]) -> Result<Value, ApiError> {
     let workspace = integrations::workspace(state, project)?;
-    state
-        .components
-        .as_ref()
-        .ok_or_else(unavailable)?
-        .call("missions", &workspace, args)
+    luuna_components::call_missions_native(&workspace, args)
         .await
         .map_err(|_| unavailable())
 }
@@ -638,6 +634,107 @@ mod tests {
                 &[("app".into(), observation)],
             )
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_projection_edit_and_reconciliation_need_no_legacy_handle() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = AppState::open(config(directory.path()))
+            .unwrap()
+            .without_components();
+        register(&state);
+        let original = legacy();
+        let project = &original.project_id;
+        state
+            .store
+            .lock()
+            .unwrap()
+            .begin_component_enable(project)
+            .unwrap();
+        call(&state, project, &["init".into()]).await.unwrap();
+        state
+            .store
+            .lock()
+            .unwrap()
+            .finish_component_enable(project)
+            .unwrap();
+        let (created, fresh) = create_projection(&state, &original, "native-request")
+            .await
+            .unwrap();
+        assert!(fresh);
+        assert_eq!(created.source, TicketSource::Missions);
+        let (replayed, fresh) = create_projection(&state, &original, "native-request")
+            .await
+            .unwrap();
+        assert!(!fresh);
+        assert_eq!(replayed.id, created.id);
+        assert_eq!(issues(&state, project).await.unwrap().len(), 1);
+        let changed = update(
+            &state,
+            &created,
+            1,
+            &TicketRevision {
+                title: Some("Native edit".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(changed.title, "Native edit");
+        assert_eq!(changed.revision, 2);
+        assert_eq!(
+            update(&state, &changed, 1, &TicketRevision::default())
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::CONFLICT
+        );
+        ensure_current(&state, &changed).await.unwrap();
+        let source_id = source(&state, &changed).await.unwrap()["source_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        call(
+            &state,
+            project,
+            &[
+                "update".into(),
+                source_id.clone(),
+                "--title=External edit".into(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            ensure_current(&state, &changed).await.unwrap_err().0,
+            StatusCode::CONFLICT
+        );
+        let reconciled = reconcile(&state, &changed, 2).await.unwrap();
+        assert_eq!(reconciled.title, "External edit");
+        assert_eq!(reconciled.revision, 3);
+        call(
+            &state,
+            project,
+            &["update".into(), source_id, "--status=closed".into()],
+        )
+        .await
+        .unwrap();
+        let closed = reconcile(&state, &reconciled, 3).await.unwrap();
+        assert_eq!(
+            ensure_current(&state, &closed).await.unwrap_err().0,
+            StatusCode::CONFLICT
+        );
+        let store = integrations::workspace(&state, project)
+            .unwrap()
+            .join(".luuna/missions/issues.jsonl");
+        let bytes = std::fs::read(&store).unwrap();
+        std::fs::write(&store, b"invalid").unwrap();
+        assert_eq!(
+            source(&state, &closed).await.unwrap_err().0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(std::fs::read(&store).unwrap(), b"invalid");
+        std::fs::write(store, bytes).unwrap();
     }
 
     #[tokio::test]
