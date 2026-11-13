@@ -1089,14 +1089,13 @@ mod tests {
         unavailable.components = None;
         let mut next = original.clone();
         next.id = "ticket-unavailable".into();
-        assert_eq!(
-            create_projection(&unavailable, &next, "unavailable")
-                .await
-                .unwrap_err()
-                .0,
-            StatusCode::SERVICE_UNAVAILABLE
-        );
-        assert_eq!(issues(&state, &original.project_id).await.unwrap().len(), 2);
+        // Missing legacy tools no longer makes a valid native store unavailable.
+        let (native, created) = create_projection(&unavailable, &next, "unavailable")
+            .await
+            .unwrap();
+        assert!(created);
+        assert_eq!(native.source, TicketSource::Missions);
+        assert_eq!(issues(&state, &original.project_id).await.unwrap().len(), 3);
     }
 }
 
