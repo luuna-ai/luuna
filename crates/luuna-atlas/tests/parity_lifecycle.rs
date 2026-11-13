@@ -539,3 +539,25 @@ fn yaml_full_roundtrip_forms() {
         assert_same_output(extra, &t.go, &after, &t.rust, &native);
     }
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn yaml_full_tag_merge_document_matrix() {
+    for yaml in [
+        "extra: [!!str true, !!str null, !!str 12, !!int '0x10', !!float '17', !!float 0x10, !!bool true, !!bool yes, !!null nope, !!null null]\n",
+        "extra: [!!int '1.0', !!float '.inf', !!float '-.inf', !!float '.nan', !!timestamp 2001-01-02, !!timestamp nonsense, !thing 12, ! '12', !!binary '%%%']\n",
+        "extra: &a {k: 1, old: first}\nother: &b {k: 2, later: second}\nmerged: {pre: 0, <<: [*a, *b], k: 3, post: 4}\n",
+        "extra: {'<<': 12, !!str <<: 13}\n",
+        "%YAML 1.1\n---\nextra: 12\n",
+        "%TAG !e! tag:example.invalid,2026:\n---\nextra: !e!thing 12\n",
+        "extra: 1\n---\nlater: [broken\n",
+        "extra: 1\n...\n%YAML 1.2\n---\nignored: true\n",
+        "extra: !!binary 4oI=\n",
+        "extra: &a {nested: &b [1, 2]}\ncopy: *a\nsequence: [*b, *b]\n",
+        "extra: !!map {a: 1}\nother: !custom [1, 2]\n",
+    ]{
+        let t=base(false);t.prepare(|p|p.write(".luuna/atlas/config.yaml",yaml));
+        let args=vec!["config".into(),"show".into()];let g=go(&t.go,&args,None,&[]);assert_eq!(g.exit_code,0,"{yaml}: {}",g.stderr);
+        let r=luuna_atlas::commands::run_config_show(&t.rust.dir);assert_same_output(yaml,&t.go,&g,&t.rust,&r);t.assert_same_tree(yaml);
+    }
+}
