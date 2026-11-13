@@ -1,5 +1,7 @@
 # Current Luuna architecture
 
+Terminal first-run setup and persisted user/project settings follow [ADR 0050](decisions/0050-first-run-terminal-setup.md). Interactive `lu init` prepares private tools and credentials before connecting; local dirty changes can be explicitly stashed before the runtime baseline.
+
 Local opt-in authentication: [ADR 0049](decisions/0049-opt-in-openai-oauth.md)
 adds a pinned Pi OAuth launcher for the explicitly selected OpenAI grant. It
 shares only credential storage and locked refresh; worker settings, resources
