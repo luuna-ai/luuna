@@ -255,6 +255,10 @@ pub fn provider_keys() -> ProviderKeys {
             keys.empty.push(name.to_owned());
         }
     }
+    if luuna_engine_pi::openai_oauth_configured() {
+        keys.configured
+            .push("OpenAI OAuth (LUUNA_PI_AUTH_FILE)".to_owned());
+    }
     keys
 }
 

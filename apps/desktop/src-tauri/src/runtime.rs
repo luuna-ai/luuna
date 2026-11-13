@@ -109,7 +109,58 @@ fn install_root() -> Result<std::path::PathBuf, String> {
         .ok_or_else(|| "Cannot locate the development checkout.".to_owned())
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+fn bootstrap() -> Result<LocalConnection, String> {
+    use std::{
+        io::Read,
+        process::{Command, Stdio},
+        time::{Duration, Instant},
+    };
+    // Fixed local helper and an anonymous pipe: no credential in argv, a URL,
+    // web storage, or a generated frontend asset. The helper owns service setup.
+    let home = std::env::var_os("HOME").ok_or("Your home directory is unavailable.")?;
+    let helper = std::path::PathBuf::from(home).join(".config/luuna/launch.py");
+    if !helper.is_file() {
+        return Err("The local Luuna launcher is missing. Configure just lu, or use the manual connection form.".to_owned());
+    }
+    let mut child = Command::new("/usr/bin/python3")
+        .arg(helper)
+        .arg("connection")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "Could not start the local Luuna helper.".to_owned())?;
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) => return Err(
+                "Local runtime startup failed. Run just lu-check or just lu-restart in a terminal."
+                    .to_owned(),
+            ),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(
+                    "Local runtime startup timed out. Check just lu-log, then retry.".to_owned(),
+                );
+            }
+        }
+    }
+    let mut bytes = Vec::new();
+    child
+        .stdout
+        .take()
+        .ok_or("The local connection pipe is unavailable.")?
+        .take(1024)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Could not read the local connection.".to_owned())?;
+    validate_connection(&bytes)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn bootstrap() -> Result<LocalConnection, String> {
     Err("Automatic runtime startup is currently available on Windows. Use the manual connection form.".to_owned())
 }

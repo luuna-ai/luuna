@@ -1,6 +1,5 @@
 [workspace]
 members = [
-  "crates/roots-core",
   "crates/roots-cli",
 ]
 resolver = "2"

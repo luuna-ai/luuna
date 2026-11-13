@@ -506,6 +506,54 @@ async fn publish_is_refused_before_a_passed_review_and_after_a_stale_hash() {
 }
 
 #[tokio::test]
+async fn publication_does_not_reuse_a_configured_transport_remote_or_change_local_refs() {
+    let harness = Harness::new().await;
+    let repo = Repo::new();
+    let (run_id, _, candidate) = harness.reviewed(repo.path()).await;
+    let commit = candidate["repository_commits"]["app"].as_str().unwrap();
+    // Both an ordinary remote and one with only a fetch setting must be
+    // avoided when selecting the command-local transport name. Reusing either
+    // would import user settings into publication and write local refs.
+    git(
+        repo.path(),
+        &["remote", "add", "luuna-publication-0", REMOTE],
+    );
+    git(
+        repo.path(),
+        &["config", "remote.luuna-publication-0.mirror", "true"],
+    );
+    git(
+        repo.path(),
+        &[
+            "config",
+            "remote.luuna-publication-1.fetch",
+            "+refs/heads/*:refs/remotes/transport/*",
+        ],
+    );
+    git(
+        repo.path(),
+        &["update-ref", "refs/remotes/origin/preserved", commit],
+    );
+    let refs_before = git(repo.path(), &["for-each-ref"]);
+    let config_before = fs::read(repo.path().join(".git/config")).unwrap();
+
+    let (status, accepted) = harness
+        .publish(&run_id, &candidate["hash"], "isolated-push")
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{accepted}");
+    let record = harness.publication_settled(&run_id).await;
+    assert_eq!(record["publication_state"], "pr_open", "{record}");
+    let branch = record["repositories"]["app"]["branch"].as_str().unwrap();
+    assert_eq!(remote_branch(repo.path(), branch).as_deref(), Some(commit));
+    assert_eq!(git(repo.path(), &["for-each-ref"]), refs_before);
+    assert_eq!(
+        fs::read(repo.path().join(".git/config")).unwrap(),
+        config_before
+    );
+    assert_eq!(harness.requests("POST", "/pulls"), 1);
+}
+
+#[tokio::test]
 async fn publication_opens_exactly_one_pull_request_at_the_exact_candidate_commit() {
     let harness = Harness::new().await;
     let repo = Repo::new();
@@ -553,7 +601,8 @@ async fn publication_opens_exactly_one_pull_request_at_the_exact_candidate_commi
         assert!(body.contains("passed by `review-"), "{body}");
         assert!(!body.contains("synthetic-github-token"));
     }
-    // Pushing by URL writes no remote-tracking reference into the developer checkout.
+    // Publication must not write remote-tracking refs, even when Git recognizes
+    // the effective push URL as origin's URL.
     assert_eq!(
         git(repo.path(), &["for-each-ref", "refs/remotes"]),
         tracking_before

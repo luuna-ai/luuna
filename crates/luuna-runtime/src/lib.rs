@@ -223,6 +223,7 @@ mod orbit;
 mod policy;
 mod projects;
 mod publication;
+pub mod roots;
 mod scaffold;
 pub mod stores;
 mod writer;
@@ -1421,7 +1422,7 @@ async fn run_worker(
         .event(
             &id,
             "pi.spawned",
-            json!({"pid":process.pid(),"pi_version":PI_VERSION,"provider_credentials":luuna_engine_pi::configured_provider_keys()}),
+            json!({"pid":process.pid(),"pi_version":PI_VERSION,"provider_credentials":crate::doctor::provider_keys().configured}),
         )
         .is_err()
     {
