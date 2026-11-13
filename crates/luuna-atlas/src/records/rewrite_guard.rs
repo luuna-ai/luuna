@@ -183,7 +183,11 @@ fn alias_loss(record: &mut Object, registry: &Registry) -> Option<(String, Strin
             let kept = record
                 .get(canonical)
                 .is_some_and(|now| go_deep_equal(now, &value));
-            if !kept {
+            // Null and empty legacy values carry no data (decided items 3/6).
+            // Go's successful rewrite and actual reader are equal before/after.
+            let no_data =
+                value.is_null() || matches!(&value, Value::String(text) if text.is_empty());
+            if !kept && !no_data {
                 return Some((legacy.clone(), canonical.clone()));
             }
         }
