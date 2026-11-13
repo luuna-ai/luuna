@@ -458,7 +458,7 @@ fn yaml_values_convert_to_go_json_like_encoding_json() {
         ("nan", "json: unsupported value: NaN"),
         ("inf", "json: unsupported value: +Inf"),
         ("ninf", "json: unsupported value: -Inf"),
-        ("boolkey", "json: unsupported type: map[interface {}]interface {}"),
+        ("boolkey", "json: unsupported value: jsontext: object member name must be a string after offset 2"),
     ] {
         let value = beacon.config_get(&format!("x.{key}")).expect("config_get");
         let error = error_of(value.to_go_json(), key);
