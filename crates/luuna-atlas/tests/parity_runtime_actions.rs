@@ -1713,3 +1713,193 @@ extra_test!(actions_a8_explicit_api_replacement_drops_old_outcomes, {
         ],
     );
 });
+
+fn outcome_row(outcomes: &str) -> String {
+    format!(
+        r#"{{"id":"mx-aaaa","type":"pattern","name":"same","description":"Before","classification":"tactical","recorded_at":"2026-01-01T00:00:00.000Z","outcomes":{outcomes}}}"#
+    ) + "\n"
+}
+extra_test!(actions_a8_outcome_merge_loss_refused, {
+    for old in [r#""discard-marker""#, r#"["discard-marker",42]"#] {
+        for mode in ["record", "bulk", "edit"] {
+            let t = base(false);
+            let before = outcome_row(old);
+            t.prepare(|p| p.write(".luuna/atlas/expertise/core.jsonl", &before));
+            let mode_before = std::fs::metadata(t.rust.expertise("core"))
+                .unwrap()
+                .permissions();
+            let args: &[&str] = match mode {
+                "record" => &[
+                    "record",
+                    "core",
+                    "--type",
+                    "pattern",
+                    "--name",
+                    "same",
+                    "--description",
+                    "After",
+                    "--json",
+                    "--quiet",
+                ],
+                "bulk" => &["record", "core", "--stdin", "--json", "--quiet"],
+                _ => &[
+                    "edit",
+                    "core",
+                    "mx-aaaa",
+                    "--outcome-status",
+                    "success",
+                    "--json",
+                    "--quiet",
+                ],
+            };
+            let args: Vec<String> = args.iter().map(|s| (*s).into()).collect();
+            let input = if mode == "bulk" {
+                Some(br#"{"type":"pattern","name":"same","description":"After"}"#.as_slice())
+            } else {
+                None
+            };
+            let g = go(&t.go, &args, input, &[]);
+            assert_eq!(g.exit_code, 0, "{mode}: {}", g.stderr);
+            assert!(!std::fs::read_to_string(t.go.expertise("core"))
+                .unwrap()
+                .contains("discard-marker"));
+            let r = native(&t.rust, &args, input, &[]);
+            assert_eq!(r.exit_code, 1);
+            assert!(r.stderr.contains("outcomes"), "{}", r.stderr);
+            assert_eq!(
+                std::fs::read_to_string(t.rust.expertise("core")).unwrap(),
+                before
+            );
+            assert_eq!(
+                std::fs::metadata(t.rust.expertise("core"))
+                    .unwrap()
+                    .permissions(),
+                mode_before
+            );
+            assert!(t.rust.leftovers().is_empty());
+        }
+    }
+});
+extra_test!(actions_a8_outcome_append_loss_refused, {
+    for old in [r#""discard-marker""#, r#"{"notes":"discard-marker"}"#] {
+        let t = base(false);
+        let before = outcome_row(old);
+        t.prepare(|p| p.write(".luuna/atlas/expertise/core.jsonl", &before));
+        let args = vec![
+            Value::from("core"),
+            Value::from("mx-aaaa"),
+            value(r#"{"status":"success"}"#),
+        ];
+        let g = go_api(&t.go, "appendOutcome", &args);
+        assert_eq!(g.exit_code, 0, "{}", g.stdout);
+        assert!(!std::fs::read_to_string(t.go.expertise("core"))
+            .unwrap()
+            .contains("discard-marker"));
+        let error = native_api(&t.rust, "appendOutcome", &args)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("outcomes"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(t.rust.expertise("core")).unwrap(),
+            before
+        );
+        assert!(t.rust.leftovers().is_empty());
+    }
+});
+extra_test!(actions_a8_falsey_ids_refused, {
+    for id in ["false", "0", "-0"] {
+        let t = base(false);
+        let bad = format!(
+            r#"{{"id":{id},"type":"pattern","name":"same","description":"Before","classification":"tactical","recorded_at":"2026-01-01T00:00:00.000Z"}}"#
+        );
+        let before = bad_and_good(&bad);
+        t.prepare(|p| p.write(".luuna/atlas/expertise/core.jsonl", &before));
+        let args: Vec<String> = [
+            "edit",
+            "core",
+            "mx-eeee",
+            "--description",
+            "Changed",
+            "--json",
+            "--quiet",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let g = go(&t.go, &args, None, &[]);
+        assert_eq!(g.exit_code, 0, "{}", g.stderr);
+        let after =
+            json::parse(&go_api(&t.go, "queryDomain", &[Value::from("core")]).stdout).unwrap();
+        assert!(after
+            .as_object()
+            .unwrap()
+            .get("result")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .as_object()
+            .unwrap()
+            .get("id")
+            .unwrap()
+            .as_str()
+            .is_some());
+        let r = native(&t.rust, &args, None, &[]);
+        assert_eq!(r.exit_code, 1);
+        assert!(r.stderr.contains("id"), "{}", r.stderr);
+        assert_eq!(
+            std::fs::read_to_string(t.rust.expertise("core")).unwrap(),
+            before
+        );
+        assert!(t.rust.leftovers().is_empty());
+    }
+});
+extra_test!(actions_a8_nonstring_id_controls_match_go, {
+    for id in ["[]", "{}", "true", "null", r#""""#] {
+        let t = base(false);
+        let bad = format!(
+            r#"{{"id":{id},"type":"pattern","name":"same","description":"Before","classification":"tactical","recorded_at":"2026-01-01T00:00:00.000Z"}}"#
+        );
+        t.prepare(|p| p.write(".luuna/atlas/expertise/core.jsonl", &bad_and_good(&bad)));
+        compare(&t, &["edit", "core", "mx-eeee", "--description", "Changed"]);
+    }
+});
+extra_test!(actions_api_raw_records_are_retained, {
+    let t = base(false);
+    compare_api(
+        &t,
+        "recordExpertise",
+        &[
+            Value::from("core"),
+            value(r#"{"id":true,"type":{"opaque":1},"raw":[1,{"keep":"body"}]}"#),
+        ],
+    );
+    compare_api(
+        &t,
+        "editRecord",
+        &[
+            Value::from("core"),
+            Value::from("true"),
+            value(r#"{"classification":"observational","content":"ignored for this raw type"}"#),
+        ],
+    );
+    compare_api(&t, "queryDomain", &[Value::from("core")]);
+});
+extra_test!(actions_api_append_keeps_raw_array_elements, {
+    let t = base(false);
+    t.prepare(|p| {
+        p.write(
+            ".luuna/atlas/expertise/core.jsonl",
+            &outcome_row(r#"["keep",42,null,{},{"status":"success"}]"#),
+        )
+    });
+    compare_api(
+        &t,
+        "appendOutcome",
+        &[
+            Value::from("core"),
+            Value::from("mx-aaaa"),
+            value(r#"{"status":"success"}"#),
+        ],
+    );
+});
