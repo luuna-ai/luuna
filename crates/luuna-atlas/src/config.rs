@@ -431,10 +431,7 @@ mod tests {
             "Failed to parse config.yaml: duplicated mapping key (2:1)\n\n 1 | a: 1\n 2 | a: 2\n-----^. Check the YAML syntax."
         );
         let dir = store(Some("a: *x\n"));
-        assert!(matches!(
-            read_config(dir.path()),
-            Err(AtlasError::UnsupportedYaml { line: 1, .. })
-        ));
+        assert_eq!(read_config(dir.path()).unwrap_err().to_string(), "Failed to parse config.yaml: yaml: unknown anchor 'x' referenced. Check the YAML syntax.");
     }
 
     #[test]

@@ -2613,6 +2613,11 @@ mod tests {
     }
 
     #[test]
+    fn existing_indented_document_refusal_is_kept() {
+        assert_eq!(unsupported_line("  b: 1\na: 2\n"), 2);
+    }
+
+    #[test]
     fn reads_initial_template() {
         assert_eq!(
             read_json(INITIAL_CONFIG_YAML),
@@ -2627,22 +2632,32 @@ mod tests {
 
     #[test]
     fn refuses_anchor_and_alias_with_line() {
-        assert_eq!(unsupported_line("a: 1\nb: &base\n  c: 2\n"), 2);
-        assert_eq!(unsupported_line("a: 1\nb: 2\nc: *base\n"), 3);
-        assert_eq!(unsupported_line("a:\n  - x\n  - *base\n"), 3);
-        assert_eq!(unsupported_line("a: {b: &x 1}\n"), 1);
-        // Merge keys, tags and several documents are refused the same way.
-        assert_eq!(unsupported_line("a: 1\n<<: {b: 1}\n"), 2);
-        assert_eq!(unsupported_line("a: !!str 1\n"), 1);
-        assert_eq!(unsupported_line("a: 1\n---\nb: 2\n"), 2);
-        assert_eq!(unsupported_line("a: 1\n...\nb: 2\n"), 3);
-        assert_eq!(unsupported_line("%YAML 1.2\n---\na: 1\n"), 1);
-        assert_eq!(unsupported_line("? a\n: b\n"), 1);
-        let message = parse("x: 1\ny: *a\n").unwrap_err().to_string();
+        // Historical subset test name retained. Every original input now pins
+        // actual Go support or the exact Go syntax error (lib3 probes).
         assert_eq!(
-            message,
-            "unsupported YAML at line 2: aliases (*) are not supported"
+            read_json("a: 1\nb: &base\n  c: 2\n"),
+            r#"{"a":1,"b":{"c":2}}"#
         );
+        assert_eq!(
+            parse("a: 1\nb: 2\nc: *base\n").unwrap_err().to_string(),
+            "yaml: unknown anchor 'base' referenced"
+        );
+        assert_eq!(
+            parse("a:\n  - x\n  - *base\n").unwrap_err().to_string(),
+            "yaml: unknown anchor 'base' referenced"
+        );
+        assert_eq!(read_json("a: {b: &x 1}\n"), r#"{"a":{"b":1}}"#);
+        assert_eq!(read_json("a: 1\n<<: {b: 1}\n"), r#"{"a":1,"b":1}"#);
+        assert_eq!(read_json("a: !!str 1\n"), r#"{"a":"1"}"#);
+        assert_eq!(read_json("a: 1\n---\nb: 2\n"), r#"{"a":1}"#);
+        assert_eq!(read_json("a: 1\n...\nb: 2\n"), r#"{"a":1}"#);
+        assert_eq!(
+            parse("%YAML 1.2\n---\na: 1\n").unwrap_err().to_string(),
+            "yaml: found incompatible YAML document"
+        );
+        assert_eq!(read_json("? a\n: b\n"), r#"{"a":"b"}"#);
+        let message = parse("x: 1\ny: *a\n").unwrap_err().to_string();
+        assert_eq!(message, "yaml: unknown anchor 'a' referenced");
     }
 
     #[test]
@@ -2707,18 +2722,26 @@ mod tests {
 
     #[test]
     fn refuses_flow_collection_as_later_block_key() {
-        // yaml.v3 reads a flow collection before `:` as a mapping key; like the first key
-        // of a mapping, a later one is refused as unsupported, not as a syntax error.
-        assert_eq!(unsupported_line("[a]: d\n"), 1);
-        assert_eq!(unsupported_line("domains: {}\n[a]: d\n"), 2);
-        assert_eq!(unsupported_line("domains: {}\n{a: 1}: d\n"), 2);
-        assert_eq!(unsupported_line("m:\n  a: 1\n\n  [b, c] : 2\n"), 4);
-        assert_eq!(unsupported_line("- a: 1\n  {b: 2}: 3\n"), 2);
-        let message = parse("x: 1\n[a]: d\n").unwrap_err().to_string();
+        // Go stringifies complex keys; preserve the original inputs and assert
+        // their full values instead of the retired subset limitation.
+        assert_eq!(read_json("[a]: d\n"), r#"{"a":"d"}"#);
         assert_eq!(
-            message,
-            "unsupported YAML at line 2: flow collections as mapping keys are not supported"
+            read_json("domains: {}\n[a]: d\n"),
+            r#"{"domains":{},"a":"d"}"#
         );
+        assert_eq!(
+            read_json("domains: {}\n{a: 1}: d\n"),
+            r#"{"domains":{},"[object Object]":"d"}"#
+        );
+        assert_eq!(
+            read_json("m:\n  a: 1\n\n  [b, c] : 2\n"),
+            r#"{"m":{"a":1,"b,c":2}}"#
+        );
+        assert_eq!(
+            read_json("- a: 1\n  {b: 2}: 3\n"),
+            r#"[{"a":1,"[object Object]":3}]"#
+        );
+        assert_eq!(read_json("x: 1\n[a]: d\n"), r#"{"x":1,"a":"d"}"#);
         // Without a `:` after it, a flow collection where a key belongs is invalid YAML,
         // which yaml.v3 also rejects: it stays a syntax error, not an unsupported construct.
         for text in ["a: 1\n[b]\n", "a: 1\n[b] x: 2\n", "a: 1\n[b\n"] {
@@ -2787,7 +2810,7 @@ mod tests {
                 "{text:?}"
             );
         }
-        assert_eq!(unsupported_line("a: [1,\n  2]\n"), 1);
+        assert_eq!(read_json("a: [1,\n  2]\n"), r#"{"a":[1,2]}"#);
     }
 
     #[test]
