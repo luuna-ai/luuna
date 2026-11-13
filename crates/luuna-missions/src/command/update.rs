@@ -1,8 +1,7 @@
 //! `update` (`internal/cli/issue_mutate.go:135-312`).
 //!
-//! A status change on a ticket that belongs to a plan, or that is the seed of
-//! one, runs Go's plan transition hook, which this plan does not port. It is
-//! refused with [`Error::Unsupported`] before anything is written.
+//! Status changes hold plans then issues locks and preflight the prospective
+//! plan transition before writing either file. Other edits retain Go behavior.
 
 use std::collections::BTreeMap;
 

@@ -64,17 +64,14 @@ fn run(c: &mut super::Context<'_>, args: &[String]) -> std::result::Result<(), s
         ))),
     }
 }
-/// Checks, before anything is written, that changing the status of
-/// `tickets` needs no plan transition. At this commit: refused, naming
-/// s4-missions-lib-4, when a ticket has a `plan_id` or `plans.jsonl` holds
-/// anything but ASCII white space.
+/// Checks prospective ticket statuses before either file is written. A
+/// transition that would rewrite a lossy plan store is explicitly refused.
 pub(in crate::command) fn check_status_change(store: &Store, tickets: &[&Ticket]) -> Result<()> {
     transitions::check(store, tickets)
 }
 
-/// Applies the plan transitions that changing the status of the tickets
-/// `ids` (now `tickets`) at the time `now` causes. At this commit there are
-/// none: [`check_status_change`] has refused every case with one.
+/// Applies Go's lifecycle rules after ticket persistence. The caller holds
+/// plans then issues locks and already ran the matching preflight.
 pub(in crate::command) fn apply_status_change(
     store: &Store,
     ids: &[String],

@@ -1,12 +1,8 @@
 //! `show`, `list` and `search` with every output format
 //! (`internal/cli/issue_read.go`, `internal/cli/issue_query.go`).
 //!
-//! Plan context is not ported until s4-missions-lib-4. A ticket whose
-//! `plan_id` names a record in `plans.jsonl` carries plan context: showing
-//! or listing it in a format that prints the plan (markdown, plain and json)
-//! returns [`Error::Unsupported`], as does `show pl-<id>` for an id that is
-//! not a ticket, because Go runs `plan show` for it. The `ids` and `compact`
-//! formats never print plan context, so they are ported for such tickets.
+//! Plan annotations, summaries and text blocks follow Go; a single plan id
+//! delegates to the native plan reader while multi-id show reports each miss.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};

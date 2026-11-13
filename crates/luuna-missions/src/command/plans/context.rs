@@ -185,4 +185,19 @@ mod tests {
             assert!(!raw.contains("\"plan\":"));
         }
     }
+    #[test]
+    fn onboard_snippet_and_cli_version_are_equal_through_public_dispatch() {
+        let t = project("project: demo\nversion: \"1\"\n");
+        let version = invoke(t.path(), &["--version"]);
+        assert_eq!(version.exit_code, 0);
+        let version = String::from_utf8(version.stdout).unwrap();
+        let version = version.trim();
+        assert!(!version.is_empty());
+        let onboard = invoke(t.path(), &["onboard", "--stdout"]);
+        assert_eq!(onboard.exit_code, 0);
+        let text = String::from_utf8(onboard.stdout).unwrap();
+        assert!(text.contains(&format!("<!-- missions-onboard:v{version} -->")));
+        assert!(text.contains(&format!(") v{version} (`lm`)")));
+        assert!(!t.path().join("CLAUDE.md").exists());
+    }
 }
