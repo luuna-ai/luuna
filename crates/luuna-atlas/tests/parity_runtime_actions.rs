@@ -127,6 +127,19 @@ fn native(
             .find(|(k, _)| k == name)
             .map(|(_, v)| v.clone())
     };
+    // The product parser belongs to plan -5. Model dynamic type choices
+    // here so Go CLI parser errors are not confused with typed-handler errors.
+    if let Some(kind) = get("type") {
+        let cfg = luuna_atlas::config::read_config(&p.atlas_dir()).ok();
+        if let Ok(registry) = luuna_atlas::registry::Registry::from_config(cfg.as_ref()) {
+            if registry.get(&kind).is_none() {
+                return CommandOutput::plain_failure(&format!(
+                    "error: option '--type <type>' argument '{kind}' is invalid. Allowed choices are {}.",
+                    registry.names().join(", ")
+                ));
+            }
+        }
+    }
     match args[0].as_str() {
         "record" => {
             let opts = record::RecordOptions {
@@ -1640,15 +1653,20 @@ extra_test!(actions_hostile_deep_stored_line_edit, {
 
 extra_test!(actions_record_nonprinting_quotes_match_go, {
     let t = base(false);
-    for typ in [
-        "missing\u{00a0}",
-        "missing\u{00ad}",
-        "missing\u{200b}",
-        "missing\u{0378}",
-    ] {
+    for suffix in ["\u{00a0}", "\u{00ad}", "\u{200b}", "\u{0378}"] {
+        let anchor = format!("/{suffix}");
         compare(
             &t,
-            &["record", "core", "--type", typ, "--content", "Quoted type"],
+            &[
+                "record",
+                "core",
+                "--type",
+                "convention",
+                "--content",
+                "Quoted anchor",
+                "--dir-anchor",
+                &anchor,
+            ],
         );
     }
 });
