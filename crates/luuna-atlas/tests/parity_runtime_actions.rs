@@ -2003,3 +2003,39 @@ extra_test!(actions_hostile_deep_invalid_json, {
     assert_same_output("deep stored diagnostic", &t.go, &g, &t.rust, &r);
     t.assert_same_tree("deep stored diagnostic");
 });
+
+extra_test!(actions_record_bulk_diagnostic_matrix, {
+    let t = base(false);
+    for text in [
+        "[",
+        "[1",
+        "[1,",
+        "[1,]",
+        "{",
+        "{a:1}",
+        "{\"a\"",
+        "{\"a\":",
+        "{\"a\":1",
+        "{\"a\":1,",
+        "{\"a\":1,}",
+        "[[trueX]]",
+        "[1e]",
+        "[{\"a\":[1,]}]",
+        "{\"a\":[{\"b\":}]}",
+        "{\"a\" \"b\"}",
+        "[\"\\q\"]",
+        "[\"\\u00xz\"]",
+        "['single']",
+        "[1.]",
+        "[-]",
+        "[falseX]",
+    ] {
+        compare_mode(
+            &t,
+            &["record", "core", "--stdin"],
+            Some(text.as_bytes()),
+            &[],
+            false,
+        );
+    }
+});
