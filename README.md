@@ -6,7 +6,7 @@ This repository is being established as an executable foundation. The design doc
 
 The runtime provides repository import, supervised baselines, immutable plan approval and scoped writers in owned worktrees. The M3 implementation adds candidate-bound checks, fresh read-only reviewer sessions and bounded manual/optional automatic repair, with durable evidence and recovery. Deterministic integration and browser checks pass; genuine-provider M3 acceptance and native desktop/platform proof remain open. Publication is not implemented. The desktop shell connects to a separately started service.
 
-**Repository decision, November 12, 2026:** [Luuna Missions](https://github.com/luuna-ai/luuna-missions), [Luuna Atlas](https://github.com/luuna-ai/luuna-atlas), and [Luuna Beacon](https://github.com/luuna-ai/luuna-beacon) are maintained in the `luuna-ai` organization. Run `npm run components:setup` after cloning. [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md) supersedes [ADR 0012](docs/decisions/0012-independent-component-repositories.md): Luuna becomes one repository, and Missions, Atlas and Beacon are ported to native Rust by later migration changes. Roots has been imported with its history into `roots/`, where it is a separate Cargo workspace; the runtime does not call it yet, and native calls come in a later migration change. Until then the components are consumed through pinned Git submodules at the existing `components/` paths. Changes to this repository ship under ADR 0044: agents push, open pull requests and merge through a ship gate, under a plan audited against the owner's signed migration charter.
+**Repository decision, November 12, 2026:** [Luuna Missions](https://github.com/luuna-ai/luuna-missions), [Luuna Atlas](https://github.com/luuna-ai/luuna-atlas), and [Luuna Beacon](https://github.com/luuna-ai/luuna-beacon) are maintained in the `luuna-ai` organization. Run `npm run components:setup` after cloning. [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md) supersedes [ADR 0012](docs/decisions/0012-independent-component-repositories.md): Luuna becomes one repository, and Missions, Atlas and Beacon are ported to native Rust by later migration changes. Roots lives in `roots/` with its history. Its library, roots-core, is a member of the root Cargo workspace and the runtime calls it in-process (`crates/luuna-runtime/src/roots.rs`); roots-cli stays in the `roots/` workspace ([ADR 0046](docs/decisions/0046-roots-called-natively.md)). Missions, Atlas and Beacon are consumed through pinned Git submodules at the existing `components/` paths until their ports land. Changes to this repository ship under ADR 0044: agents push, open pull requests and merge through a ship gate, under a plan audited against the owner's signed migration charter.
 
 ## Start here
 
@@ -71,6 +71,12 @@ and Linux hosts, so treat it as unverified rather than a supported install path.
 The formula builds the runtime, terminal client and pinned Missions, Atlas and
 Beacon CLIs; it does not install either desktop app. See the desktop release
 matrix for artifacts and platform evidence needed before adding casks.
+
+## Install on macOS and Linux
+
+`packaging/installer/install.sh` is a POSIX installer that, once a release exists, installs `luuna` and `lu` for the
+current user without sudo. No release has been published yet, so there is nothing to download today. It does not
+cover Windows. See [docs/INSTALL.md](docs/INSTALL.md) and [ADR 0048](docs/decisions/0048-one-posix-installer.md).
 
 ## Terminal workbench
 

@@ -216,13 +216,14 @@ pub fn home_summary(
             .collect::<Result<_, _>>()?;
         let recorded = lookup(baselines, &id_text).unwrap_or(J::Arr(Vec::new()));
         let recorded = items(&recorded)?.to_vec();
-        // latestBaselinePerRepository: filter by identity.repository_id, newest last.
+        // The runtime lists baselines newest first (storage rowid DESC).
         let mut latest: Vec<Option<J>> = Vec::new();
         for repository in &repository_ids {
             let mut found = None;
             for baseline in &recorded {
                 if field(field(baseline, "identity")?, "repository_id")? == repository {
                     found = Some(baseline.clone());
+                    break;
                 }
             }
             latest.push(found);
@@ -345,4 +346,49 @@ pub fn home_summary(
         ("projects", J::Arr(out_projects)),
         ("blockers", J::Arr(blockers))
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_uses_the_newest_baseline_including_a_new_failure_after_a_pass() {
+        let project = crate::js::parse(r#"{"project":{"id":"p","name":"P","revision":1},"repositories":[{"repository_id":"app","local_path":"/app"}],"manifest":null}"#).unwrap();
+        for (new_status, old_status) in [("passed", "blocked"), ("failed", "passed")] {
+            let baseline = |run: &str, status: &str, repository: &str| {
+                crate::obj![
+                    ("run_id", run),
+                    ("status", status),
+                    ("manifest_revision", 1usize),
+                    (
+                        "identity",
+                        crate::obj![("repository_id", repository), ("commit", "commit")]
+                    )
+                ]
+            };
+            let summary = home_summary(
+                std::slice::from_ref(&project),
+                &[(
+                    "p".into(),
+                    J::Arr(vec![
+                        baseline("other", "blocked", "other"),
+                        baseline("new", new_status, "app"),
+                        baseline("old", old_status, "app"),
+                    ]),
+                )],
+                &[],
+                &[],
+            )
+            .unwrap();
+            let chosen = summary
+                .get("projects")
+                .at(0)
+                .get("repositories")
+                .at(0)
+                .get("baseline");
+            assert_eq!(chosen.get("run_id").as_str(), Some("new"));
+            assert_eq!(chosen.get("status").as_str(), Some(new_status));
+        }
+    }
 }

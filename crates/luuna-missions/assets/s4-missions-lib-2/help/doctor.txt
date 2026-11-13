@@ -1,0 +1,9 @@
+Usage: luuna-missions doctor [options]
+
+Check project health and data integrity
+
+Options:
+  --fix       Auto-fix fixable issues
+  --verbose   Show all check results including passes
+  --json      Output as JSON
+  -h, --help  display help for command

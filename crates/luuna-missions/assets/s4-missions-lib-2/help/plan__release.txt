@@ -1,0 +1,8 @@
+Usage: luuna-missions plan release [options] <plan-id> <seed-ids...>
+
+Release missions from a plan (link-only; missions stay open; bumps plan
+revision)
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

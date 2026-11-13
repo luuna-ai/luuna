@@ -1,0 +1,7 @@
+Usage: luuna-missions guard [options]
+
+PreToolUse hook: deny hand edits to .luuna/missions/*.jsonl (reads hook JSON on
+stdin)
+
+Options:
+  -h, --help  display help for command

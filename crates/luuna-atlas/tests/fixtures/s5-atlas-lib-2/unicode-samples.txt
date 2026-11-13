@@ -1,0 +1,42 @@
+# Unicode cases for records::tests::unicode_table_matches_samples (plan s5-atlas-lib-2a, t3).
+# Each case is one line of three fields separated by one TAB: the function
+# (normalize_text, js_lower or go_lower), the input and the expected output, both as
+# literal UTF-8. Lines that are empty or start with '#' are skipped.
+#
+# normalize_text lowercases with js_lower, then keeps only what Go 1.27.0's unicode.IsLetter
+# or unicode.IsNumber accepts; runs of anything else become one space between kept runs.
+#
+# Combining marks (Mn, Mc) are not letters in Go, although Rust calls some Alphabetic.
+normalize_text	été	été
+normalize_text	été	e te
+normalize_text	कार	क र
+normalize_text	ক্ষ	ক ষ
+normalize_text	a̲b̲	a b
+# Circled letters lower to U+24D0..U+24E9 (So): dropped. Circled digits (No) are numbers.
+normalize_text	ⒶⒷⒸ x	x
+normalize_text	aⓩb	a b
+normalize_text	①②	①②
+# U+0130: js_lower gives i + U+0307 (a mark), go_lower gives a plain i.
+normalize_text	İstanbul	i stanbul
+js_lower	İ	i̇
+go_lower	İ	i
+go_lower	İSTANBUL	istanbul
+js_lower	ÀÉÎ	àéî
+go_lower	ÀÉÎ	àéî
+# CJK and other scripts without case (Lo) are letters.
+normalize_text	漢字テスト	漢字テスト
+normalize_text	漢字、テスト。	漢字 テスト
+normalize_text	한국어 텍스트	한국어 텍스트
+# Digits of other scripts (Nd), letter numbers (Nl) and other numbers (No) are numbers.
+normalize_text	٣٤٥	٣٤٥
+normalize_text	१२३	१२३
+normalize_text	Ⅻ	ⅻ
+normalize_text	x²³	x²³
+normalize_text	½	½
+# Modifier letters (Lm) are letters; symbols and punctuation are not.
+normalize_text	aʰb	aʰb
+normalize_text	a€b	a b
+normalize_text	a—b	a b
+normalize_text	a_b	a b
+# Full-width Latin lowercases to full-width letters.
+normalize_text	ＡＢＣ	ａｂｃ

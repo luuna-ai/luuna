@@ -1,0 +1,9 @@
+Usage: luuna-missions sync [options]
+
+Stage and commit .luuna/missions/ changes
+
+Options:
+  --status    Check status without committing
+  --dry-run   Show what would be committed without committing
+  --json      Output as JSON
+  -h, --help  display help for command

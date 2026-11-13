@@ -1,0 +1,7 @@
+Usage: luuna-missions dep remove [options] <issue> <depends-on>
+
+Remove a dependency
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

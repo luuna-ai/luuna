@@ -1,0 +1,7 @@
+Usage: luuna-missions plan show [options] <id>
+
+Show a plan with sections, children, and status (accepts plan id or seed id)
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

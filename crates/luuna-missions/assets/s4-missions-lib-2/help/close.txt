@@ -1,0 +1,8 @@
+Usage: luuna-missions close [options] <id> [ids...]
+
+Close one or more issues
+
+Options:
+  --reason <text>  Close reason
+  --json           Output as JSON
+  -h, --help       display help for command

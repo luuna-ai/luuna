@@ -44,6 +44,80 @@ async fn main() -> std::process::ExitCode {
         }
         _ => {}
     }
+    if argv.first().map(String::as_str) == Some("config") {
+        let result = (|| {
+            let path = luuna_tui::config::path()
+                .ok_or_else(|| io::Error::other("Set HOME or LUUNA_TUI_CONFIG"))?;
+            if argv.len() == 1 {
+                println!("Settings: {}\nChange a setting: lu config set <name> <JSON value>\nExample: lu config set keyboard_enhancement false", path.display());
+                return Ok(());
+            }
+            if argv.len() != 4 || argv[1] != "set" {
+                return Err(io::Error::other("Usage: lu config set <name> <JSON value>"));
+            }
+            let value = serde_json::from_str(&argv[3]).map_err(io::Error::other)?;
+            luuna_tui::config::set(&path, &argv[2], value)?;
+            println!(
+                "Settings saved to {}. They load when the workbench opens.",
+                path.display()
+            );
+            Ok::<_, io::Error>(())
+        })();
+        return match result {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Luuna settings: {error}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    // Load saved private settings by relaunching, without changing environment
+    // variables from a multi-threaded async process. Explicit overrides win.
+    if std::env::var_os("LUUNA_PRIVATE_SETTINGS_LOADED").is_none() {
+        let init = argv.first().map(String::as_str) == Some("init")
+            && io::stdin().is_terminal()
+            && io::stdout().is_terminal();
+        let prepared = async {
+            let mut vars = match luuna_tui::setup::directory() {
+                Ok(directory) => luuna_tui::setup::load(&directory.join("environment.json"))?,
+                Err(error) if init => return Err(error),
+                Err(_) => std::collections::BTreeMap::new(),
+            };
+            if init {
+                luuna_tui::setup::prepare(&luuna_tui::components::install_root(), &mut vars)
+                    .await?;
+                luuna_tui::setup::ensure_runtime(&vars).await?;
+            }
+            if init || !vars.is_empty() {
+                let mut command = tokio::process::Command::new(std::env::current_exe()?);
+                command
+                    .args(&argv)
+                    .env("LUUNA_PRIVATE_SETTINGS_LOADED", "1");
+                for (name, value) in vars {
+                    if std::env::var_os(&name).is_none() {
+                        command.env(name, value);
+                    }
+                }
+                return command.status().await.map(Some);
+            }
+            Ok::<_, io::Error>(None)
+        }
+        .await;
+        match prepared {
+            Ok(Some(status)) => {
+                let code = status.code().unwrap_or(1);
+                return match u8::try_from(code) {
+                    Ok(code) => std::process::ExitCode::from(code),
+                    Err(_) => std::process::exit(code),
+                };
+            }
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("Luuna setup: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+    }
     // `--guide init [--guide-flag key=value]...` opens the guide directly (the tests' entry).
     let next = if argv.first().map(String::as_str) == Some("--guide") {
         match guide_arguments(&argv) {

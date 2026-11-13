@@ -1,0 +1,7 @@
+Usage: luuna-missions init [options]
+
+Initialize .luuna/missions/ in current directory
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

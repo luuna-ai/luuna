@@ -1,0 +1,7 @@
+Usage: luuna-missions config unset [options] <path>
+
+Remove the config value at <path>
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command
