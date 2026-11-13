@@ -79,6 +79,8 @@ Additional observed emitter defects are copied: a leading BOM makes the double-q
 
 Malformed UTF-8 in a recognised frontmatter block keeps the YAML error boundary. Malformed UTF-8 in Markdown body text is additionally refused before append: an observed Go run replaces those source bytes during JSON storage. The source and store are retained; a read/invalid-data error explains the refusal. This is the same A8 value-preservation rule, applied to body text as well as frontmatter.
 
+Compatibility algorithms follow yaml.v3 v3.0.1; its LICENSE and NOTICE are retained under `src/authoring/licenses/`. The generated Unicode property/case tables come from the pinned Go toolchain; its BSD license is retained there as well.
+
 ## Event parser provenance
 
 `src/authoring/yaml_events/` contains the production parser/scanner/character helpers from yaml-rust2 0.10.4, under the adjacent MIT and Apache licenses. Local adaptations are module paths, removal of optional debug output/loader-oriented test code, standard `VecDeque` lookahead, a u32 flow counter, no invented block-scalar EOF newline, Go-compatible Unicode line breaks/folding, closing-quote indentation and a clippy-equivalent predicate. The outer decoder applies yaml.v3's independent 10,000 block/flow limits. No dependency or foundation parser was changed. Additional pinned-Go probes cover underscore-prefixed strings, short timestamps, mixed and complex keys, exact large-integer key order, binary top-level keys, null-key ignored values, duplicate-key error precedence and byte-wise malformed UTF-8 replacement. This local event implementation is exercised by the complete authoring parity and hostile suites; it does not claim upstream's full test suite was run.
