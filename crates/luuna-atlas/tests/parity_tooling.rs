@@ -190,9 +190,13 @@ fn doctor_repair_safe() {
 }
 
 fn bridge_compare(input: &str) {
+    bridge_prepared(input, |_| {});
+}
+fn bridge_prepared(input: &str, prepare: impl Fn(&support::project::Project)) {
     use std::io::Write;
     let t = Twin::new(true);
     t.steps(&[Step::Init, Step::Add("core".into())]);
+    t.prepare(prepare);
     let request =
         |p: &support::project::Project| input.replace("<project>", &p.dir.to_string_lossy());
     let mut vars = t.go.run_env();
@@ -276,7 +280,8 @@ fn bridge_pure_operations() {
 #[ignore = "requires pinned Go reference"]
 fn a8_repair_refuses_and_preserves_all_files() {
     let valid = r#"{"id":"mx-aaaa","type":"convention","content":"Keep","classification":"foundational","recorded_at":"2026-01-01T00:00:00Z","outcome":{"status":"success"}}"#;
-    let cases:Vec<(&str,Vec<(&str,String)>,Vec<&str>)>=vec![
+    type LossCase<'a> = (&'a str, Vec<(&'a str, String)>, Vec<&'a str>);
+    let cases:Vec<LossCase<'_>>=vec![
  ("unbounded onboard",vec![("CLAUDE.md","# Keep\n## Project Expertise (Atlas)\nold\n## Unrelated instructions\nKEEP ME\n".into())],vec!["onboard"]),
  ("modified cursor",vec![(".cursor/rules/luuna-atlas.mdc","KEEP MY RULE\n".into())],vec!["setup","cursor"]),
  ("extra hook group fields",vec![(".claude/settings.json",r#"{"hooks":{"SessionStart":[{"matcher":"", "extra":"KEEP", "hooks":[{"type":"command","command":"luuna-atlas prime"}]}]}}"#.into())],vec!["setup","claude"]),
@@ -669,6 +674,14 @@ fn setup_external_discovery_shell_and_javascript() {
             let mut args = vec!["setup", "custom"];
             args.extend(flags);
             compare_prepared(&args, |p| {
+                if kind != "sh" {
+                    assert!(
+                        Env::fixed(p.run_env(), Vec::new(), false)
+                            .look_path("bun")
+                            .is_some(),
+                        "Bun is required only for these explicit recipe-extension comparisons"
+                    );
+                }
                 if kind == "sh" {
                     p.write(
                         ".luuna/atlas/recipes/custom.sh",
@@ -695,4 +708,195 @@ fn setup_external_discovery_shell_and_javascript() {
             });
         }
     }
+}
+
+#[test]
+#[ignore = "requires pinned Go reference"]
+fn bridge_store_operations_and_mutation_transport() {
+    for req in [
+        r#"{"operation":"writeExpertiseFileTransport","args":["<project>/.luuna/atlas/expertise/core.jsonl",[[null]]],"numbers":[{"path":["args",1,0,0],"value":"NaN"}]}"#,
+        r#"{"operation":"appendRecordTransport","args":["<project>/.luuna/atlas/expertise/core.jsonl",{"type":"convention","content":"API body"}]}"#,
+        r#"{"operation":"writeExpertiseFileTransport","args":["<project>/.luuna/atlas/expertise/core.jsonl",[{"type":"convention","content":"One"}]]}"#,
+        r#"{"operation":"getExpertisePath","args":["core","."]}"#,
+        r#"{"operation":"appendRecord","args":["<project>/.luuna/atlas/expertise/core.jsonl",{"type":"convention","content":"API body"}]}"#,
+        r#"{"operation":"appendRecordTransport","args":["missing/subdir.jsonl",{"type":"convention","content":"API body"}]}"#,
+        r#"{"operation":"writeExpertiseFile","args":["<project>/.luuna/atlas/expertise/core.jsonl",[{"type":"convention","content":"One"},{"type":"convention","content":"Two"}]]}"#,
+        r#"{"operation":"writeExpertiseFileTransport","args":["<project>/.luuna/atlas/expertise/core.jsonl",[{"type":"convention","content":"One"},{"type":"unknown","content":"Two"}]]}"#,
+        r#"{"operation":"writeExpertiseFileTransport","args":["<project>/.luuna/atlas/expertise/core.jsonl",[[1,2]]] }"#,
+        r#"{"operation":"readExpertiseFile","args":["missing.jsonl"]}"#,
+        r#"{"operation":"recordExpertise","args":["core",{"type":"convention","content":"API body"}] }"#,
+        r#"{"operation":"recordExpertiseTransport","args":["absent",{"type":"convention","content":"API body"}] }"#,
+        r#"{"operation":"queryDomain","args":["core"]}"#,
+        r#"{"operation":"searchExpertise","args":["body"]}"#,
+        r#"{"operation":"editRecord","args":["core","mx-absent",{"content":"new"}]}"#,
+        r#"{"operation":"appendOutcome","args":["core","mx-absent",{"status":"success","recorded_at":"2026-01-01T00:00:00Z"}]}"#,
+    ] {
+        bridge_compare(req)
+    }
+}
+
+#[test]
+#[ignore = "requires pinned Go reference"]
+fn bridge_decoder_token_diagnostics() {
+    let cases = luuna_atlas::json::parse(include_str!(
+        "fixtures/s5-atlas-lib-5/bridge-json-errors.json"
+    ))
+    .unwrap();
+    for case in cases.as_array().unwrap() {
+        bridge_compare(
+            case.as_object()
+                .unwrap()
+                .get("input")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires pinned Go reference"]
+fn bridge_legacy_migration_notice() {
+    for operation in [
+        "readConfig",
+        "queryDomain",
+        "searchExpertise",
+        "getExpertisePath",
+    ] {
+        let request = match operation {
+            "readConfig" => r#"{"operation":"readConfig"}"#.to_owned(),
+            "getExpertisePath" => r#"{"operation":"getExpertisePath","args":["core"]}"#.to_owned(),
+            "queryDomain" => r#"{"operation":"queryDomain","args":["core"]}"#.to_owned(),
+            _ => r#"{"operation":"searchExpertise","args":["test"]}"#.to_owned(),
+        };
+        bridge_prepared(&request, |p| {
+            std::fs::rename(p.atlas_dir(), p.dir.join(".mulch")).unwrap()
+        });
+    }
+}
+#[test]
+#[ignore = "requires pinned Go reference"]
+fn init_refuses_unreadable_existing_attributes() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let t = Twin::new(true);
+        let original = b"KEEP existing rules\n";
+        for p in [&t.go, &t.rust] {
+            std::fs::write(p.dir.join(".gitattributes"), original).unwrap();
+            std::fs::set_permissions(
+                p.dir.join(".gitattributes"),
+                std::fs::Permissions::from_mode(0o200),
+            )
+            .unwrap();
+            assert!(std::fs::read(p.dir.join(".gitattributes")).is_err());
+        }
+        let go = t.go.go(&["init"]);
+        assert_eq!(go.exit_code, 0);
+        let args = vec!["init".into(), "--json".into()];
+        let ctx = Context {
+            root: t.rust.dir.clone(),
+            cwd: t.rust.dir.clone(),
+            env: Env::fixed(t.rust.run_env(), args.clone(), false),
+            globals: GlobalOptions::default(),
+        };
+        let actual = tooling::run(&ctx, &args, b"");
+        assert_eq!(actual.exit_code, 1);
+        assert!(actual.stderr.contains("Refusing"));
+        assert!(!t.rust.atlas_dir().exists());
+        assert_eq!(
+            std::fs::metadata(t.rust.dir.join(".gitattributes"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o200
+        );
+        for p in [&t.go, &t.rust] {
+            std::fs::set_permissions(
+                p.dir.join(".gitattributes"),
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            std::fs::read(t.rust.dir.join(".gitattributes")).unwrap(),
+            original
+        );
+        assert!(!std::fs::read(t.go.dir.join(".gitattributes"))
+            .unwrap()
+            .windows(4)
+            .any(|s| s == b"KEEP"));
+    }
+}
+
+#[test]
+#[ignore = "requires pinned Go reference"]
+fn provider_and_repair_symlink_modes() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::{fs::symlink, fs::PermissionsExt};
+        for which in 0..3 {
+            let args = match which {
+                0 => vec!["onboard", "--json"],
+                1 => vec!["setup", "claude", "--json"],
+                _ => vec!["doctor", "--fix", "--json"],
+            };
+            compare_prepared(&args, |p| {
+                let (link,target,body)=match which{0=>("CLAUDE.md","instructions.md",b"# Keep instructions\n".to_vec()),1=>(".claude/settings.json","../saved-settings.json",br#"{"other":{"keep":true}}"#.to_vec()),_=>(".luuna/atlas/expertise/core.jsonl","../../../saved-records.jsonl",br#"{"id":"mx-aaaa","type":"pattern","name":"Keep","description":"Keep body","classification":"foundational","recorded_at":"2026-01-01T00:00:00Z","files":["missing.rs"]}
+"#.to_vec())};
+                let link = p.dir.join(link);
+                std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+                let target = link.parent().unwrap().join(target);
+                std::fs::write(&target, body).unwrap();
+                std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+                if link.exists() {
+                    std::fs::remove_file(&link).unwrap();
+                }
+                symlink(
+                    if which == 0 {
+                        "instructions.md"
+                    } else if which == 1 {
+                        "../saved-settings.json"
+                    } else {
+                        "../../../saved-records.jsonl"
+                    },
+                    &link,
+                )
+                .unwrap();
+            });
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires pinned Go reference"]
+fn audit_raw_yaml_keys_and_empty_tracker_values() {
+    compare_prepared(&["audit", "--json"], |p| {
+        p.append(&p.config_path(),"\naudit:\n  ignore_domains: [!!binary /w==, !!binary gA==]\n  thresholds:\n    ? !!binary /w==\n    : kept\n    ? !!binary gA==\n    : other\n")
+    });
+    compare_prepared(&["audit", "--json"], |p| {
+        p.write(".luuna/atlas/expertise/core.jsonl",r#"{"id":"mx-aaaa","type":"convention","content":"Rule","classification":"foundational","recorded_at":"2026-01-01T00:00:00Z","evidence":{"missions":"ms-1234"}}
+"#);
+        p.write(
+            ".luuna/missions/issues.jsonl",
+            r#"{"id":"ms-1234","status":"","title":""}
+"#,
+        );
+    });
+}
+
+#[test]
+#[ignore = "requires pinned Go reference"]
+fn bridge_explicit_file_replacement() {
+    bridge_prepared(
+        r#"{"operation":"writeExpertiseFile","args":["<project>/.luuna/atlas/expertise/core.jsonl",[{"id":"mx-new","type":"convention","content":"Explicit replacement"}]]}"#,
+        |p| {
+            p.write(
+                ".luuna/atlas/expertise/core.jsonl",
+                r#"{"id":"mx-old","type":"convention","content":"first","content":"second"}
+"#,
+            )
+        },
+    );
 }

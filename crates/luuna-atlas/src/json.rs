@@ -153,6 +153,11 @@ impl Object {
         Object::default()
     }
 
+    /// Original array record contents for iterative IPC numeric-sidecar traversal.
+    pub(crate) fn record_array(&self) -> Option<&[Value]> {
+        self.record_array.as_deref()
+    }
+
     pub(crate) fn from_record_array(items: Vec<Value>) -> Self {
         Self {
             record_array: Some(items),

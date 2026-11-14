@@ -12,8 +12,11 @@ rank, ready, status, stale, validate, outcome, move, archive, restore, delete-do
 prune, compact and config schema/show-path/set/unset. Typed recording APIs are also
 available. Git context and configured raw hooks follow the reference behavior.
 Prime, learn, diff, sync, active-work context and hook guard/injection are available
-under the prime module. The public CLI parser/dispatcher and setup/doctor/audit/bridge
-remain assigned to the tooling plan. Coverage and deliberate preservation refusals are recorded in notes/.
+under the prime module. The tooling module provides the contract-driven CLI parser
+and dispatcher, help/version/completions, setup/onboard, doctor, audit and the
+private API bridge. Built-in tooling is native; explicitly selected JavaScript
+recipe extensions retain their extension runtime. Coverage and deliberate
+preservation refusals are recorded in notes/.
 
 ## Reference
 
