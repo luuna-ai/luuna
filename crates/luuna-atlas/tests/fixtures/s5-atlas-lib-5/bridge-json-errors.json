@@ -1,0 +1,102 @@
+[
+  {
+    "input": "",
+    "error": "EOF"
+  },
+  {
+    "input": " ",
+    "error": "EOF"
+  },
+  {
+    "input": "{",
+    "error": "unexpected end of JSON input"
+  },
+  {
+    "input": "[",
+    "error": "unexpected end of JSON input"
+  },
+  {
+    "input": "{\"x\":",
+    "error": "EOF"
+  },
+  {
+    "input": "{\"x\":}",
+    "error": "missing value after object key"
+  },
+  {
+    "input": "[1,]",
+    "error": "invalid character ',' looking for beginning of value"
+  },
+  {
+    "input": "{\"x\":1,}",
+    "error": "invalid character ',' looking for beginning of value"
+  },
+  {
+    "input": "[1 2]",
+    "error": "invalid character '2' after array element"
+  },
+  {
+    "input": "{\"x\" 1}",
+    "error": "invalid character '1' after object key"
+  },
+  {
+    "input": "[1",
+    "error": "unexpected end of JSON input"
+  },
+  {
+    "input": "{\"x\":1",
+    "error": "unexpected end of JSON input"
+  },
+  {
+    "input": "true false",
+    "error": "unexpected non-whitespace character after JSON"
+  },
+  {
+    "input": "{} trailing",
+    "error": "invalid character 'a' in literal true (expecting 'u')"
+  },
+  {
+    "input": "{} true",
+    "error": "unexpected non-whitespace character after JSON"
+  },
+  {
+    "input": "\"abc",
+    "error": "unexpected EOF"
+  },
+  {
+    "input": "nul",
+    "error": "unexpected EOF"
+  },
+  {
+    "input": "NaN",
+    "error": "invalid character 'N' looking for beginning of value"
+  },
+  {
+    "input": "01",
+    "error": "unexpected non-whitespace character after JSON"
+  },
+  {
+    "input": "+1",
+    "error": "invalid character '+' looking for beginning of value"
+  },
+  {
+    "input": "{\"x\":1}x",
+    "error": "invalid character 'x' looking for beginning of value"
+  },
+  {
+    "input": "{\"x\":\"\\q\"}",
+    "error": "invalid escape sequence `\\q` in string"
+  },
+  {
+    "input": "{\"x\":1e}",
+    "error": "invalid character '}' in numeric literal"
+  },
+  {
+    "input": "{\"x\":00}",
+    "error": "invalid character '0' after object key:value pair"
+  },
+  {
+    "input": "{\"x\":1e9999}",
+    "error": "json: cannot unmarshal number 1e9999 into Go value of type float64"
+  }
+]
