@@ -1271,14 +1271,7 @@ mod tests {
 
     #[test]
     fn component_futures_fit_small_native_thread_stacks() {
-        let runner = Components {
-            root: PathBuf::new(),
-            bun: PathBuf::new(),
-            version: "1.4.3".into(),
-            manifest: Value::Null,
-            pins: BTreeMap::new(),
-            layout: Layout::Source,
-        };
+        let runner = Components::default();
         let args = ["list".into()];
         let call = runner.call("atlas", Path::new("unused"), &args);
         let read = bounded(tokio::io::empty(), MAX_STDOUT);
@@ -1592,8 +1585,8 @@ mod tests {
             .unwrap();
             Self { root, bun }
         }
-        fn components(&self) -> Result<Components> {
-            Components::from_root(self.root.clone(), self.bun.clone())
+        fn components(&self) -> Result<DistributionAudit> {
+            DistributionAudit::from_root(self.root.clone(), self.bun.clone())
         }
         fn rewrite_dist(&self, edit: impl FnOnce(&mut Value)) {
             let path = self.root.join(DIST_MANIFEST);
@@ -1708,7 +1701,7 @@ mod tests {
             dist["runtime"]["sha256"] = Value::String(sha256_file(&fixture.bun).unwrap())
         });
         fixture.components().unwrap();
-        let refused = Components::from_root(fixture.root.clone(), other).unwrap_err();
+        let refused = DistributionAudit::from_root(fixture.root.clone(), other).unwrap_err();
         assert_eq!(component_named(&refused), Some("bun"));
         assert!(refused.to_string().contains("not the staged one"));
 
