@@ -2515,6 +2515,39 @@ const GO_PRINTABLE_RANGES: &[(u32, u32)] = &[
 pub fn text_value(value: Option<&Value>) -> String {
     text(value)
 }
+/// Go Text as bytes, retaining invalid UTF-8 binary strings in identity checks.
+/// Arrays are joined iteratively; callers choose the UTF-8 view only for display.
+pub fn text_bytes(value: Option<&Value>) -> Vec<u8> {
+    enum Part<'a> {
+        Value(&'a Value),
+        Comma,
+    }
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let mut stack = vec![Part::Value(value)];
+    let mut out = Vec::new();
+    while let Some(part) = stack.pop() {
+        match part {
+            Part::Comma => out.push(b','),
+            Part::Value(value) => {
+                if let Some(bytes) = value.string_bytes() {
+                    out.extend_from_slice(bytes);
+                } else if let Value::Array(items) = value {
+                    for (i, item) in items.iter().enumerate().rev() {
+                        stack.push(Part::Value(item));
+                        if i > 0 {
+                            stack.push(Part::Comma);
+                        }
+                    }
+                } else {
+                    out.extend_from_slice(text_value(Some(value)).as_bytes());
+                }
+            }
+        }
+    }
+    out
+}
 
 /// Check an implicit outcomes append/merge before it filters stored values.
 /// Objects-only matches the CLI merge; the typed API keeps all array elements.

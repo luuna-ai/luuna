@@ -918,7 +918,7 @@ fn lifecycle_query_array_rows_preserved() {
     t.prepare(|p| {
         p.write(
             ".luuna/atlas/expertise/core.jsonl",
-            &format!("[]\n[{{\"nested\":true}}]\n{ROWS}"),
+            &format!("[]\n[1,2]\n[{{\"nested\":true}}]\n{ROWS}"),
         )
     });
     let args = vec![
@@ -1087,4 +1087,52 @@ fn hostile_yaml_registry_deep_text() {
         file.flush().unwrap();
     });
     compare(&t, &["config", "show"], false, 1, None);
+}
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_read_date_and_number_boundaries() {
+    let t = base(false);
+    t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl","{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"Invalid date\",\"classification\":\"tactical\",\"recorded_at\":\"not-a-date\"}\n{\"id\":\"mx-bbbb\",\"type\":\"convention\",\"content\":\"Future date\",\"classification\":\"tactical\",\"recorded_at\":\"2099-01-01T00:00:00Z\"}\n"));
+    for args in [&["status"][..],&["ready"],&["ready","--since","9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999w"]]{compare(&t,args,false,0,None);}
+    for yaml in ["version: '1'\ndomains: {core: {}, other: {}}\ngovernance: {max_entries: 18446744073709551615}\n","version: '1'\ndomains: {core: {}, other: {}}\ngovernance: {max_entries: 1e-300}\n","version: '1'\ndomains: {core: {}, other: {}}\nclassification_defaults: {shelf_life: {observational: .nan}}\n"]{t.prepare(|p|p.write(".luuna/atlas/config.yaml",yaml));compare(&t,&["status"],false,0,None);}
+}
+#[test]
+#[ignore = "hostile raw array: compile first, run under prlimit4GiB/timeout120"]
+fn hostile_raw_record_array_sidecar() {
+    use luuna_atlas::{json::Value, registry::Registry, store};
+    let t = base(false);
+    t.prepare(|p| {
+        let mut file = std::io::BufWriter::new(std::fs::File::create(p.expertise("core")).unwrap());
+        for _ in 0..10000 {
+            file.write_all(b"[").unwrap();
+        }
+        file.write_all(b"0").unwrap();
+        for _ in 0..10000 {
+            file.write_all(b"]").unwrap();
+        }
+        file.write_all(b"\n").unwrap();
+        file.flush().unwrap();
+    });
+    let args = vec![
+        "query".into(),
+        "core".into(),
+        "--json".into(),
+        "--quiet".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 0);
+    assert_eq!(g.stdout, "\n");
+    let rows = store::read_records(
+        &t.rust.expertise("core"),
+        &Registry::from_config(None).unwrap(),
+        false,
+    )
+    .unwrap();
+    let cloned = rows.clone();
+    let result = CommandOutput::json(&Value::Array(
+        cloned.into_iter().map(Value::Object).collect(),
+    ));
+    assert_eq!(result.stdout, "\n");
+    t.assert_same_tree("deep array sidecar");
 }

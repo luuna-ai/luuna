@@ -159,10 +159,16 @@ impl Registry {
             .and_then(|c| c.get("custom_types"))
             .and_then(Value::as_object)
             .unwrap_or(&empty);
-        for (name, value) in custom.iter() {
+        let disabled_bytes = go_any_list(config.and_then(|c| c.get("disabled_types")))
+            .iter()
+            .filter_map(|v| v.string_bytes().map(<[u8]>::to_vec))
+            .collect::<Vec<_>>();
+        for (identity, value) in custom.iter() {
+            let name = custom.key_text(identity);
             let c = value.as_object().unwrap_or(&empty);
             let parent_name = go_text(c.get("extends"));
-            if !parent_name.is_empty() && registry.disabled.contains(&parent_name) {
+            let parent_bytes = crate::records::text_bytes(c.get("extends"));
+            if !parent_name.is_empty() && disabled_bytes.iter().any(|name| name == &parent_bytes) {
                 return Err(message(format!(
                     "Custom type \"{name}\" extends \"{parent_name}\", which is in disabled_types. Re-enable the parent or remove the extends clause."
                 )));
@@ -465,7 +471,8 @@ fn build_custom_type(name: &str, c: &Object, registry: &Registry) -> Result<Type
             }
         }
         let mut seen_aliases: Vec<String> = Vec::new();
-        for (canonical, legacy_value) in aliases.iter() {
+        for (identity, legacy_value) in aliases.iter() {
+            let canonical = aliases.key_text(identity);
             if !contains(&merged, canonical) {
                 return Err(message(format!(
                     "Custom type \"{name}\" aliases key \"{canonical}\" must be declared in required/optional."
@@ -607,11 +614,7 @@ pub(crate) fn go_text(value: Option<&Value>) -> String {
         Some(Value::Number(n)) => go_format_float(*n),
         // strconv.Itoa for an int, fmt.Sprint for a uint64: the decimal digits.
         Some(Value::Integer(i)) => i.to_string(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| go_text(Some(item)))
-            .collect::<Vec<_>>()
-            .join(","),
+        Some(Value::Array(_)) => crate::records::text_value(value),
         Some(Value::Object(_)) => "[object Object]".to_owned(),
     }
 }

@@ -861,8 +861,9 @@ fn near_message(domain: &str, near: &[records::NearDuplicate]) -> String {
 }
 
 pub(crate) fn domain_names(cfg: &Config) -> Vec<String> {
-    records::obj(cfg.get("domains"))
+    let domains = records::obj(cfg.get("domains"));
+    domains
         .keys()
-        .map(str::to_owned)
+        .map(|key| domains.key_text(key).to_owned())
         .collect()
 }

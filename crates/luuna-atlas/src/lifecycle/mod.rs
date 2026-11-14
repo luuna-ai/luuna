@@ -2,6 +2,8 @@
 use crate::{options::Context, CommandOutput};
 pub mod config;
 pub mod contract;
+pub mod health;
+pub mod read;
 #[derive(Clone, Debug, Default)]
 pub struct Options {
     pub flags: Vec<(String, String)>,
@@ -13,6 +15,11 @@ pub fn run(ctx: &Context, command: &str, args: &[String], options: &Options) -> 
             config::run(a, args, &options.flags);
             Ok(())
         }),
+        "query" | "rank" | "ready" | "status" | "validate" => {
+            crate::actions::record::run(ctx, command, |a| {
+                read::run(a, command, args, &options.flags)
+            })
+        }
         _ => CommandOutput::failure(command, &format!("not implemented: {command}")),
     }
 }
