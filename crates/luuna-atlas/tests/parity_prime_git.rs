@@ -1052,3 +1052,13 @@ fn hostile_prime_deep_raw_array_on_small_stack() {
     assert_eq!(result.stdout, "");
     t.assert_same_tree("deep prime read unchanged");
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn hook_relative_cwd_uses_the_explicit_invocation_directory() {
+    let t = base(true);
+    t.prepare(|p| p.write("src/main.rs", "source\n"));
+    let raw = r#"{"cwd":"src","tool_name":"Read","tool_input":{"file_path":"main.rs"},"session_id":"relative"}"#;
+    compare(&t, &["hook"], false, 0, Some(raw.as_bytes()));
+    assert!(t.rust.atlas_dir().join("state/usage.jsonl").exists());
+}
