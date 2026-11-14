@@ -576,6 +576,7 @@ fn auto(a: &mut Action<'_>, domain: &str, options: &Options) -> Result<()> {
     let mut prepared = Vec::new();
     for domain in domain_order {
         let path = a.path(&domain)?;
+        let observed = std::fs::read(&path).ok();
         let before = store::read_records(&path, &a.registry, a.ctx.globals.allow_unknown_types)?;
         let mut current = before.clone();
         let mut sources_all = Vec::new();
@@ -643,12 +644,23 @@ fn auto(a: &mut Action<'_>, domain: &str, options: &Options) -> Result<()> {
             )?;
             records::assign_record_ids(&mut current, &a.registry)?;
         }
-        prepared.push((domain, before.len(), current, sources_all));
+        if std::fs::read(&path).ok() != observed {
+            return Err(message("Refusing to compact: a source file changed during replacement preparation. No command write was applied."));
+        }
+        prepared.push((domain, before.len(), current, sources_all, observed));
     }
-    for (domain, old_len, mut current, sources) in prepared {
+    for (domain, _, _, _, observed) in &prepared {
+        if std::fs::read(a.path(domain)?).ok() != *observed {
+            return Err(message("Refusing to compact: a source file changed after preflight. No command write was applied."));
+        }
+    }
+    for (domain, old_len, mut current, sources, observed) in prepared {
         if current.len() != old_len {
             let path = a.path(&domain)?;
             store::with_file_lock(&path, || {
+                if std::fs::read(&path).ok() != observed {
+                    return Err(message("Refusing to compact: a source file changed before its locked rewrite. The changed file is untouched."));
+                }
                 store::write_records(&path, &mut current, &a.registry)
             })?;
         }
@@ -707,6 +719,7 @@ fn apply(a: &mut Action<'_>, domain: &str, flags: &[(String, String)]) -> Result
     let path = a.path(domain)?;
     let mut to_archive = Vec::new();
     store::with_file_lock(&path, || {
+        let observed = std::fs::read(&path).ok();
         let before = store::read_records(&path, &a.registry, a.ctx.globals.allow_unknown_types)?;
         let mut indices = Vec::new();
         for id in records::split_csv(&get(flags, "records")) {
@@ -807,6 +820,9 @@ fn apply(a: &mut Action<'_>, domain: &str, flags: &[(String, String)]) -> Result
             .filter(|(i, _)| !indices.contains(i))
             .map(|(_, r)| r.clone())
             .collect::<Vec<_>>();
+        if std::fs::read(&path).ok() != observed {
+            return Err(message("Refusing to compact: the source file changed during replacement preparation. No command write was applied."));
+        }
         preflight(a, domain, &before, &mut remaining, &indices, &sources)?;
         remaining.push(replacement.clone());
         records::assign_record_ids(&mut remaining, &a.registry)?;

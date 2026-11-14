@@ -33,7 +33,10 @@ fn anchor_errors(cfg: &Object) -> Vec<String> {
             continue;
         };
         let n = records::number(Some(value));
-        if !matches!(value, Value::Number(_) | Value::Integer(_)) || !n.is_finite() {
+        if !(matches!(value, Value::Number(_))
+            || matches!(value,Value::Integer(v) if *v<=i64::MAX as i128 && *v>=i64::MIN as i128))
+            || !n.is_finite()
+        {
             let pretty = json::to_indented_string(value).unwrap_or_default();
             errors.push(format!("{field} must be a finite number (got {pretty})"));
             continue;
@@ -217,7 +220,10 @@ impl Policy<'_> {
                         .iter()
                         .find(|r| text(r.get("id")) == text(old.get("id")))
                     {
-                        if new.get("archive_reason") != Some(value) {
+                        if new
+                            .get("archive_reason")
+                            .is_none_or(|next| !records::go_deep_equal(next, value))
+                        {
                             return Err(message("Refusing to prune: automatic archival would replace a stored archive_reason. Files are unchanged."));
                         }
                     }

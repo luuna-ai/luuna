@@ -37,13 +37,57 @@ pub(crate) fn preflight_live(
     records::assign_record_ids(after, &a.registry)?;
     Ok(())
 }
+fn writable_destination(path: &Path) -> Result<()> {
+    let refusal = |error: String| {
+        message(format!("Refusing to rewrite {}: archive destination is not writable: {error}. Files are unchanged.",path.display()))
+    };
+    let mut parent = path.parent().unwrap_or_else(|| Path::new("."));
+    loop {
+        match std::fs::metadata(parent) {
+            Ok(metadata) if metadata.is_dir() => break,
+            Ok(_) => return Err(refusal("a parent path is not a directory".into())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                parent = parent.parent().ok_or_else(|| refusal(error.to_string()))?;
+            }
+            Err(error) => return Err(refusal(error.to_string())),
+        }
+    }
+    // A zero-length exclusive sibling tests actual OS access rules, including
+    // ACLs. It never truncates an existing path or creates archive directories.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    for attempt in 0..16 {
+        let probe = parent.join(format!(
+            ".atlas-write-probe-{}-{nonce}-{attempt}",
+            std::process::id()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe)
+        {
+            Ok(file) => {
+                drop(file);
+                std::fs::remove_file(&probe).map_err(|error| refusal(error.to_string()))?;
+                return Ok(());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(refusal(error.to_string())),
+        }
+    }
+    Err(refusal(
+        "could not allocate an exclusive access probe".into(),
+    ))
+}
 pub(crate) fn preflight_archive(
     a: &Action<'_>,
     path: &Path,
     before: &[Object],
     removed: &[usize],
 ) -> Result<()> {
-    records::check_lossless_rewrite(path, &a.registry, removed)?;
+    records::check_lossless_rewrite(path, &a.registry, removed).map_err(|error|message(format!("Refusing to rewrite {}: archive preservation could not be established: {error}. Files are unchanged.",path.display())))?;
     // Archive array rows have no record fields. Walk their raw JSON value
     // through the existing iterative number guard instead of losing that seam.
     if let Ok(raw) = std::fs::read(path) {
@@ -58,7 +102,7 @@ pub(crate) fn preflight_archive(
             if excluded {
                 continue;
             }
-            if let Ok(value) = crate::json::parse(&String::from_utf8_lossy(line)) {
+            if let Ok(value) = crate::json::parse_bytes(line) {
                 if matches!(value, Value::Array(_)) {
                     let mut wrapper = Object::new();
                     wrapper.insert("row", value);
@@ -75,6 +119,7 @@ pub(crate) fn preflight_archive(
             .filter(|(i, _)| !removed.contains(i))
             .map(|(_, r)| (r, r)),
     )?;
+    writable_destination(path)?;
     Ok(())
 }
 pub(crate) fn stamp(rows: &[Object], reason: &str) -> Vec<Object> {
