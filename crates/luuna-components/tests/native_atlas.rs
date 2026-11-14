@@ -43,7 +43,7 @@ async fn atlas_memory_workflow_is_native_and_lossless() {
         .await
         .unwrap();
     assert_eq!(
-        call_atlas_native(root, &args(&["search"])).await.unwrap()["total"],
+        call_atlas_native(root, &args(&["search","--type","convention"])).await.unwrap()["total"],
         0
     );
 }
