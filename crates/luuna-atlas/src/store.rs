@@ -1024,7 +1024,7 @@ mod tests {
                 r#"{"type":"decision","title":"t","id":"mx-111111","outcomes":[{"agent":"a","status":"success"}]}"#,
                 r#"{"type":"decision","title":"u","outcome":null}"#,
                 r#"{"type":"decision","title":"v","outcome":{"status":"x"},"outcomes":[]}"#,
-                "{}",
+                "[1,2]",
             ]
         );
         fs::write(&path, "{\"type\":\"nope\",\"id\":\"mx-1\"}\n").unwrap();
