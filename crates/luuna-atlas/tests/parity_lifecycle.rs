@@ -1500,3 +1500,42 @@ fn lifecycle_prune_multidomain_preflight() {
         "even the earlier domain must remain untouched"
     );
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_archive_retains_array_rows_and_refuses_negative_zero() {
+    for raw in ["[1,2]", "[[],{\"held\":17}]", "[-0]"] {
+        let t = base(true);
+        t.prepare(|p| p.write(".luuna/atlas/archive/core.jsonl", &format!("{raw}\n")));
+        if raw != "[-0]" {
+            compare(
+                &t,
+                &["archive", "core", "mx-aaaa", "--reason", "fixture"],
+                false,
+                0,
+                None,
+            );
+            continue;
+        }
+        let before = t.rust.snapshot();
+        let args = vec![
+            "archive".into(),
+            "core".into(),
+            "mx-aaaa".into(),
+            "--reason".into(),
+            "fixture".into(),
+            "--json".into(),
+        ];
+        let g = go(&t.go, &args, None, &[]);
+        assert_eq!(g.exit_code, 0);
+        assert!(
+            std::fs::read_to_string(t.go.atlas_dir().join("archive/core.jsonl"))
+                .unwrap()
+                .contains("[0]")
+        );
+        let r = native(&t.rust, &args, None);
+        assert_eq!(r.exit_code, 1);
+        assert!(r.stderr.contains("Refusing"));
+        assert_eq!(before, t.rust.snapshot());
+    }
+}
