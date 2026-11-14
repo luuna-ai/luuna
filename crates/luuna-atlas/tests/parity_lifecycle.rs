@@ -1136,3 +1136,126 @@ fn hostile_raw_record_array_sidecar() {
     assert_eq!(result.stdout, "\n");
     t.assert_same_tree("deep array sidecar");
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_outcome_read_and_append_preservation() {
+    for stored in ["[{},17]", r#"{"held":17}"#] {
+        let t = base(true);
+        t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl",&format!("{{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"held\",\"outcomes\":{stored}}}\n")));
+        let read = vec![
+            "outcome".into(),
+            "core".into(),
+            "mx-aaaa".into(),
+            "--json".into(),
+        ];
+        assert_same_output(
+            "outcome read",
+            &t.go,
+            &go(&t.go, &read, None, &[]),
+            &t.rust,
+            &native(&t.rust, &read, None),
+        );
+        let before = t.rust.snapshot();
+        let args = vec![
+            "outcome".into(),
+            "core".into(),
+            "mx-aaaa".into(),
+            "--status".into(),
+            "success".into(),
+            "--json".into(),
+        ];
+        let g = go(&t.go, &args, None, &[]);
+        assert_eq!(g.exit_code, 0);
+        let bytes = std::fs::read_to_string(t.go.atlas_dir().join("expertise/core.jsonl")).unwrap();
+        assert!(
+            !bytes.contains("\"held\":17") && !bytes.contains(",17"),
+            "Go must lose stored data"
+        );
+        let r = native(&t.rust, &args, None);
+        assert_eq!(r.exit_code, 1);
+        assert!(r.stderr.contains("Refusing"));
+        assert_eq!(before, t.rust.snapshot());
+    }
+}
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_transfer_preflight_preserves_all_files() {
+    for command in ["archive", "move"] {
+        let t = base(true);
+        t.prepare(|p| {
+            p.write(
+                ".luuna/atlas/expertise/core.jsonl",
+                &format!(
+                    "{ROWS}{}\n",
+                    r#"{"id":false,"type":"convention","content":"held"}"#
+                ),
+            )
+        });
+        let before = t.rust.snapshot();
+        let mut args = vec![command.into(), "core".into(), "mx-aaaa".into()];
+        if command == "archive" {
+            args.extend(["--reason".into(), "fixture".into()]);
+        } else {
+            args.push("other".into());
+        }
+        args.push("--json".into());
+        let g = go(&t.go, &args, None, &[]);
+        assert_eq!(g.exit_code, 0, "{}", g.stderr);
+        let bytes = std::fs::read_to_string(t.go.atlas_dir().join("expertise/core.jsonl")).unwrap();
+        assert!(
+            !bytes.contains("\"id\":false"),
+            "actual Go replaces stored false id"
+        );
+        let r = native(&t.rust, &args, None);
+        assert_eq!(r.exit_code, 1);
+        assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+        assert_eq!(
+            before,
+            t.rust.snapshot(),
+            "no target append or source rewrite before refusal"
+        );
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_restore_unknown_live_preflight() {
+    let t = base(true);
+    let args = vec![
+        "archive".into(),
+        "core".into(),
+        "mx-aaaa".into(),
+        "--reason".into(),
+        "fixture".into(),
+        "--json".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    let r = native(&t.rust, &args, None);
+    assert_same_output("archive setup", &t.go, &g, &t.rust, &r);
+    t.prepare(|p| {
+        p.write(
+            ".luuna/atlas/expertise/core.jsonl",
+            "{\"id\":\"mx-dddd\",\"type\":\"unknown-kind\",\"held\":17}\n",
+        )
+    });
+    let before = t.rust.snapshot();
+    let args = vec![
+        "restore".into(),
+        "mx-aaaa".into(),
+        "--allow-unknown-types".into(),
+        "--json".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 1);
+    assert!(
+        !std::fs::read_to_string(t.go.atlas_dir().join("archive/core.jsonl"))
+            .unwrap()
+            .contains("mx-aaaa"),
+        "Go loses the archive row before its hardcoded strict live read"
+    );
+    let r = native(&t.rust, &args, None);
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+    assert_eq!(before, t.rust.snapshot());
+}
