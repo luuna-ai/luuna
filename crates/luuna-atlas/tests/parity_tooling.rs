@@ -6,6 +6,35 @@ use luuna_atlas::{
 };
 use std::process::{Command, Stdio};
 use support::project::{assert_same_output, Step, Twin};
+#[derive(Debug, PartialEq, Eq)]
+struct GitHookSnapshot {
+    mode: u32,
+    link: Option<std::path::PathBuf>,
+    bytes: Vec<u8>,
+}
+fn git_hook_snapshot(p: &support::project::Project) -> Option<GitHookSnapshot> {
+    let path = p.dir.join(".git/hooks/pre-commit");
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => panic!("hook metadata: {e}"),
+    };
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o777
+    };
+    #[cfg(not(unix))]
+    let mode = 0;
+    Some(GitHookSnapshot {
+        mode,
+        link: metadata
+            .file_type()
+            .is_symlink()
+            .then(|| std::fs::read_link(&path).unwrap()),
+        bytes: std::fs::read(path).unwrap(),
+    })
+}
 fn compare(args: &[&str]) {
     compare_prepared(args, |_| {});
 }
@@ -36,6 +65,11 @@ fn compare_prepared(args: &[&str], prepare: impl Fn(&support::project::Project))
     let actual = tooling::run(&ctx, &args, b"");
     assert_same_output(&format!("{args:?}"), &t.go, &expected, &t.rust, &actual);
     t.assert_same_tree(&format!("{args:?}"));
+    assert_eq!(
+        git_hook_snapshot(&t.go),
+        git_hook_snapshot(&t.rust),
+        "{args:?}: exact pre-commit hook bytes, mode and link"
+    );
 }
 #[test]
 #[ignore = "requires pinned Go reference"]
@@ -899,4 +933,51 @@ fn bridge_explicit_file_replacement() {
             )
         },
     );
+}
+
+#[test]
+#[ignore = "requires pinned Go reference"]
+fn git_hooks_preserve_bytes_modes_and_symlinks() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        for linked in [false, true] {
+            for action in ["install", "check", "remove"] {
+                let args = if action == "install" {
+                    vec!["setup", "--hooks", "--json"]
+                } else {
+                    vec![
+                        "setup",
+                        "--hooks",
+                        if action == "check" {
+                            "--check"
+                        } else {
+                            "--remove"
+                        },
+                        "--json",
+                    ]
+                };
+                compare_prepared(&args, |p| {
+                    let mut body = b"#!/bin/sh\n# Keep user code \xff\x80\ntrue\n".to_vec();
+                    if action != "install" {
+                        body.extend_from_slice(
+                            b"# luuna-atlas:start\nluuna-atlas validate\n# luuna-atlas:end\n",
+                        );
+                    }
+                    let hook = p.dir.join(".git/hooks/pre-commit");
+                    let target = if linked {
+                        p.dir.join("saved-hook.sh")
+                    } else {
+                        hook.clone()
+                    };
+                    std::fs::write(&target, body).unwrap();
+                    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640))
+                        .unwrap();
+                    if linked {
+                        symlink("../../saved-hook.sh", hook).unwrap();
+                    }
+                });
+            }
+        }
+    }
 }
