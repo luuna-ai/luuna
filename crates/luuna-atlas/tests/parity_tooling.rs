@@ -35,6 +35,7 @@ fn compare_prepared(args: &[&str], prepare: impl Fn(&support::project::Project))
     };
     let actual = tooling::run(&ctx, &args, b"");
     assert_same_output(&format!("{args:?}"), &t.go, &expected, &t.rust, &actual);
+    t.assert_same_tree(&format!("{args:?}"));
 }
 #[test]
 #[ignore = "requires pinned Go reference"]
@@ -185,5 +186,5 @@ fn doctor_diagnostics() {
 #[test]
 #[ignore = "requires pinned Go reference"]
 fn doctor_repair_safe() {
-    for data in ["{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"Has outcome\",\"classification\":\"foundational\",\"outcome\":{\"status\":\"success\"}}\n", "{\"id\":\"mx-aaaa\",\"type\":\"pattern\",\"name\":\"File anchors\",\"description\":\"Keep body\",\"classification\":\"foundational\",\"files\":[\"missing.rs\"],\"dir_anchors\":[\"missing-dir\"],\"evidence\":{\"file\":\"absent\"}}\n"]{for flags in [vec!["--fix"],vec!["--fix","--json"]]{let mut args=vec!["doctor"];args.extend(flags);compare_prepared(&args,|p|p.write(".luuna/atlas/expertise/core.jsonl",data));}}
+    for data in ["{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"Has outcome\",\"classification\":\"foundational\",\"recorded_at\":\"2026-01-01T00:00:00Z\",\"outcome\":{\"status\":\"success\"}}\n", "{\"id\":\"mx-aaaa\",\"type\":\"pattern\",\"name\":\"File anchors\",\"description\":\"Keep body\",\"classification\":\"foundational\",\"recorded_at\":\"2026-01-01T00:00:00Z\",\"files\":[\"missing.rs\"],\"dir_anchors\":[\"missing-dir\"],\"evidence\":{\"file\":\"absent\"}}\n"]{for flags in [vec!["--fix"],vec!["--fix","--json"]]{let mut args=vec!["doctor"];args.extend(flags);compare_prepared(&args,|p|p.write(".luuna/atlas/expertise/core.jsonl",data));}}
 }
