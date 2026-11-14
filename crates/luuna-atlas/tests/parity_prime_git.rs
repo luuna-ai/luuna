@@ -797,3 +797,258 @@ fn hook_and_prime_pinned_failure_budgets() {
         30
     );
 }
+
+#[cfg(unix)]
+fn stub_git(t: &Twin, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    t.prepare(|p| {
+        let _ = vars(p, &[]);
+        let path = p.dir.parent().unwrap().join("prime-test-bin/git");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    });
+}
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn git_diff_keeps_failing_stdout_and_nil_rows() {
+    for human in [false, true] {
+        let t = base(true);
+        stub_git(
+            &t,
+            r#"
+case "$1" in
+ rev-parse) [ "$2" = "--is-inside-work-tree" ] && { printf 'true\n'; exit 0; }; exit 1;;
+ diff)
+ printf '%s\n' 'diff --git a/.luuna/atlas/expertise/core.jsonl b/.luuna/atlas/expertise/core.jsonl' '-{"id":"mx-old","type":"convention","content":"old"}' '+[1,2]' '+{"id":"mx-new","type":"convention","content":"new"}' 'diff --git a/unrelated b/unrelated' '+17'
+ printf 'diagnostic\n' >&2
+ exit 7;;
+esac
+exit 1"#,
+        );
+        compare(
+            &t,
+            &["diff", "--since", "--untrusted-option"],
+            human,
+            0,
+            None,
+        );
+    }
+}
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn git_sync_failure_reports_captured_stderr() {
+    for failing in ["add", "commit"] {
+        for human in [false, true] {
+            let t = base(true);
+            stub_git(
+                &t,
+                &format!(
+                    r#"
+case "$1" in
+ rev-parse) [ "$2" = "--is-inside-work-tree" ] && {{ printf 'true\n'; exit 0; }}; exit 1;;
+ status) printf ' M .luuna/atlas/expertise/core.jsonl\n'; exit 7;;
+ {failing}) printf 'controlled failure\n' >&2; exit 7;;
+ add|commit) exit 0;;
+esac
+exit 1"#
+                ),
+            );
+            compare(
+                &t,
+                &["sync", "--no-validate", "--message", "fixture"],
+                human,
+                1,
+                None,
+            );
+        }
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn git_sync_empty_message_preserves_staging() {
+    for human in [false, true] {
+        let t = base(true);
+        commit_all(&t);
+        t.prepare(|p| {
+            p.write(
+                ".luuna/atlas/expertise/core.jsonl",
+                &ROWS.replace("Prefer exact checks.", "changed"),
+            )
+        });
+        compare(&t, &["sync", "--message", ""], human, 1, None);
+        assert_eq!(
+            t.go.git(&["diff", "--cached"]),
+            t.rust.git(&["diff", "--cached"])
+        );
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn prime_nan_weights_and_custom_manifest() {
+    for value in [".nan", ".inf", "-.inf", "18446744073709551615", "'1e6'"] {
+        let t = base(true);
+        append_config(
+            &t,
+            &format!("prime: {{tier_weights: {{star: {value}, foundational: 20}}}}\n"),
+        );
+        compare(&t, &["prime", "--all", "--no-limit"], true, 0, None);
+        compare(&t, &["prime", "--all"], false, 0, None);
+    }
+    let t = base(false);
+    append_config(&t,"custom_types:\n  hypothesis:\n    required: [statement]\n    dedup_key: statement\n    summary: '{statement}'\n");
+    t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl","{\"id\":\"mx-custom\",\"type\":\"hypothesis\",\"statement\":\"Custom thought\",\"classification\":\"foundational\"}\n"));
+    for format in ["markdown", "compact", "xml", "plain"] {
+        compare(
+            &t,
+            &["prime", "--manifest", "--format", format],
+            true,
+            0,
+            None,
+        );
+        compare(&t, &["prime", "--all", "--format", format], true, 0, None);
+    }
+    compare(&t, &["prime", "--manifest"], false, 0, None);
+}
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn prime_nan_partial_trust_sort() {
+    let t = base(false);
+    append_config(&t, "prime: {tier_weights: {star: 0, foundational: .nan}}\n");
+    t.prepare(|p|{
+        let mut file=std::io::BufWriter::new(std::fs::File::create(p.atlas_dir().join("expertise/core.jsonl")).unwrap());
+        for index in 0..128{
+            let class=["observational","foundational","tactical"][index%3];
+            writeln!(file,"{{\"id\":\"mx-{index:04}\",\"type\":\"convention\",\"content\":\"record {index}\",\"classification\":\"{class}\"}}").unwrap();
+        }
+    });
+    compare(&t, &["prime", "--all"], false, 0, None);
+}
+#[test]
+#[ignore = "hostile shell input: compile first; run with target TMPDIR and prlimit4GiB/timeout120"]
+fn hostile_hook_long_shell_is_linear() {
+    let root = support::reference::workspace_root();
+    let disk = root.join("target/prime-large-input");
+    std::fs::create_dir_all(&disk).unwrap();
+    let temp = tempfile::tempdir_in(&disk).unwrap();
+    let path = temp.path().join("hook.json");
+    {
+        let mut file = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+        file.write_all(b"{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"")
+            .unwrap();
+        for _ in 0..200000 {
+            file.write_all(b"env ").unwrap();
+        }
+        file.write_all(b"rm .luuna/atlas/expertise/core.jsonl\"}}")
+            .unwrap();
+    }
+    let t = base(false);
+    let args = vec!["hook".into(), "--json".into(), "--quiet".into()];
+    let output = Command::new(&support::reference::reference().binary)
+        .args(&args)
+        .current_dir(&t.go.dir)
+        .env_clear()
+        .envs(vars(&t.go, &[]))
+        .stdin(std::fs::File::open(&path).unwrap())
+        .output()
+        .unwrap();
+    let g = CommandOutput {
+        exit_code: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8(output.stdout).unwrap(),
+        stderr: String::from_utf8(output.stderr).unwrap(),
+    };
+    assert_eq!(g.exit_code, 0);
+    assert!(g.stdout.contains("deny"));
+    let env = Env::fixed(vars(&t.rust, &[]), args, false);
+    let ctx = Context {
+        root: t.rust.dir.clone(),
+        cwd: t.rust.dir.clone(),
+        env,
+        globals: GlobalOptions {
+            json: true,
+            quiet: true,
+            ..Default::default()
+        },
+    };
+    let result = std::thread::Builder::new()
+        .stack_size(128 * 1024)
+        .spawn(move || {
+            let input = std::fs::read(path).unwrap();
+            prime::run(
+                &ctx,
+                "hook",
+                &[],
+                &prime::Options {
+                    flags: vec![],
+                    input,
+                },
+            )
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_same_output("long shell", &t.go, &g, &t.rust, &result);
+    t.assert_same_tree("guard unchanged");
+}
+#[test]
+#[ignore = "hostile raw array: compile first; run with target TMPDIR and prlimit4GiB/timeout120"]
+fn hostile_prime_deep_raw_array_on_small_stack() {
+    let t = base(false);
+    let root = support::reference::workspace_root();
+    assert!(
+        t.rust.dir.starts_with(root.join("target")),
+        "assign TMPDIR under target for the hostile fixture"
+    );
+    t.prepare(|p| {
+        let mut file = std::io::BufWriter::new(
+            std::fs::File::create(p.atlas_dir().join("expertise/core.jsonl")).unwrap(),
+        );
+        for _ in 0..10000 {
+            file.write_all(b"[").unwrap();
+        }
+        file.write_all(b"0").unwrap();
+        for _ in 0..10000 {
+            file.write_all(b"]").unwrap();
+        }
+        file.write_all(b"\n").unwrap();
+    });
+    compare(&t, &["prime", "--all"], false, 0, None);
+    let args = vec![
+        "prime".into(),
+        "--all".into(),
+        "--json".into(),
+        "--quiet".into(),
+    ];
+    let env = Env::fixed(vars(&t.rust, &[]), args, false);
+    let ctx = Context {
+        root: t.rust.dir.clone(),
+        cwd: t.rust.dir.clone(),
+        env,
+        globals: GlobalOptions {
+            json: true,
+            quiet: true,
+            ..Default::default()
+        },
+    };
+    let result = std::thread::Builder::new()
+        .stack_size(128 * 1024)
+        .spawn(move || {
+            prime::run(
+                &ctx,
+                "prime",
+                &[],
+                &prime::Options {
+                    flags: vec![("all".into(), "true".into())],
+                    input: vec![],
+                },
+            )
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.stdout, "");
+    t.assert_same_tree("deep prime read unchanged");
+}
