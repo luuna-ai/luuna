@@ -408,7 +408,7 @@ fn prime_all_formats_and_variadic_scopes() {
 fn prime_contract_and_reminder() {
     for format in ["markdown", "compact", "xml", "plain"] {
         let t = base(true);
-        append_config(&t,"custom_types:\n  hypothesis:\n    required: [statement]\n    optional: [explanation]\n    summary: '{statement}'\ndisabled_types: [guide]\nprime:\n  session_close:\n    style: minimal\n");
+        append_config(&t,"custom_types:\n  hypothesis:\n    required: [statement]\n    optional: [explanation]\n    dedup_key: statement\n    summary: '{statement}'\ndisabled_types: [guide]\nprime:\n  session_close:\n    style: minimal\n");
         t.prepare(|p| {
             let file = p.atlas_dir().join("config.yaml");
             let mut cfg = std::fs::read_to_string(&file).unwrap();
