@@ -639,7 +639,7 @@ fn doctor_comments_orphans_and_combined_repairs() {
         args.extend(flags);
         for which in 0..3 {
             compare_prepared(&args, |p| {
-                let row = r#"{"id":"mx-aaaa","type":"convention","content":"Keep body","classification":"foundational","recorded_at":"2026-01-01T00:00:00Z","outcome":{"status":"success"},"files":["missing.rs"]}"#;
+                let row = r#"{"id":"mx-aaaa","type":"pattern","name":"Keep body","description":"Keep body","classification":"foundational","recorded_at":"2026-01-01T00:00:00Z","outcome":{"status":"success"},"files":["missing.rs"]}"#;
                 match which {
                     0 => p.write(
                         ".luuna/atlas/expertise/core.jsonl",
