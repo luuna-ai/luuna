@@ -1,9 +1,16 @@
 //! Native Atlas lifecycle and config operations, with explicit invocation state.
 use crate::{options::Context, CommandOutput};
+mod archive;
+pub mod compact;
 pub mod config;
 pub mod contract;
+mod delete_domain;
 pub mod health;
+mod move_record;
+mod outcome;
+mod prune;
 pub mod read;
+pub mod retention;
 #[derive(Clone, Debug, Default)]
 pub struct Options {
     pub flags: Vec<(String, String)>,
@@ -20,6 +27,22 @@ pub fn run(ctx: &Context, command: &str, args: &[String], options: &Options) -> 
                 read::run(a, command, args, &options.flags)
             })
         }
+        "outcome" => {
+            crate::actions::record::run(ctx, command, |a| outcome::run(a, args, &options.flags))
+        }
+        "archive" => {
+            crate::actions::record::run(ctx, command, |a| archive::archive(a, args, &options.flags))
+        }
+        "restore" => crate::actions::record::run(ctx, command, |a| archive::restore(a, args)),
+        "delete-domain" => {
+            crate::actions::record::run(ctx, command, |a| delete_domain::run(a, args, options))
+        }
+        "move" => {
+            crate::actions::record::run(ctx, command, |a| move_record::run(a, args, &options.flags))
+        }
+        "stale" => crate::actions::record::run(ctx, command, |a| retention::run_stale(a, args)),
+        "prune" => crate::actions::record::run(ctx, command, |a| prune::run(a, &options.flags)),
+        "compact" => crate::actions::record::run(ctx, command, |a| compact::run(a, args, options)),
         _ => CommandOutput::failure(command, &format!("not implemented: {command}")),
     }
 }
