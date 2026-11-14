@@ -1798,3 +1798,15 @@ fn lifecycle_compact_hook_source_change_is_not_overwritten() {
         assert!(!t.rust.atlas_dir().join("archive").exists());
     }
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_outcome_human_detail_values() {
+    let t = base(false);
+    t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl",concat!(
+        "{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"held\",\"outcomes\":[",
+        "{\"status\":\"success\",\"duration\":[1,null,true],\"test_results\":{\"b\":[2,3],\"a\":null},\"notes\":false,\"recorded_at\":0},",
+        "{\"status\":\"partial\",\"duration\":-0,\"notes\":[{\"b\":\"two words\",\"a\":\"first\"},[]],\"recorded_at\":\"\",\"agent\":\"fixture\"}]}\n"
+    )));
+    compare(&t, &["outcome", "core", "mx-aaaa"], true, 0, None);
+}
