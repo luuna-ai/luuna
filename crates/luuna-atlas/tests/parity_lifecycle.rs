@@ -1539,3 +1539,262 @@ fn lifecycle_archive_retains_array_rows_and_refuses_negative_zero() {
         assert_eq!(before, t.rust.snapshot());
     }
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_prune_anchor_config_types() {
+    for value in [
+        "'0.5'",
+        "true",
+        ".nan",
+        ".inf",
+        "18446744073709551615",
+        "-1",
+        "2",
+        "[1]",
+        "{held: 17}",
+    ] {
+        let t = base(true);
+        t.prepare(|p| {
+            let cfg = p.atlas_dir().join("config.yaml");
+            let mut yaml = std::fs::read_to_string(&cfg).unwrap();
+            yaml.push_str(&format!(
+                "decay:\n  anchor_validity:\n    threshold: {value}\n"
+            ));
+            std::fs::write(cfg, yaml).unwrap();
+        });
+        compare(&t, &["prune", "--check-anchors"], false, 1, None);
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_stale_git_history() {
+    for human in [false, true] {
+        let t = base(false);
+        t.prepare(|p|{
+            p.write("tracked.txt","original\n");p.git(&["add","tracked.txt"]);p.git(&["commit","-qm","initial"]);
+            let sha=p.git(&["rev-parse","HEAD"]).trim().to_owned();
+            p.write(".luuna/atlas/expertise/core.jsonl",&format!("{{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"tracked\",\"classification\":\"foundational\",\"recorded_at\":\"2020-01-01T00:00:00.000Z\",\"files\":[\"tracked.txt\"],\"evidence\":{{\"commit\":\"{sha}\"}}}}\n"));
+            for n in 0..6{
+                p.write("tracked.txt",&format!("change {n}\n"));p.git(&["add","tracked.txt"]);p.git(&["commit","-qm",&format!("change {n}")]);
+            }
+        });
+        compare(&t, &["stale"], human, 0, None);
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_compact_strategies_and_limits() {
+    for typ in [
+        "convention",
+        "pattern",
+        "failure",
+        "decision",
+        "reference",
+        "guide",
+    ] {
+        for human in [false, true] {
+            let t = base(false);
+            t.prepare(|p| {
+                let mut rows = String::new();
+                for index in 0..3 {
+                    let mut r = luuna_atlas::json::Object::new();
+                    r.insert("id", format!("mx-{index:04}"));
+                    r.insert("type", typ);
+                    r.insert("classification", "tactical");
+                    r.insert(
+                        "recorded_at",
+                        format!("2020-01-0{}T00:00:00.000Z", index + 1),
+                    );
+                    for field in [
+                        "name",
+                        "title",
+                        "content",
+                        "description",
+                        "resolution",
+                        "rationale",
+                    ] {
+                        r.insert(field, if index == 0 { "😀😀" } else { "abcd" });
+                    }
+                    r.insert(
+                        "tags",
+                        luuna_atlas::json::Value::Array(vec!["".into(), "tag".into()]),
+                    );
+                    r.insert(
+                        "outcomes",
+                        luuna_atlas::json::Value::Array(vec![luuna_atlas::json::Value::Object(
+                            luuna_atlas::json::Object::new(),
+                        )]),
+                    );
+                    rows.push_str(&luuna_atlas::json::to_compact_string(&r.into()).unwrap());
+                    rows.push('\n');
+                }
+                p.write(".luuna/atlas/expertise/core.jsonl", &rows);
+            });
+            compare(
+                &t,
+                &[
+                    "compact",
+                    "core",
+                    "--auto",
+                    "--dry-run",
+                    "--max-records",
+                    "2",
+                ],
+                human,
+                0,
+                None,
+            );
+            compare(&t, &["compact", "core", "--auto", "--yes"], human, 0, None);
+        }
+    }
+}
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_archive_blocked_destination_preflight() {
+    let t = base(true);
+    t.prepare(|p| p.write(".luuna/atlas/archive/core.jsonl/held", "original"));
+    let before = t.rust.snapshot();
+    let args = vec![
+        "archive".into(),
+        "core".into(),
+        "mx-aaaa".into(),
+        "--reason".into(),
+        "fixture".into(),
+        "--json".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 1);
+    assert!(
+        !std::fs::read_to_string(t.go.atlas_dir().join("expertise/core.jsonl"))
+            .unwrap()
+            .contains("mx-aaaa"),
+        "Go removes the source before its destination fails"
+    );
+    let r = native(&t.rust, &args, None);
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+    assert_eq!(before, t.rust.snapshot());
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_archive_readonly_destination_preflight() {
+    use std::os::unix::fs::PermissionsExt;
+    let t = base(true);
+    t.prepare(|p| {
+        p.write(".luuna/atlas/archive/core.jsonl", "");
+        std::fs::set_permissions(
+            p.atlas_dir().join("archive"),
+            std::fs::Permissions::from_mode(0o500),
+        )
+        .unwrap();
+    });
+    let before = t.rust.snapshot();
+    let args = vec![
+        "archive".into(),
+        "core".into(),
+        "mx-aaaa".into(),
+        "--reason".into(),
+        "fixture".into(),
+        "--json".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 1);
+    assert!(
+        !std::fs::read_to_string(t.go.atlas_dir().join("expertise/core.jsonl"))
+            .unwrap()
+            .contains("mx-aaaa")
+    );
+    let r = native(&t.rust, &args, None);
+    let after = t.rust.snapshot();
+    t.prepare(|p| {
+        std::fs::set_permissions(
+            p.atlas_dir().join("archive"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap()
+    });
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+    assert_eq!(before, after);
+}
+
+#[test]
+#[ignore = "hostile graph: compile first, run under prlimit4GiB/timeout120 with TMPDIR in target"]
+fn hostile_retention_graph_is_iterative() {
+    let t = base(false);
+    t.prepare(|p|{
+        let mut file=std::io::BufWriter::new(std::fs::File::create(p.atlas_dir().join("expertise/core.jsonl")).unwrap());
+        for n in 0..20000{
+            writeln!(file,"{{\"id\":\"mx-{n:08}\",\"type\":\"convention\",\"content\":\"graph\",\"classification\":\"foundational\",\"supersedes\":[\"mx-{:08}\"]}}",(n+1)%20000).unwrap();
+        }
+    });
+    compare(&t, &["stale"], false, 0, None);
+    let ctx = Context {
+        root: t.rust.dir.clone(),
+        cwd: t.rust.dir.clone(),
+        env: Env::fixed(vars(&t.rust, &[]), vec![], false),
+        globals: GlobalOptions::default(),
+    };
+    let result = std::thread::Builder::new()
+        .stack_size(128 * 1024)
+        .spawn(move || lifecycle::run(&ctx, "stale", &[], &lifecycle::Options::default()))
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.stdout, "No stale records.\n");
+    t.assert_same_tree("graph read unchanged");
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_compact_hook_source_change_is_not_overwritten() {
+    for auto in [false, true] {
+        let t = base(false);
+        t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl",concat!(
+            "{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"first\",\"classification\":\"tactical\",\"recorded_at\":\"2020-01-01T00:00:00.000Z\"}\n",
+            "{\"id\":\"mx-bbbb\",\"type\":\"convention\",\"content\":\"second\",\"classification\":\"tactical\",\"recorded_at\":\"2020-01-01T00:00:00.000Z\"}\n"
+        )));
+        lifecycle_hook(
+            &t,
+            "pre-compact",
+            r#"printf '%s\n' '{"id":"mx-held","type":"convention","content":"held-hook-write"}' >> .luuna/atlas/expertise/core.jsonl"#,
+        );
+        let mut args = vec!["compact".into(), "core".into()];
+        if auto {
+            args.push("--auto".into());
+        } else {
+            args.extend([
+                "--apply".into(),
+                "--records".into(),
+                "mx-aaaa,mx-bbbb".into(),
+                "--content".into(),
+                "joined".into(),
+            ]);
+        }
+        args.push("--json".into());
+        let g = go(&t.go, &args, None, &[]);
+        assert_eq!(g.exit_code, 0, "{}", g.stderr);
+        assert!(
+            !std::fs::read_to_string(t.go.atlas_dir().join("expertise/core.jsonl"))
+                .unwrap()
+                .contains("held-hook-write")
+        );
+        let r = native(&t.rust, &args, None);
+        assert_eq!(r.exit_code, 1);
+        assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+        let bytes =
+            std::fs::read_to_string(t.rust.atlas_dir().join("expertise/core.jsonl")).unwrap();
+        assert!(
+            bytes.contains("mx-aaaa")
+                && bytes.contains("mx-bbbb")
+                && bytes.contains("held-hook-write")
+        );
+        assert!(!t.rust.atlas_dir().join("archive").exists());
+    }
+}
