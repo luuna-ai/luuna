@@ -52,6 +52,29 @@ use crate::json::{Object, Value};
 
 /// Reads one YAML document. An empty document (only blank lines and comments) is `null`.
 pub fn parse(text: &str) -> Result<Value> {
+    match parse_subset(text) {
+        Err(AtlasError::UnsupportedYaml { line, message }) => {
+            // GDL1 is an existing proven loss: an indented first mapping key
+            // makes Go ignore a later less-indented key. Explicit document
+            // separators are read normally and checked by writers instead.
+            if message == "content after the end of the document is not supported"
+                && !text.lines().any(|line| line == "---" || line == "...")
+            {
+                Err(AtlasError::UnsupportedYaml { line, message })
+            } else {
+                graph::parse(text)
+            }
+        }
+        result => result,
+    }
+}
+mod graph;
+/// Whether rewriting the first YAML document would discard later document data.
+pub fn has_later_data(text: &str) -> Result<bool> {
+    graph::has_later_data(text)
+}
+
+fn parse_subset(text: &str) -> Result<Value> {
     let mut parser = Parser::new(text)?;
     match parser.document()? {
         None => Ok(Value::Null),
@@ -1827,6 +1850,7 @@ struct Out {
     value: String,
     style: Style,
     merge: bool,
+    binary: bool,
 }
 
 /// The emitter's analysis of a scalar (`yaml_emitter_analyze_scalar`).
@@ -2119,6 +2143,7 @@ fn string_out(text: &str) -> Result<Out> {
             value: text.to_owned(),
             style: requested,
             merge: false,
+            binary: false,
         },
         false,
         false,
@@ -2134,6 +2159,7 @@ fn string_out(text: &str) -> Result<Out> {
             value: "null".to_owned(),
             style: Style::Plain,
             merge: false,
+            binary: false,
         });
     };
     let (value, style) = (std::mem::take(value), *style);
@@ -2144,7 +2170,51 @@ fn string_out(text: &str) -> Result<Out> {
         value,
         style: if quote { Style::Single } else { style },
         merge,
+        binary: false,
     })
+}
+
+fn binary_out(bytes: &[u8]) -> Out {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::new();
+    for chunk in bytes.chunks(3) {
+        let a = chunk[0];
+        let b = chunk.get(1).copied().unwrap_or(0);
+        let c = chunk.get(2).copied().unwrap_or(0);
+        encoded.push(TABLE[(a >> 2) as usize] as char);
+        encoded.push(TABLE[(((a & 3) << 4) | (b >> 4)) as usize] as char);
+        encoded.push(if chunk.len() > 1 {
+            TABLE[(((b & 15) << 2) | (c >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        encoded.push(if chunk.len() > 2 {
+            TABLE[(c & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    let multiline = encoded.len() >= 70;
+    let value = if multiline {
+        let mut wrapped = String::new();
+        for line in encoded.as_bytes().chunks(70) {
+            wrapped.push_str(std::str::from_utf8(line).expect("base64 is ASCII"));
+            wrapped.push('\n');
+        }
+        wrapped
+    } else {
+        encoded
+    };
+    Out {
+        value,
+        style: if multiline {
+            Style::Literal
+        } else {
+            Style::Plain
+        },
+        merge: false,
+        binary: true,
+    }
 }
 
 fn scalar_out(value: &Value) -> Result<Out> {
@@ -2152,6 +2222,7 @@ fn scalar_out(value: &Value) -> Result<Out> {
         value: text,
         style: Style::Plain,
         merge: false,
+        binary: false,
     };
     Ok(match value {
         Value::Null => plain("null".to_owned()),
@@ -2160,13 +2231,17 @@ fn scalar_out(value: &Value) -> Result<Out> {
         // yaml.v3 writes a Go int or uint64 with strconv.FormatInt or FormatUint.
         Value::Integer(i) => plain(i.to_string()),
         Value::String(s) => string_out(s)?,
+        Value::RawString(s) => binary_out(s.bytes()),
         Value::Array(_) | Value::Object(_) => unreachable!("collections are not scalars"),
     })
 }
 
 /// A mapping or sequence being written by [`Emitter::node`]: its remaining entries.
 enum Emit<'a> {
-    Map(Box<dyn Iterator<Item = (&'a str, &'a Value)> + 'a>),
+    Map(
+        &'a Object,
+        Box<dyn Iterator<Item = (&'a str, &'a Value)> + 'a>,
+    ),
     Seq(std::slice::Iter<'a, Value>),
 }
 
@@ -2275,7 +2350,7 @@ impl Emitter {
                     }
                     Value::Object(object) => {
                         self.increase_indent(false, in_sequence_item);
-                        open.push(Emit::Map(Box::new(object.iter())));
+                        open.push(Emit::Map(object, Box::new(object.iter())));
                     }
                     Value::Array(items) => {
                         self.increase_indent(false, in_sequence_item);
@@ -2288,10 +2363,13 @@ impl Emitter {
                 return Ok(());
             };
             match top {
-                Emit::Map(entries) => match entries.next() {
+                Emit::Map(object, entries) => match entries.next() {
                     Some((key, value)) => {
                         self.write_indent();
-                        let key = string_out(key)?;
+                        let key = match std::str::from_utf8(object.key_bytes(key)) {
+                            Ok(key) => string_out(key)?,
+                            Err(_) => binary_out(object.key_bytes(key)),
+                        };
                         let analysis = analyze(&key.value);
                         let length = key.value.len() + if key.merge { 7 } else { 0 };
                         if !analysis.multiline && length <= 128 {
@@ -2328,11 +2406,11 @@ impl Emitter {
     fn scalar(&mut self, out: &Out, in_sequence_item: bool, simple_key: bool) -> Result<()> {
         let analysis = analyze(&out.value);
         let style = select_style(out.style, &analysis, out.value.is_empty(), simple_key);
-        if out.merge {
+        if out.merge || out.binary {
             if !self.whitespace {
                 self.put(' ');
             }
-            for c in "!!merge".chars() {
+            for c in (if out.binary { "!!binary" } else { "!!merge" }).chars() {
                 self.put(c);
             }
             self.whitespace = false;
@@ -2540,6 +2618,11 @@ mod tests {
     }
 
     #[test]
+    fn existing_indented_document_refusal_is_kept() {
+        assert_eq!(unsupported_line("  b: 1\na: 2\n"), 2);
+    }
+
+    #[test]
     fn reads_initial_template() {
         assert_eq!(
             read_json(INITIAL_CONFIG_YAML),
@@ -2554,22 +2637,32 @@ mod tests {
 
     #[test]
     fn refuses_anchor_and_alias_with_line() {
-        assert_eq!(unsupported_line("a: 1\nb: &base\n  c: 2\n"), 2);
-        assert_eq!(unsupported_line("a: 1\nb: 2\nc: *base\n"), 3);
-        assert_eq!(unsupported_line("a:\n  - x\n  - *base\n"), 3);
-        assert_eq!(unsupported_line("a: {b: &x 1}\n"), 1);
-        // Merge keys, tags and several documents are refused the same way.
-        assert_eq!(unsupported_line("a: 1\n<<: {b: 1}\n"), 2);
-        assert_eq!(unsupported_line("a: !!str 1\n"), 1);
-        assert_eq!(unsupported_line("a: 1\n---\nb: 2\n"), 2);
-        assert_eq!(unsupported_line("a: 1\n...\nb: 2\n"), 3);
-        assert_eq!(unsupported_line("%YAML 1.2\n---\na: 1\n"), 1);
-        assert_eq!(unsupported_line("? a\n: b\n"), 1);
-        let message = parse("x: 1\ny: *a\n").unwrap_err().to_string();
+        // Historical subset test name retained. Every original input now pins
+        // actual Go support or the exact Go syntax error (lib3 probes).
         assert_eq!(
-            message,
-            "unsupported YAML at line 2: aliases (*) are not supported"
+            read_json("a: 1\nb: &base\n  c: 2\n"),
+            r#"{"a":1,"b":{"c":2}}"#
         );
+        assert_eq!(
+            parse("a: 1\nb: 2\nc: *base\n").unwrap_err().to_string(),
+            "yaml: unknown anchor 'base' referenced"
+        );
+        assert_eq!(
+            parse("a:\n  - x\n  - *base\n").unwrap_err().to_string(),
+            "yaml: unknown anchor 'base' referenced"
+        );
+        assert_eq!(read_json("a: {b: &x 1}\n"), r#"{"a":{"b":1}}"#);
+        assert_eq!(read_json("a: 1\n<<: {b: 1}\n"), r#"{"a":1,"b":1}"#);
+        assert_eq!(read_json("a: !!str 1\n"), r#"{"a":"1"}"#);
+        assert_eq!(read_json("a: 1\n---\nb: 2\n"), r#"{"a":1}"#);
+        assert_eq!(read_json("a: 1\n...\nb: 2\n"), r#"{"a":1}"#);
+        assert_eq!(
+            parse("%YAML 1.2\n---\na: 1\n").unwrap_err().to_string(),
+            "yaml: found incompatible YAML document"
+        );
+        assert_eq!(read_json("? a\n: b\n"), r#"{"a":"b"}"#);
+        let message = parse("x: 1\ny: *a\n").unwrap_err().to_string();
+        assert_eq!(message, "yaml: unknown anchor 'a' referenced");
     }
 
     #[test]
@@ -2634,18 +2727,26 @@ mod tests {
 
     #[test]
     fn refuses_flow_collection_as_later_block_key() {
-        // yaml.v3 reads a flow collection before `:` as a mapping key; like the first key
-        // of a mapping, a later one is refused as unsupported, not as a syntax error.
-        assert_eq!(unsupported_line("[a]: d\n"), 1);
-        assert_eq!(unsupported_line("domains: {}\n[a]: d\n"), 2);
-        assert_eq!(unsupported_line("domains: {}\n{a: 1}: d\n"), 2);
-        assert_eq!(unsupported_line("m:\n  a: 1\n\n  [b, c] : 2\n"), 4);
-        assert_eq!(unsupported_line("- a: 1\n  {b: 2}: 3\n"), 2);
-        let message = parse("x: 1\n[a]: d\n").unwrap_err().to_string();
+        // Go stringifies complex keys; preserve the original inputs and assert
+        // their full values instead of the retired subset limitation.
+        assert_eq!(read_json("[a]: d\n"), r#"{"a":"d"}"#);
         assert_eq!(
-            message,
-            "unsupported YAML at line 2: flow collections as mapping keys are not supported"
+            read_json("domains: {}\n[a]: d\n"),
+            r#"{"domains":{},"a":"d"}"#
         );
+        assert_eq!(
+            read_json("domains: {}\n{a: 1}: d\n"),
+            r#"{"domains":{},"[object Object]":"d"}"#
+        );
+        assert_eq!(
+            read_json("m:\n  a: 1\n\n  [b, c] : 2\n"),
+            r#"{"m":{"a":1,"b,c":2}}"#
+        );
+        assert_eq!(
+            read_json("- a: 1\n  {b: 2}: 3\n"),
+            r#"[{"a":1,"[object Object]":3}]"#
+        );
+        assert_eq!(read_json("x: 1\n[a]: d\n"), r#"{"x":1,"a":"d"}"#);
         // Without a `:` after it, a flow collection where a key belongs is invalid YAML,
         // which yaml.v3 also rejects: it stays a syntax error, not an unsupported construct.
         for text in ["a: 1\n[b]\n", "a: 1\n[b] x: 2\n", "a: 1\n[b\n"] {
@@ -2714,7 +2815,7 @@ mod tests {
                 "{text:?}"
             );
         }
-        assert_eq!(unsupported_line("a: [1,\n  2]\n"), 1);
+        assert_eq!(read_json("a: [1,\n  2]\n"), r#"{"a":[1,2]}"#);
     }
 
     #[test]

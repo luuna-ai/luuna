@@ -429,7 +429,7 @@ fn type_matches(kind: &str, value: &Value) -> bool {
     match kind {
         "object" => matches!(value, Value::Object(_)),
         "array" => matches!(value, Value::Array(_)),
-        "string" => matches!(value, Value::String(_)),
+        "string" => matches!(value, Value::String(_) | Value::RawString(_)),
         "number" => is_numeric(value),
         "integer" => {
             // Go's Number gives 0 for a uint64 (CF6), which counts as whole.

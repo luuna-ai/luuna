@@ -1,15 +1,18 @@
 # luuna-atlas
 
-A native Rust port of the Luuna Atlas store (`.luuna/atlas/`). The crate reads and writes the
-store byte for byte as the Go tool does. It takes the project root as a parameter, never runs
-git, and is not wired into the runtime.
+A native Rust port of the Luuna Atlas store (.luuna/atlas/). Store roots,
+working directories, environment, command flags and input are explicit parameters.
+The runtime adapter is still assigned to the later wire plan.
 
-## Commands covered so far
+## Commands covered
 
-Only `init`, `add` and `config show` (including the legacy `.mulch/` migration). The other
-Atlas commands come in later plans.
-
-Each later Atlas plan records what it covers in its own file under `notes/`.
+The foundation provides init, add and config show. The actions modules provide
+record, bulk, edit, delete, search and show. The lifecycle module provides query,
+rank, ready, status, stale, validate, outcome, move, archive, restore, delete-domain,
+prune, compact and config schema/show-path/set/unset. Typed recording APIs are also
+available. Git context and configured raw hooks follow the reference behavior.
+Prime, the public CLI parser/dispatcher and setup/doctor/audit/bridge remain assigned
+to later plans. Coverage and deliberate preservation refusals are recorded in notes/.
 
 ## Reference
 
@@ -61,14 +64,19 @@ Nothing else is normalised. Stdout, stderr, file bytes, exit codes and the file 
 `.git`: paths, file or folder type, permission bits) are compared exactly. A leftover `*.lock`
 or `*.tmp.*` file fails the test.
 
-## Supported YAML subset
+## YAML support
 
-No YAML crate is available, so `src/yaml.rs` reads and writes the subset that `config.yaml`
-uses: block maps and sequences, empty and simple single-line flow collections, plain,
-single-quoted and double-quoted scalars, literal and folded block scalars, comments, and one
-leading `---`. Anchors, aliases, merge keys, tags, complex (`?`) keys, directives and several
-documents are refused with the typed error `AtlasError::UnsupportedYaml`, which carries the
-line number. Anything else it cannot read is a syntax error; the reader never guesses.
+The reader supports block and flow collections, quoted/plain/block scalars,
+anchors, aliases, merge keys, explicit/custom tags, binary strings, complex keys,
+directives and the first YAML document. It retains invalid UTF-8 binary bytes and
+mapping-key identity while JSON uses Go's replacement-character view. The emitter
+preserves the reference's formatting and binary encoding.
+
+The graph reader uses exact granit-parser 2.1.0 with the reference's 10000-level
+flow/block limits. Cyclic aliases receive a clear refusal. Rewrites preflight
+reader-visible content, including additional documents and unsupported lossy
+normalizations. Lossless alias/merge expansion is accepted; comments and formatting
+changes follow Go. See notes/s5-atlas-lib-3.md for limitations and evidence.
 
 ## License and attribution
 

@@ -51,8 +51,46 @@ pub enum Value {
     /// An exact integer in the range of Go's `int64` or `uint64`.
     Integer(i128),
     String(String),
+    /// A Go string containing bytes YAML binary scalars can hold but UTF-8 cannot.
+    /// JSON exposes replacement characters; YAML preserves the original bytes.
+    RawString(GoString),
     Array(Vec<Value>),
     Object(Object),
+}
+
+fn go_utf8_text(mut bytes: &[u8]) -> String {
+    let mut text = String::new();
+    loop {
+        match std::str::from_utf8(bytes) {
+            Ok(valid) => {
+                text.push_str(valid);
+                return text;
+            }
+            Err(error) => {
+                let valid = error.valid_up_to();
+                text.push_str(
+                    std::str::from_utf8(&bytes[..valid]).expect("validated UTF-8 prefix"),
+                );
+                text.push('\u{fffd}');
+                bytes = &bytes[valid + 1..];
+            }
+        }
+    }
+}
+
+/// The exact bytes and the JSON-visible UTF-8 view of a Go string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoString {
+    bytes: Vec<u8>,
+    text: String,
+}
+impl GoString {
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn text(&self) -> &str {
+        &self.text
+    }
 }
 
 /// A JSON object that keeps its keys in encoding order.
@@ -78,6 +116,12 @@ pub struct Object {
     /// a key in the remembered order, so setting the key again later puts it back in its
     /// old place; [`Object::insert_unordered`] uses this to do the same.
     removed_order: Option<Vec<String>>,
+    // Opaque internal identities keep invalid-byte keys distinct even when JSON's
+    // replacement characters give two different keys the same visible spelling.
+    raw_keys: std::collections::BTreeMap<String, GoString>,
+    // Go RecordFromValue keeps an array outside its otherwise empty map.
+    // Only the store constructs this sidecar, never recursively inside itself.
+    record_array: Option<Vec<Value>>,
 }
 
 impl PartialEq for Object {
@@ -109,6 +153,70 @@ impl Object {
         Object::default()
     }
 
+    pub(crate) fn from_record_array(items: Vec<Value>) -> Self {
+        Self {
+            record_array: Some(items),
+            ..Default::default()
+        }
+    }
+
+    /// The original bytes of a key returned by iteration, including YAML binary keys.
+    pub fn key_bytes<'a>(&'a self, key: &'a str) -> &'a [u8] {
+        self.raw_keys
+            .get(key)
+            .map_or(key.as_bytes(), GoString::bytes)
+    }
+    /// The JSON-visible spelling of an iterated key.
+    pub fn key_text<'a>(&'a self, key: &'a str) -> &'a str {
+        self.raw_keys.get(key).map_or(key, GoString::text)
+    }
+    /// Lookup by exact Go string bytes, including binary YAML keys.
+    pub fn get_go_key(&self, bytes: &[u8]) -> Option<&Value> {
+        self.iter()
+            .find(|(key, _)| self.key_bytes(key) == bytes)
+            .map(|(_, value)| value)
+    }
+
+    /// Insert a YAML/Go key without replacing invalid bytes by Unicode characters.
+    pub fn insert_go_key(&mut self, bytes: &[u8], value: Value) -> Option<Value> {
+        if let Ok(key) = std::str::from_utf8(bytes) {
+            return self.insert(key, value);
+        }
+        if let Some(key) = self
+            .raw_keys
+            .iter()
+            .find(|(_, raw)| raw.bytes() == bytes)
+            .map(|(key, _)| key.clone())
+        {
+            if let Some(slot) = self.get_mut(&key) {
+                return Some(std::mem::replace(slot, value));
+            }
+            self.entries.push((key, value));
+            self.unordered_from = self.entries.len();
+            self.removed_order = None;
+            return None;
+        }
+        let mut key = String::from("\0yaml-binary-key:");
+        for byte in bytes {
+            use std::fmt::Write;
+            let _ = write!(key, "{byte:02x}");
+        }
+        while self.entries.iter().any(|(k, _)| k == &key) {
+            key.push('\0');
+        }
+        self.entries.push((key.clone(), value));
+        self.unordered_from = self.entries.len();
+        self.removed_order = None;
+        self.raw_keys.insert(
+            key,
+            GoString {
+                bytes: bytes.to_vec(),
+                text: go_utf8_text(bytes),
+            },
+        );
+        None
+    }
+
     /// Sets `key` to `value`. A new key goes last; an existing key keeps its position.
     /// Returns the previous value, if any.
     ///
@@ -118,6 +226,7 @@ impl Object {
     pub fn insert(&mut self, key: impl Into<String>, value: impl Into<Value>) -> Option<Value> {
         let key = key.into();
         let value = value.into();
+        self.displace_raw_identity(&key);
         if let Some(slot) = self.get_mut(&key) {
             return Some(std::mem::replace(slot, value));
         }
@@ -146,6 +255,7 @@ impl Object {
     ) -> Option<Value> {
         let key = key.into();
         let value = value.into();
+        self.displace_raw_identity(&key);
         if let Some(slot) = self.get_mut(&key) {
             return Some(std::mem::replace(slot, value));
         }
@@ -203,12 +313,33 @@ impl Object {
             }
         }
         indexed.sort_by_key(|(index, _)| *index);
-        unremembered.sort_by(|a, b| a.0.cmp(&b.0));
+        unremembered.sort_by(|a, b| self.key_bytes(&a.0).cmp(self.key_bytes(&b.0)));
         self.entries = indexed.into_iter().map(|(_, entry)| entry).collect();
         self.entries.extend(remembered);
         self.unordered_from = self.entries.len();
         self.entries.extend(unremembered);
         self.removed_order = None;
+    }
+
+    fn displace_raw_identity(&mut self, key: &str) {
+        let Some(raw) = self.raw_keys.remove(key) else {
+            return;
+        };
+        let mut replacement = format!("{key}\0");
+        while self.entries.iter().any(|(k, _)| k == &replacement) {
+            replacement.push('\0');
+        }
+        if let Some((k, _)) = self.entries.iter_mut().find(|(k, _)| k == key) {
+            k.clone_from(&replacement);
+        }
+        if let Some(order) = &mut self.removed_order {
+            for k in order {
+                if k == key {
+                    k.clone_from(&replacement);
+                }
+            }
+        }
+        self.raw_keys.insert(replacement, raw);
     }
 
     /// The place of `key` in the remembered order kept since a remembered key was
@@ -291,10 +422,30 @@ impl Object {
 }
 
 impl Value {
+    /// A Go string, preserving invalid UTF-8 bytes from a YAML binary scalar.
+    pub fn from_go_bytes(bytes: Vec<u8>) -> Self {
+        match String::from_utf8(bytes) {
+            Ok(text) => Self::String(text),
+            Err(error) => {
+                let bytes = error.into_bytes();
+                let text = go_utf8_text(&bytes);
+                Self::RawString(GoString { bytes, text })
+            }
+        }
+    }
+    /// Exact bytes when this is either kind of string.
+    pub fn string_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Self::String(s) => Some(s.as_bytes()),
+            Self::RawString(s) => Some(s.bytes()),
+            _ => None,
+        }
+    }
     /// The string, if this is a string.
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s),
+            Value::RawString(s) => Some(s.text()),
             _ => None,
         }
     }
@@ -366,6 +517,7 @@ impl Value {
             Value::Number(n) => Value::Number(*n),
             Value::Integer(i) => Value::Integer(*i),
             Value::String(s) => Value::String(s.clone()),
+            Value::RawString(s) => Value::RawString(s.clone()),
             // Only scalars inside: cloning the elements does not recurse further.
             Value::Array(items) => Value::Array(items.iter().map(Value::clone_flat).collect()),
             Value::Object(object) => Value::Object(Object {
@@ -376,6 +528,8 @@ impl Value {
                     .collect(),
                 unordered_from: object.unordered_from,
                 removed_order: object.removed_order.clone(),
+                raw_keys: object.raw_keys.clone(),
+                record_array: object.record_array.clone(),
             }),
         }
     }
@@ -457,6 +611,8 @@ impl Clone for Value {
                         entries: copies,
                         unordered_from: object.unordered_from,
                         removed_order: object.removed_order.clone(),
+                        raw_keys: object.raw_keys.clone(),
+                        record_array: object.record_array.clone(),
                     }),
                     None => unreachable!("the frame was just inspected"),
                 });
@@ -913,7 +1069,12 @@ fn newline(out: &mut String, depth: usize) {
 /// none has been written yet, and its own depth for the indented form.
 enum EncodeFrame<'a> {
     Array(std::slice::Iter<'a, Value>, bool, Option<usize>),
-    Object(std::slice::Iter<'a, (String, Value)>, bool, Option<usize>),
+    Object(
+        &'a Object,
+        std::slice::Iter<'a, (String, Value)>,
+        bool,
+        Option<usize>,
+    ),
 }
 
 /// Writes `value`; `indent` is the current depth for the indented form, `None` for the
@@ -939,13 +1100,24 @@ fn write_value(out: &mut String, value: &Value, indent: Option<usize>) -> Result
                 // encoding/json writes a Go int or uint64 as its decimal digits.
                 Value::Integer(i) => out.push_str(&i.to_string()),
                 Value::String(s) => write_string(out, s),
+                Value::RawString(s) => write_string(out, s.text()),
                 Value::Array(items) => {
                     out.push('[');
                     stack.push(EncodeFrame::Array(items.iter(), true, indent));
                 }
                 Value::Object(object) => {
-                    out.push('{');
-                    stack.push(EncodeFrame::Object(object.entries.iter(), true, indent));
+                    if let Some(items) = &object.record_array {
+                        out.push('[');
+                        stack.push(EncodeFrame::Array(items.iter(), true, indent));
+                    } else {
+                        out.push('{');
+                        stack.push(EncodeFrame::Object(
+                            object,
+                            object.entries.iter(),
+                            true,
+                            indent,
+                        ));
+                    }
                 }
             }
         }
@@ -972,7 +1144,7 @@ fn write_value(out: &mut String, value: &Value, indent: Option<usize>) -> Result
                     stack.pop();
                 }
             }
-            EncodeFrame::Object(entries, first, indent) => {
+            EncodeFrame::Object(object, entries, first, indent) => {
                 let inner = indent.map(|d| d + 1);
                 if let Some((key, item)) = entries.next() {
                     if !*first {
@@ -982,7 +1154,7 @@ fn write_value(out: &mut String, value: &Value, indent: Option<usize>) -> Result
                     if let Some(depth) = inner {
                         newline(out, depth);
                     }
-                    write_string(out, key);
+                    write_string(out, object.key_text(key));
                     out.push(':');
                     if inner.is_some() {
                         out.push(' ');

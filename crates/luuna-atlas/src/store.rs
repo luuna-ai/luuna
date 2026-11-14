@@ -44,10 +44,10 @@ pub const LOCK_STALE_AFTER: Duration = Duration::from_secs(30);
 /// the type's field aliases are applied. A JSON array on a line is accepted and reads as
 /// an empty record, which is what the Go tool's code sees of it.
 ///
-/// Known difference: the Go tool also keeps the array itself and writes it back when the
-/// record is encoded again (model.go:26-59); a [`Record`] cannot carry it, so
-/// [`write_archive`] writes such a row as `{}`. [`write_records`] refuses it either way,
-/// as it has no type to derive an id from.
+/// The original array is retained in a private record sidecar, as Go's
+/// RecordFromValue/RecordValue does. Field lookup still sees an empty map,
+/// but JSON query/API/archive output preserves the array. Whole expertise
+/// rewrites still fail when an array has no type from which to derive an ID.
 pub fn read_records(path: &Path, registry: &Registry, allow_unknown: bool) -> Result<Vec<Record>> {
     let Ok(data) = fs::read(path) else {
         return Ok(Vec::new());
@@ -79,7 +79,7 @@ pub fn read_records(path: &Path, registry: &Registry, allow_unknown: bool) -> Re
         let mut raw = match &mut value {
             Value::Object(object) => std::mem::take(object),
             // The Go tool's code sees an array row as an empty record (model.go:36-45).
-            Value::Array(_) => Object::new(),
+            Value::Array(items) => Object::from_record_array(std::mem::take(items)),
             _ => {
                 return Err(AtlasError::Message(
                     "raw is not an Object. (evaluating '\"outcome\" in raw')".to_owned(),
@@ -1024,7 +1024,7 @@ mod tests {
                 r#"{"type":"decision","title":"t","id":"mx-111111","outcomes":[{"agent":"a","status":"success"}]}"#,
                 r#"{"type":"decision","title":"u","outcome":null}"#,
                 r#"{"type":"decision","title":"v","outcome":{"status":"x"},"outcomes":[]}"#,
-                "{}",
+                "[1,2]",
             ]
         );
         fs::write(&path, "{\"type\":\"nope\",\"id\":\"mx-1\"}\n").unwrap();

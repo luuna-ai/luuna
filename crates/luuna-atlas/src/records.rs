@@ -173,6 +173,12 @@ pub fn contains(values: &[String], value: &str) -> bool {
 pub(crate) fn go_deep_equal(a: &Value, b: &Value) -> bool {
     let mut pending: Vec<(&Value, &Value)> = vec![(a, b)];
     while let Some((x, y)) = pending.pop() {
+        if let (Some(x), Some(y)) = (x.string_bytes(), y.string_bytes()) {
+            if x != y {
+                return false;
+            }
+            continue;
+        }
         match (x, y) {
             (Value::Null, Value::Null) => {}
             (Value::Bool(p), Value::Bool(q)) => {
@@ -203,16 +209,19 @@ pub(crate) fn go_deep_equal(a: &Value, b: &Value) -> bool {
                 }
                 if q.len() <= 16 {
                     for (key, value) in p.iter() {
-                        match q.get(key) {
+                        match q.get_go_key(p.key_bytes(key)) {
                             Some(other) => pending.push((value, other)),
                             None => return false,
                         }
                     }
                 } else {
                     // A lookup table keeps large objects linear.
-                    let index: HashMap<&str, &Value> = q.iter().collect();
+                    let index: HashMap<&[u8], &Value> = q
+                        .iter()
+                        .map(|(key, value)| (q.key_bytes(key), value))
+                        .collect();
                     for (key, value) in p.iter() {
-                        match index.get(key) {
+                        match index.get(p.key_bytes(key)) {
                             Some(other) => pending.push((value, *other)),
                             None => return false,
                         }
@@ -1190,6 +1199,7 @@ fn joined(value: Option<&Value>, float: impl Fn(f64) -> String) -> String {
     let scalar = |out: &mut String, v: &Value| match v {
         Value::Null | Value::Array(_) => {}
         Value::String(s) => out.push_str(s),
+        Value::RawString(s) => out.push_str(s.text()),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) => out.push_str(&float(*n)),
         // An `int` or `uint64` from config.yaml prints its decimal digits in both.
@@ -2504,6 +2514,39 @@ const GO_PRINTABLE_RANGES: &[(u32, u32)] = &[
 /// The Go Text conversion with an explicit stack, also for nested user arrays.
 pub fn text_value(value: Option<&Value>) -> String {
     text(value)
+}
+/// Go Text as bytes, retaining invalid UTF-8 binary strings in identity checks.
+/// Arrays are joined iteratively; callers choose the UTF-8 view only for display.
+pub fn text_bytes(value: Option<&Value>) -> Vec<u8> {
+    enum Part<'a> {
+        Value(&'a Value),
+        Comma,
+    }
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let mut stack = vec![Part::Value(value)];
+    let mut out = Vec::new();
+    while let Some(part) = stack.pop() {
+        match part {
+            Part::Comma => out.push(b','),
+            Part::Value(value) => {
+                if let Some(bytes) = value.string_bytes() {
+                    out.extend_from_slice(bytes);
+                } else if let Value::Array(items) = value {
+                    for (i, item) in items.iter().enumerate().rev() {
+                        stack.push(Part::Value(item));
+                        if i > 0 {
+                            stack.push(Part::Comma);
+                        }
+                    }
+                } else {
+                    out.extend_from_slice(text_value(Some(value)).as_bytes());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Check an implicit outcomes append/merge before it filters stored values.
