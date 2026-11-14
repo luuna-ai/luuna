@@ -1,4 +1,4 @@
-//! Isolated Go comparisons for YAML and prime/config operations.
+//! Isolated Go comparisons for prime, Git commands and hooks.
 mod support;
 use luuna_atlas::{
     options::{Context, Env, GlobalOptions},
@@ -110,6 +110,7 @@ fn parsed(args: &[String]) -> (Vec<String>, Vec<(String, String)>) {
                 "explain",
                 "check-anchors",
                 "stdin",
+                "compact",
                 "manifest",
                 "records-only",
                 "context",
@@ -124,6 +125,10 @@ fn parsed(args: &[String]) -> (Vec<String>, Vec<(String, String)>) {
             .contains(&flag)
             {
                 flags.push((flag.into(), "true".into()));
+            } else if ["files","domain","exclude-domain"].contains(&flag) {
+                while args.get(i+1).is_some_and(|v|!v.starts_with('-')) {
+                    i+=1;flags.push((flag.into(),args[i].clone()));
+                }
             } else {
                 i += 1;
                 flags.push((flag.into(), args.get(i).cloned().unwrap_or_default()));
@@ -144,10 +149,11 @@ fn native(p: &Project, args: &[String], input: Option<&[u8]>) -> CommandOutput {
     for (k, v) in &flags {
         globals.set(k, std::slice::from_ref(v));
     }
+    let env=Env::fixed(vars(p,&[]),args.to_vec(),false);
     let ctx = Context {
-        root: p.dir.clone(),
+        root: luuna_atlas::git::resolve_store_root(&p.dir,&env),
         cwd: p.dir.clone(),
-        env: Env::fixed(vars(p, &[]), args.to_vec(), false),
+        env,
         globals,
     };
     prime::run(
@@ -266,3 +272,93 @@ case!(
     &["sync"][..],
     &["sync", "--no-validate"]
 );
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn hook_guard_shell_matrix() {
+    use luuna_atlas::json::{Object, Value};
+    let t = base(true);
+    for command in [
+        "echo x > .luuna/atlas/expertise/a.jsonl",
+        "cat x | tee .luuna/atlas/expertise/a.jsonl",
+        "rm .luuna/atlas/expertise/a.jsonl",
+        "sed -i x .luuna/atlas/expertise/a.jsonl",
+        "cp x .luuna/atlas/expertise/a.jsonl",
+        "cat .luuna/atlas/expertise/a.jsonl",
+        "luuna-atlas record core --type convention x",
+        "git add .luuna/atlas/expertise/a.jsonl",
+        "echo x 2> '.luuna/atlas/expertise/a.jsonl'",
+        "echo x 12> .luuna/atlas/expertise/a.jsonl",
+        "echo x &>> \".luuna/atlas/expertise/a.jsonl\"",
+        "echo x <> .luuna/atlas/expertise/a.jsonl",
+        "echo x < .luuna/atlas/expertise/a.jsonl",
+        "A=1 sudo env command nohup time xargs /bin/rm .luuna/atlas/expertise/a.jsonl",
+        "cp .luuna/atlas/expertise/a.jsonl unrelated",
+        "ln x .luuna\\atlas\\expertise\\a.jsonl",
+        "perl -p -i -e x .luuna/atlas/expertise/a.jsonl",
+        "sed --in-place x .luuna/atlas/expertise/a.jsonl",
+        "dd if=x of=.luuna/atlas/expertise/a.jsonl",
+        "echo 1; truncate .luuna/atlas/expertise/a.jsonl",
+        "echo 1 && touch .luuna/atlas/expertise/a.jsonl",
+        "echo 1 || unlink .luuna/atlas/expertise/a.jsonl",
+        "mulch record x --description y > .luuna/atlas/expertise/a.jsonl",
+        "ml record x > .luuna/atlas/expertise/a.jsonl",
+        "echo x > '.luuna/atlas/expertise/a.jsonl",
+        "echo x > \".luuna/atlas/expertise/a.jsonl",
+        "echo x >\u{b}.luuna/atlas/expertise/a.jsonl",
+        "echo x >\u{a0}.luuna/atlas/expertise/a.jsonl",
+        "echo x > unrelated ; cat .luuna/atlas/expertise/a.jsonl",
+    ] {
+        let mut input = Object::new();
+        input.insert("tool_name", "Bash");
+        let mut tool = Object::new();
+        tool.insert("command", command);
+        input.insert("tool_input", tool);
+        let raw = luuna_atlas::json::to_compact_string(&Value::Object(input)).unwrap();
+        compare(&t, &["hook"], false, 0, Some(raw.as_bytes()));
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn hook_file_guard_and_fail_open() {
+    let t = base(true);
+    for raw in [
+        "not-json",
+        "[]",
+        "{}",
+        r#"{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":".luuna/atlas/expertise/a.jsonl"}}"#,
+        r#"{"tool_name":"Write","tool_input":{"file_path":".luuna/atlas/expertise/a.jsonl"}}"#,
+        r#"{"tool_name":"Edit","tool_input":{"file_path":"./.luuna/atlas/expertise//a.jsonl"}}"#,
+        r#"{"tool_name":"MultiEdit","tool_input":{"file_path":".luuna\\atlas\\expertise\\a.jsonl"}}"#,
+        r#"{"tool_name":"NotebookEdit","tool_input":{"notebook_path":".luuna/atlas/expertise/a.jsonl"}}"#,
+        r#"{"tool_name":"Write","tool_input":{"file_path":".luuna/atlas/expertise/.jsonl"}}"#,
+        r#"{"tool_name":"Unknown","tool_input":{"file_path":".luuna/atlas/expertise/a.jsonl"}}"#,
+        r#"{"tool_name":"Read","tool_input":{}}"#,
+    ] {
+        compare(&t, &["hook"], false, 0, Some(raw.as_bytes()));
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn hook_injection_deduplicates_and_ignores_state() {
+    let t = base(true);
+    t.prepare(|p| p.write("src/main.rs", "source\n"));
+    let raw = r#"{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"src/main.rs"},"session_id":"session/one"}"#;
+    compare(&t, &["hook"], false, 0, Some(raw.as_bytes()));
+    compare(&t, &["hook"], false, 0, Some(raw.as_bytes()));
+    assert_eq!(
+        std::fs::read_to_string(t.rust.atlas_dir().join("state/.gitignore")).unwrap(),
+        "*\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(t.rust.atlas_dir().join("state/usage.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    assert_eq!(
+        std::fs::read_to_string(t.rust.atlas_dir().join("state/sessions/session_one.txt")).unwrap(),
+        "mx-cccc\n"
+    );
+}
