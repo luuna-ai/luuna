@@ -125,9 +125,10 @@ fn parsed(args: &[String]) -> (Vec<String>, Vec<(String, String)>) {
             .contains(&flag)
             {
                 flags.push((flag.into(), "true".into()));
-            } else if ["files","domain","exclude-domain"].contains(&flag) {
-                while args.get(i+1).is_some_and(|v|!v.starts_with('-')) {
-                    i+=1;flags.push((flag.into(),args[i].clone()));
+            } else if ["files", "domain", "exclude-domain"].contains(&flag) {
+                while args.get(i + 1).is_some_and(|v| !v.starts_with('-')) {
+                    i += 1;
+                    flags.push((flag.into(), args[i].clone()));
                 }
             } else {
                 i += 1;
@@ -149,9 +150,9 @@ fn native(p: &Project, args: &[String], input: Option<&[u8]>) -> CommandOutput {
     for (k, v) in &flags {
         globals.set(k, std::slice::from_ref(v));
     }
-    let env=Env::fixed(vars(p,&[]),args.to_vec(),false);
+    let env = Env::fixed(vars(p, &[]), args.to_vec(), false);
     let ctx = Context {
-        root: luuna_atlas::git::resolve_store_root(&p.dir,&env),
+        root: luuna_atlas::git::resolve_store_root(&p.dir, &env),
         cwd: p.dir.clone(),
         env,
         globals,
@@ -361,4 +362,259 @@ fn hook_injection_deduplicates_and_ignores_state() {
         std::fs::read_to_string(t.rust.atlas_dir().join("state/sessions/session_one.txt")).unwrap(),
         "mx-cccc\n"
     );
+}
+
+fn append_config(t: &Twin, text: &str) {
+    t.prepare(|p| {
+        let file = p.atlas_dir().join("config.yaml");
+        let mut s = std::fs::read_to_string(&file).unwrap();
+        s.push_str(text);
+        std::fs::write(file, s).unwrap();
+    });
+}
+fn commit_all(t: &Twin) {
+    t.prepare(|p| {
+        p.git(&["add", "."]);
+        p.git(&["commit", "-qm", "fixture base"]);
+    });
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn prime_all_formats_and_variadic_scopes() {
+    for format in ["markdown", "compact", "xml", "plain"] {
+        let t = base(true);
+        for args in [
+            vec!["prime", "--all", "--format", format],
+            vec!["prime", "--all", "--records-only", "--format", format],
+            vec!["prime", "--manifest", "--format", format],
+            vec![
+                "prime",
+                "--files",
+                "src/main.rs",
+                "other.rs",
+                "--domain",
+                "core",
+                "other",
+                "--format",
+                format,
+            ],
+        ] {
+            compare(&t, &args, true, 0, None);
+        }
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn prime_contract_and_reminder() {
+    for format in ["markdown", "compact", "xml", "plain"] {
+        let t = base(true);
+        append_config(&t,"custom_types:\n  hypothesis:\n    required: [statement]\n    optional: [explanation]\n    summary: '{statement}'\ndisabled_types: [guide]\nprime:\n  session_close:\n    style: minimal\n");
+        t.prepare(|p| {
+            let file = p.atlas_dir().join("config.yaml");
+            let mut cfg = std::fs::read_to_string(&file).unwrap();
+            cfg = cfg.replace(
+                "core: {}",
+                "core: {allowed_types: [convention, failure], required_fields: [owner]}",
+            );
+            std::fs::write(file, cfg).unwrap();
+        });
+        compare(&t, &["prime", "--all", "--format", format], true, 0, None);
+        compare(
+            &t,
+            &["prime", "--manifest", "--format", format],
+            true,
+            0,
+            None,
+        );
+    }
+    for style in ["none", "directive", "conditional", "unrecognised"] {
+        let t = base(true);
+        append_config(
+            &t,
+            &format!("prime: {{session_close: {{style: {style}}}}}\n"),
+        );
+        compare(&t, &["prime", "--all"], true, 0, None);
+    }
+    let t = base(true);
+    append_config(
+        &t,
+        "prime: {session_close: {custom: 'Custom reminder <&>'}}\n",
+    );
+    compare(&t, &["prime", "--all", "--format", "xml"], true, 0, None);
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn prime_active_branch_matchers() {
+    for branch in [
+        "a-abcd",
+        "a-abcd_",
+        "a-abcdef123",
+        "UPPER-abcd",
+        "thing/foo-bar-abcd",
+        "gh-12#34",
+        "égh-7",
+        "_gh-7",
+        "GH-7",
+        "gh-007",
+        "AB-123",
+        "AB12-34",
+        "A1-5",
+        "BD-7-bd-7",
+        "bead-123",
+        "ébead-9",
+        "x_bd-1",
+    ] {
+        let t = base(false);
+        t.prepare(|p|{
+            let mut out=String::from("{\"id\":\"mx-broad\",\"type\":\"convention\",\"content\":\"broad\",\"classification\":\"foundational\"}\n");
+            let mut index=0;
+            for(tracker,ids)in [("missions",vec!["a-abcd","bar-abcd"]),("gh",vec!["#12","#34","#7","#007"]),("linear",vec!["AB-123","AB12-34"]),("bead",vec!["bd-7","bead-123","bead-9","bd-1"])]{
+                for id in ids{out.push_str(&format!("{{\"id\":\"mx-{index:04}\",\"type\":\"pattern\",\"name\":\"{tracker}-{id}\",\"description\":\"scoped\",\"classification\":\"foundational\",\"files\":[\"unrelated-{index}\"],\"evidence\":{{\"{tracker}\":\"{id}\"}}}}\n"));index+=1;}
+            }
+            p.write(".luuna/atlas/expertise/core.jsonl",&out);
+            p.git(&["add","."]);p.git(&["commit","-qm","base"]);p.git(&["checkout","-qb",branch]);
+        });
+        compare(
+            &t,
+            &["prime", "--format", "plain", "--no-limit"],
+            true,
+            0,
+            None,
+        );
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn prime_active_tracker_files_and_gh_stub() {
+    for legacy in [false, true] {
+        let t = base(false);
+        t.prepare(|p|{
+            p.write(".luuna/atlas/expertise/core.jsonl",concat!(
+                "{\"id\":\"mx-aaaa\",\"type\":\"pattern\",\"name\":\"active\",\"description\":\"chosen\",\"files\":[\"no-file\"],\"evidence\":{\"seeds\":\"test-abcd\"}}\n",
+                "{\"id\":\"mx-bbbb\",\"type\":\"pattern\",\"name\":\"inactive\",\"description\":\"other\",\"files\":[\"no-other\"],\"evidence\":{\"missions\":\"test-dcba\"}}\n",
+                "{\"id\":\"mx-cccc\",\"type\":\"pattern\",\"name\":\"PR\",\"description\":\"stub\",\"files\":[\"no-pr\"],\"evidence\":{\"gh\":\"#42\"}}\n"
+            ));
+            p.write(if legacy{".seeds/issues.jsonl"}else{".luuna/missions/issues.jsonl"},"\u{a0}{\"id\":\"test-abcd\",\"status\":\"in_progress\"}\u{a0}\nnot-json\n");
+        });
+        commit_all(&t);
+        t.prepare(|p| {
+            let _ = vars(p, &[]);
+            let gh = p.dir.parent().unwrap().join("prime-test-bin/gh");
+            std::fs::write(gh, "#!/bin/sh\nprintf '42\\n'\n").unwrap();
+        });
+        compare(
+            &t,
+            &["prime", "--format", "plain", "--no-limit"],
+            true,
+            0,
+            None,
+        );
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn git_learn_diff_sync_changed_records() {
+    for human in [false, true] {
+        let t = base(true);
+        t.prepare(|p| p.write("src/main.rs", "base\n"));
+        commit_all(&t);
+        t.prepare(|p| {
+            p.write("src/main.rs", "changed\n");
+            p.git(&["add", "src/main.rs"]);
+            p.write("unmatched.txt", "untracked\n");
+            p.write(
+                ".luuna/atlas/expertise/core.jsonl",
+                &ROWS.replace("Prefer exact checks.", "Updated check."),
+            );
+        });
+        for args in [
+            &["learn", "--since", "HEAD"][..],
+            &["diff", "--since", "HEAD"],
+            &["sync", "--message", "fixture sync"],
+            &["sync"],
+            &["diff", "--since", "HEAD~1"],
+        ] {
+            compare(&t, args, human, 0, None);
+        }
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn git_sync_strict_validation() {
+    for variant in ["unknown", "domain", "required", "malformed"] {
+        let t = base(true);
+        match variant {
+            "unknown" => t.prepare(|p| {
+                p.write(
+                    ".luuna/atlas/expertise/core.jsonl",
+                    "{\"id\":\"mx-aaaa\",\"type\":\"mystery\"}\n",
+                )
+            }),
+            "domain" => t.prepare(|p| {
+                let file = p.atlas_dir().join("config.yaml");
+                let s = std::fs::read_to_string(&file)
+                    .unwrap()
+                    .replace("core: {}", "core: {allowed_types: [failure]}");
+                std::fs::write(file, s).unwrap();
+            }),
+            "required" => t.prepare(|p| {
+                let file = p.atlas_dir().join("config.yaml");
+                let s = std::fs::read_to_string(&file)
+                    .unwrap()
+                    .replace("core: {}", "core: {required_fields: [owner]}");
+                std::fs::write(file, s).unwrap();
+            }),
+            _ => t.prepare(|p| p.write(".luuna/atlas/expertise/core.jsonl", "{malformed}\n")),
+        }
+        compare(
+            &t,
+            &["sync", "--allow-unknown-types", "--allow-domain-mismatch"],
+            false,
+            1,
+            None,
+        );
+        compare(&t, &["sync"], true, 1, None);
+        compare(&t, &["sync", "--no-validate"], false, 0, None);
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn git_worktree_uses_main_store_and_skips_commit() {
+    let mut t = base(true);
+    commit_all(&t);
+    t.prepare(|p| {
+        let linked = p.dir.parent().unwrap().join("linked");
+        p.git(&["worktree", "add", "-b", "worker", linked.to_str().unwrap()]);
+        p.write(
+            ".luuna/atlas/expertise/core.jsonl",
+            &ROWS.replace("Prefer exact checks.", "Main store changed."),
+        );
+    });
+    let go_root = t.go.dir.clone();
+    let rust_root = t.rust.dir.clone();
+    t.go.dir = go_root.parent().unwrap().join("linked");
+    t.rust.dir = rust_root.parent().unwrap().join("linked");
+    for args in [&["sync"][..], &["prime", "--all"]] {
+        compare(&t, args, false, 0, None);
+    }
+    t.go.dir = go_root;
+    t.rust.dir = rust_root;
+    t.assert_same_tree("shared main store untouched by worktree");
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn json_without_quiet_and_direct_quiet_output() {
+    for command in ["prime", "learn", "diff", "sync"] {
+        let t = base(true);
+        let args = vec![command.into(), "--json".into()];
+        let g = go(&t.go, &args, None, &[]);
+        let r = native(&t.rust, &args, None);
+        assert_eq!(g.exit_code, 0);
+        assert_same_output(command, &t.go, &g, &t.rust, &r);
+        t.assert_same_tree(command);
+    }
+    for command in ["prime", "learn", "diff"] {
+        let t = base(true);
+        compare(&t, &[command, "--quiet"], true, 0, None);
+    }
 }
