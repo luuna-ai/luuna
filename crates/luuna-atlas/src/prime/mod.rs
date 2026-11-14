@@ -1,2 +1,10 @@
-//! Prime, learn, diff, sync, the active-work context and the `hook` command.
-//! Owner: s5-atlas-lib-4. Empty until that plan lands.
+//! Native prime, Git commands and hook operations with explicit invocation state.
+use crate::{options::Context, CommandOutput};
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+    pub flags: Vec<(String, String)>,
+    pub input: Vec<u8>,
+}
+pub fn run(_ctx: &Context, command: &str, _args: &[String], _options: &Options) -> CommandOutput {
+    CommandOutput::failure(command, &format!("not implemented: {command}"))
+}
