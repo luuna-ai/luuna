@@ -185,5 +185,5 @@ fn doctor_diagnostics() {
 #[test]
 #[ignore = "requires pinned Go reference"]
 fn doctor_repair_safe() {
-    for data in ["{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"Has outcome\",\"outcome\":{\"status\":\"success\"}}\n", "{\"id\":\"mx-aaaa\",\"type\":\"pattern\",\"name\":\"File anchors\",\"description\":\"Keep body\",\"classification\":\"foundational\",\"files\":[\"missing.rs\"],\"dir_anchors\":[\"missing-dir\"],\"evidence\":{\"file\":\"absent\"}}\n"]{for flags in [vec!["--fix"],vec!["--fix","--json"]]{let mut args=vec!["doctor"];args.extend(flags);compare_prepared(&args,|p|p.write(".luuna/atlas/expertise/core.jsonl",data));}}
+    for data in ["{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"Has outcome\",\"classification\":\"foundational\",\"outcome\":{\"status\":\"success\"}}\n", "{\"id\":\"mx-aaaa\",\"type\":\"pattern\",\"name\":\"File anchors\",\"description\":\"Keep body\",\"classification\":\"foundational\",\"files\":[\"missing.rs\"],\"dir_anchors\":[\"missing-dir\"],\"evidence\":{\"file\":\"absent\"}}\n"]{for flags in [vec!["--fix"],vec!["--fix","--json"]]{let mut args=vec!["doctor"];args.extend(flags);compare_prepared(&args,|p|p.write(".luuna/atlas/expertise/core.jsonl",data));}}
 }
