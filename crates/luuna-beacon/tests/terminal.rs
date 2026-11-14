@@ -146,6 +146,7 @@ fn terminal_command_contract_matches_go() {
         ],
         vec!["config", "unset", "targets.extra"],
         vec!["config", "unset", "absent"],
+        vec!["config", "set", "project", "luuna-beacon"],
         vec!["prime"],
         vec!["prime", "--compact"],
         vec!["prime", "--export"],
