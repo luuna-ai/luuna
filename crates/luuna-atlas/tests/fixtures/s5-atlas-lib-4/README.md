@@ -7,5 +7,5 @@ contracts, tracker branches, hook guards, sessions and raw array records.
 
 Hostile fixture generation is streamed to target with separately assigned TMPDIR.
 Compile both Rust tests and the pinned reference first, then run hostile groups
-with prlimit4GiB and timeout120. Do not assign checkout-backed TMPDIR globally to
+with prlimit 4 GiB and timeout 120. Do not assign checkout-backed TMPDIR globally to
 ordinary workspace tests, whose repository-isolation checks need outside roots.

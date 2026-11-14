@@ -1,6 +1,6 @@
 # Prime, Git commands and hooks
 
-Reference: Luuna Atlas c4db80c3f2e622afbdd84f09077fd73b2a92d199, Go1.27.0.
+Reference: Luuna Atlas c4db80c3f2e622afbdd84f09077fd73b2a92d199, Go 1.27.0.
 This plan fills only the reserved prime module, its own tests and notes. Existing
 foundation/lifecycle/action source, Cargo files and shared harnesses are unchanged.
 
@@ -27,7 +27,7 @@ worktree skips, staging and commit order, empty-message failure and captured Git
 stderr. Diff preserves stdout even when Git fails, because the reference ignores
 that exit status. All child environments come from Context.
 
-Hooks use the reference's shell/file guard and500-token injection budget. Pinned
+Hooks use the reference's shell/file guard and 500-token injection budget. Pinned
 failures survive budget exhaustion. Ignored state contains session IDs and usage
 JSONL, with the original seven-day session expiry. Relative input cwd resolves
 against the explicit invocation directory. Raw cache bytes remain distinct from
@@ -48,11 +48,11 @@ targets, matching Go.
 * Quiet does not suppress all direct output paths in the reference. JSON prime
   ignores the human budget but still validates the supplied budget syntax.
 * NaN trust weights produce non-total comparisons. Rust's stable sort disagreed
-  with the actual128-record Go result. An owned iterative adaptation of the pinned
+  with the actual comparison with 128 records Go result. An owned iterative adaptation of the pinned
   Go stable/symMerge/rotate algorithm now preserves that order, including exact
   left-before-right merge comparisons.
 * Prime's too-deep JSONPretty result is successful empty output. The10000-level
-  raw-array case preserves it, including on a128KiB native thread stack.
+  raw-array case preserves it, including on a 128 KiB native thread stack.
 * Session expiry is the reference's intentional retention operation. Other hook
   failures remain fail-open; the raw hook lifecycle and managed background-child
   cleanup remain assigned to runtime wiring.
@@ -63,23 +63,23 @@ No existing frozen assertion was changed.
 
 ## Validation
 
-The own comparison suite has32 ordinary groups and two streamed hostile groups.
+The own comparison suite has 32 ordinary groups and two streamed hostile groups.
 It covers all formats and contract/manifest variants, raw arrays/unknown types,
 budgets, active trackers and branch matchers, real Git commits/diffs/worktrees,
 strict sync failures, failing-command stdout/stderr, hooks/session expiry/raw cache
 and invocation-directory isolation.
 
 Hostile fixtures are generated on disk under target and executed only after
-compilation/reference build, with4GiB address-space and120-second limits. The long
-shell case supplies200000 wrappers through a file; native parsing and deep prime
-output are also checked on128KiB threads. Ordinary workspace temporary roots stay
+compilation/reference build, with 4 GiB address-space and 120-second limits. The long
+shell case supplies 200000 wrappers through a file; native parsing and deep prime
+output are also checked on 128 KiB threads. Ordinary workspace temporary roots stay
 outside Git. Existing Atlas suites and full workspace/frontend gates are run
 separately. WSL evidence does not establish native macOS/Windows execution.
 
 ## Attribution
 
-The Go stable-sort adaptation in prime/go_sort.rs derives from Go1.27
-src/sort/zsortinterface.go, copyright2022 The Go Authors. Its BSD redistribution
+The Go stable-sort adaptation in prime/go_sort.rs derives from Go 1.27
+src/sort/zsortinterface.go, copyright 2022 The Go Authors. Its BSD redistribution
 terms are retained in prime/GO-SORT-LICENSE. Binary releases must include that
 notice alongside Atlas's MIT notice and the parser notices carried from lib3.
 No dependency, lock package or version changed.
