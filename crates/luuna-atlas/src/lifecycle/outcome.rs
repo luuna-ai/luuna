@@ -14,6 +14,46 @@ fn status(a: &Action<'_>, value: &str) -> String {
         value,
     )
 }
+fn fmt_value(value: &Value) -> String {
+    enum Part<'a> {
+        Value(&'a Value),
+        Text(&'a str),
+    }
+    let mut out = String::new();
+    let mut stack = vec![Part::Value(value)];
+    while let Some(part) = stack.pop() {
+        match part {
+            Part::Text(text) => out.push_str(text),
+            Part::Value(Value::Null) => out.push_str("<nil>"),
+            Part::Value(Value::Array(items)) => {
+                out.push('[');
+                stack.push(Part::Text("]"));
+                for (index, item) in items.iter().enumerate().rev() {
+                    stack.push(Part::Value(item));
+                    if index > 0 {
+                        stack.push(Part::Text(" "));
+                    }
+                }
+            }
+            Part::Value(Value::Object(map)) => {
+                out.push_str("map[");
+                stack.push(Part::Text("]"));
+                let mut entries = map.iter().collect::<Vec<_>>();
+                entries.sort_by(|(a, _), (b, _)| map.key_bytes(a).cmp(map.key_bytes(b)));
+                for (index, (key, value)) in entries.into_iter().enumerate().rev() {
+                    stack.push(Part::Value(value));
+                    stack.push(Part::Text(":"));
+                    stack.push(Part::Text(map.key_text(key)));
+                    if index > 0 {
+                        stack.push(Part::Text(" "));
+                    }
+                }
+            }
+            Part::Value(value) => out.push_str(&records::format_js(Some(value))),
+        }
+    }
+    out
+}
 pub(crate) fn run(a: &mut Action<'_>, args: &[String], flags: &[(String, String)]) -> Result<()> {
     let domain = &args[0];
     let id = &args[1];
@@ -77,7 +117,7 @@ pub(crate) fn run(a: &mut Action<'_>, args: &[String], flags: &[(String, String)
                         let suffix = if key == "duration" { "ms" } else { "" };
                         a.human(a.styled(
                             "dim",
-                            &format!("     {label}: {}{suffix}", text(Some(value))),
+                            &format!("     {label}: {}{suffix}", fmt_value(value)),
                         ));
                     }
                 }
