@@ -618,3 +618,182 @@ fn json_without_quiet_and_direct_quiet_output() {
         compare(&t, &[command, "--quiet"], true, 0, None);
     }
 }
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn git_commands_without_repository_or_store() {
+    let t = Twin::new(false);
+    t.steps(&[Step::Init, Step::Add("core".into())]);
+    for human in [false, true] {
+        for command in ["learn", "diff", "sync"] {
+            compare(&t, &[command], human, 1, None);
+        }
+        compare(&t, &["prime", "--context"], human, 1, None);
+    }
+    let t = Twin::new(true);
+    compare(&t, &["learn"], false, 0, None);
+    compare(&t, &["learn"], true, 0, None);
+    compare(&t, &["sync"], false, 1, None);
+    compare(&t, &["sync", "--no-validate"], false, 0, None);
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn prime_array_rows_unknowns_and_number_edges() {
+    for human in [false, true] {
+        let t = base(true);
+        t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl",&format!("[]\n[1,2]\n{ROWS}{{\"id\":\"mx-unknown\",\"type\":\"unknown-kind\",\"classification\":\"foundational\"}}\n")));
+        for args in [
+            &["prime", "--all", "--allow-unknown-types"][..],
+            &["prime", "--manifest", "--allow-unknown-types"],
+        ] {
+            compare(&t, args, human, 0, None);
+        }
+    }
+    for budget in [
+        "0001",
+        "9223372036854775807",
+        "9223372036854775808",
+        "-1",
+        "+1",
+        "1.5",
+        "１",
+    ] {
+        let t = base(true);
+        compare(
+            &t,
+            &["prime", "--all", "--budget", budget],
+            false,
+            if matches!(budget, "0001" | "9223372036854775807") {
+                0
+            } else {
+                1
+            },
+            None,
+        );
+    }
+}
+#[cfg(unix)]
+fn prime_hook(t: &Twin, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    t.prepare(|p| {
+        let path = p.atlas_dir().join("prime-hook.sh");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    });
+    append_config(t, "hooks:\n  pre-prime: [.luuna/atlas/prime-hook.sh]\n");
+}
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn prime_hook_mutations_arrays_and_dry_run() {
+    for human in [false, true] {
+        let t = base(true);
+        prime_hook(
+            &t,
+            r#"printf '%s\n' '{"domains":[{"domain":"core","records":[[],[1,2],{"id":"mx-hook","type":"convention","content":"hook supplied","classification":"foundational"}]}]}'"#,
+        );
+        compare(&t, &["prime", "--all"], human, 0, None);
+        let t = base(true);
+        prime_hook(&t, "printf blocked >&2; exit 7");
+        compare(&t, &["prime", "--all"], human, 1, None);
+        compare(&t, &["prime", "--all", "--dry-run"], human, 0, None);
+        compare(&t, &["prime", "--manifest"], human, 0, None);
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn prime_manifest_default_mode_and_empty_context() {
+    let t = base(true);
+    append_config(&t, "prime: {default_mode: manifest}\n");
+    for human in [false, true] {
+        for args in [
+            &["prime"][..],
+            &["prime", "--records-only"],
+            &["prime", "core"],
+            &["prime", "--full"],
+        ] {
+            compare(&t, args, human, 0, None);
+        }
+    }
+    let t = base(true);
+    commit_all(&t);
+    for human in [false, true] {
+        compare(&t, &["prime", "--context"], human, 0, None);
+    }
+}
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn hook_session_expiry_and_raw_cache() {
+    for symlink in [false, true] {
+        let t = base(true);
+        t.prepare(|p| {
+            p.write("src/main.rs", "source\n");
+            p.write(".luuna/atlas/state/sessions/old.txt", "old-id\n");
+            let old = p.atlas_dir().join("state/sessions/old.txt");
+            let time = std::time::SystemTime::now() - std::time::Duration::from_secs(9 * 24 * 3600);
+            std::fs::File::open(old)
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(time))
+                .unwrap();
+            if symlink {
+                let target = p.atlas_dir().join("state/old-directory");
+                std::fs::create_dir_all(&target).unwrap();
+                std::fs::File::open(&target)
+                    .unwrap()
+                    .set_times(std::fs::FileTimes::new().set_modified(time))
+                    .unwrap();
+                std::os::unix::fs::symlink(
+                    "../old-directory",
+                    p.atlas_dir().join("state/sessions/old-link"),
+                )
+                .unwrap();
+            }
+        });
+        let raw =
+            r#"{"tool_name":"Read","tool_input":{"file_path":"src/main.rs"},"session_id":"new"}"#;
+        compare(&t, &["hook"], false, 0, Some(raw.as_bytes()));
+        assert!(!t.rust.atlas_dir().join("state/sessions/old.txt").exists());
+    }
+    let t = base(true);
+    t.prepare(|p| {
+        p.write("src/main.rs", "source\n");
+        p.write(".luuna/atlas/state/sessions/one.txt", "mx-cccc\n");
+        let path = p.atlas_dir().join("state/sessions/one.txt");
+        let mut data = std::fs::read(&path).unwrap();
+        data.extend_from_slice(b"\xff\n");
+        std::fs::write(path, data).unwrap();
+    });
+    let raw = r#"{"tool_name":"Read","tool_input":{"file_path":"src/main.rs"},"session_id":"one"}"#;
+    compare(&t, &["hook"], false, 0, Some(raw.as_bytes()));
+    assert!(!t.rust.atlas_dir().join("state/usage.jsonl").exists());
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn hook_and_prime_pinned_failure_budgets() {
+    let t = base(false);
+    t.prepare(|p|{
+        p.write("src/main.rs","source\n");let mut file=std::io::BufWriter::new(std::fs::File::create(p.atlas_dir().join("expertise/core.jsonl")).unwrap());
+        for index in 0..40{
+            let typ=if index<30{"failure"}else{"pattern"};
+            writeln!(file,"{{\"id\":\"mx-{index:04}\",\"type\":\"{typ}\",\"description\":\"Repeated failure needs an exact preventive resolution in every relevant session.\",\"resolution\":\"Always preserve this failure even after the budget is consumed.\",\"name\":\"pattern-{index}\",\"classification\":\"foundational\",\"files\":[\"src/main.rs\"]}}").unwrap();
+        }
+    });
+    compare(
+        &t,
+        &["prime", "--files", "src/main.rs", "--budget", "1"],
+        true,
+        0,
+        None,
+    );
+    let raw =
+        r#"{"tool_name":"Read","tool_input":{"file_path":"src/main.rs"},"session_id":"pinned"}"#;
+    compare(&t, &["hook"], false, 0, Some(raw.as_bytes()));
+    assert_eq!(
+        std::fs::read_to_string(t.rust.atlas_dir().join("state/sessions/pinned.txt"))
+            .unwrap()
+            .lines()
+            .count(),
+        30
+    );
+}
