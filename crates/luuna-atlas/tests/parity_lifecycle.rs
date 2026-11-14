@@ -30,6 +30,8 @@ fn base(seed: bool) -> Twin {
 }
 fn vars(p: &Project, extra: &[(&str, String)]) -> Vec<(OsString, OsString)> {
     let mut vars = p.run_env();
+    vars.retain(|(key, _)| key != "LUUNA_ATLAS_LOG_LEVEL");
+    vars.push(("LUUNA_ATLAS_LOG_LEVEL".into(), "silent".into()));
     vars.retain(|(key, _)| !extra.iter().any(|(name, _)| key == *name));
     vars.extend(
         extra
@@ -1258,4 +1260,243 @@ fn lifecycle_restore_unknown_live_preflight() {
     assert_eq!(r.exit_code, 1);
     assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
     assert_eq!(before, t.rust.snapshot());
+}
+
+case!(lifecycle_prune_apply_json, true, false, 0, &["prune"][..]);
+case!(lifecycle_prune_apply_human, true, true, 0, &["prune"][..]);
+case!(
+    lifecycle_prune_hard,
+    true,
+    false,
+    0,
+    &["prune", "--hard"][..]
+);
+case!(
+    lifecycle_prune_explain,
+    true,
+    false,
+    0,
+    &["prune", "--dry-run", "--check-anchors", "--explain"][..]
+);
+case!(
+    lifecycle_compact_auto_empty,
+    true,
+    false,
+    0,
+    &["compact", "--auto"][..]
+);
+case!(
+    lifecycle_compact_errors,
+    true,
+    false,
+    1,
+    &["compact"][..],
+    &["compact", "--apply"],
+    &["compact", "core", "--apply"],
+    &["compact", "--auto", "--min-group", "0"]
+);
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_compact_full_modes() {
+    for human in [false, true] {
+        for mode in ["analyze", "dry", "auto", "apply"] {
+            let t = base(false);
+            t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl",concat!(
+                "{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"First\",\"classification\":\"tactical\",\"recorded_at\":\"2020-01-01T00:00:00.000Z\",\"held\":17}\n",
+                "{\"id\":\"mx-bbbb\",\"type\":\"convention\",\"content\":\"Second\",\"classification\":\"foundational\",\"recorded_at\":\"2021-01-01T00:00:00.000Z\"}\n"
+            )));
+            let args = match mode {
+                "analyze" => vec!["compact", "core", "--analyze"],
+                "dry" => vec!["compact", "core", "--auto", "--dry-run"],
+                "auto" => vec!["compact", "core", "--auto", "--yes"],
+                _ => vec![
+                    "compact",
+                    "core",
+                    "--apply",
+                    "--records",
+                    "mx-aaaa,mx-bbbb",
+                    "--content",
+                    "Combined",
+                ],
+            };
+            compare(&t, &args, human, 0, None);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn lifecycle_hook(t: &Twin, event: &str, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    t.prepare(|p| {
+        let path = p.atlas_dir().join("lifecycle-hook.sh");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let cfg = p.atlas_dir().join("config.yaml");
+        let mut yaml = std::fs::read_to_string(&cfg).unwrap();
+        yaml.push_str(&format!(
+            "hooks:\n  {event}: [.luuna/atlas/lifecycle-hook.sh]\n"
+        ));
+        std::fs::write(cfg, yaml).unwrap();
+    });
+}
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_mutation_hooks() {
+    for human in [false, true] {
+        for (event, args) in [
+            ("pre-record", vec!["move", "core", "mx-aaaa", "other"]),
+            ("pre-prune", vec!["prune"]),
+            (
+                "pre-compact",
+                vec![
+                    "compact",
+                    "core",
+                    "--apply",
+                    "--records",
+                    "mx-aaaa,mx-bbbb",
+                    "--content",
+                    "joined",
+                ],
+            ),
+        ] {
+            let t = base(true);
+            lifecycle_hook(&t, event, "printf 'blocked' >&2; exit 7");
+            compare(&t, &args, human, 1, None);
+        }
+        let t = base(true);
+        lifecycle_hook(
+            &t,
+            "pre-record",
+            r#"printf '%s\n' '{"domain":"other","record":{"id":"mx-aaaa","type":"convention","content":"changed","classification":"foundational","recorded_at":"2020-01-01T00:00:00.000Z"}}'"#,
+        );
+        compare(&t, &["move", "core", "mx-aaaa", "other"], human, 0, None);
+        let t = base(true);
+        lifecycle_hook(
+            &t,
+            "pre-compact",
+            r#"printf '%s\n' '{"replacement":{"type":"convention","content":"hook joined","classification":"foundational","recorded_at":"2020-01-01T00:00:00.000Z"}}'"#,
+        );
+        compare(
+            &t,
+            &["compact", "core", "--apply", "--records", "mx-aaaa,mx-bbbb"],
+            human,
+            0,
+            None,
+        );
+    }
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_prune_supersession_anchor_cycles() {
+    for human in [false, true] {
+        for extra in [
+            vec![],
+            vec!["--dry-run"],
+            vec!["--aggressive"],
+            vec!["--hard"],
+            vec!["--check-anchors", "--explain"],
+        ] {
+            let t = base(false);
+            t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl",concat!(
+                "{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"A\",\"classification\":\"foundational\",\"recorded_at\":\"2020-01-01T00:00:00.000Z\",\"supersedes\":[\"mx-bbbb\"]}\n",
+                "{\"id\":\"mx-bbbb\",\"type\":\"convention\",\"content\":\"B\",\"classification\":\"foundational\",\"recorded_at\":\"2020-01-01T00:00:00.000Z\",\"supersedes\":[\"mx-aaaa\",\"mx-cccc\"]}\n",
+                "{\"id\":\"mx-cccc\",\"type\":\"convention\",\"content\":\"C\",\"classification\":\"foundational\",\"recorded_at\":\"2020-01-01T00:00:00.000Z\",\"files\":[\"missing\"]}\n"
+            )));
+            let mut args = vec!["prune"];
+            args.extend(extra);
+            compare(&t, &args, human, 0, None);
+        }
+    }
+}
+
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_move_duplicate_id_loss_refused() {
+    let t = base(true);
+    t.prepare(|p| {
+        p.write(
+            ".luuna/atlas/expertise/core.jsonl",
+            &format!(
+                "{ROWS}{}\n",
+                r#"{"id":"mx-aaaa","type":"convention","content":"held-other-copy"}"#
+            ),
+        )
+    });
+    let before = t.rust.snapshot();
+    let args = vec![
+        "move".into(),
+        "core".into(),
+        "mx-aaaa".into(),
+        "other".into(),
+        "--json".into(),
+    ];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 0);
+    let all = format!(
+        "{}{}",
+        std::fs::read_to_string(t.go.atlas_dir().join("expertise/core.jsonl")).unwrap(),
+        std::fs::read_to_string(t.go.atlas_dir().join("expertise/other.jsonl")).unwrap()
+    );
+    assert!(
+        !all.contains("held-other-copy"),
+        "Go must lose the second source row"
+    );
+    let r = native(&t.rust, &args, None);
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+    assert_eq!(before, t.rust.snapshot());
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_prune_retained_archive_reason_loss_refused() {
+    let t = base(false);
+    t.prepare(|p|p.write(".luuna/atlas/expertise/core.jsonl",concat!(
+        "{\"id\":\"mx-aaaa\",\"type\":\"convention\",\"content\":\"source\",\"classification\":\"foundational\",\"supersedes\":[\"mx-bbbb\"]}\n",
+        "{\"id\":\"mx-bbbb\",\"type\":\"convention\",\"content\":\"target\",\"classification\":\"observational\",\"archive_reason\":\"held-original-reason\"}\n"
+    )));
+    let before = t.rust.snapshot();
+    let args = vec!["prune".into(), "--json".into()];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 0);
+    let all = format!(
+        "{}{}",
+        std::fs::read_to_string(t.go.atlas_dir().join("expertise/core.jsonl")).unwrap(),
+        std::fs::read_to_string(t.go.atlas_dir().join("archive/core.jsonl")).unwrap()
+    );
+    assert!(
+        !all.contains("held-original-reason"),
+        "Go must overwrite the stored reason"
+    );
+    let r = native(&t.rust, &args, None);
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stderr.contains("Refusing"), "{}", r.stderr);
+    assert_eq!(before, t.rust.snapshot());
+}
+#[test]
+#[ignore = "needs the pinned Go reference; run -- --ignored"]
+fn lifecycle_prune_multidomain_preflight() {
+    let t = base(true);
+    t.prepare(|p|p.write(".luuna/atlas/expertise/other.jsonl",concat!(
+        "{\"id\":\"mx-dddd\",\"type\":\"convention\",\"content\":\"stale\",\"classification\":\"tactical\",\"recorded_at\":\"2020-01-01T00:00:00.000Z\"}\n",
+        "{\"id\":false,\"type\":\"convention\",\"content\":\"held\"}\n"
+    )));
+    let before = t.rust.snapshot();
+    let args = vec!["prune".into(), "--json".into()];
+    let g = go(&t.go, &args, None, &[]);
+    assert_eq!(g.exit_code, 0);
+    assert!(
+        !std::fs::read_to_string(t.go.atlas_dir().join("expertise/other.jsonl"))
+            .unwrap()
+            .contains("\"id\":false")
+    );
+    let r = native(&t.rust, &args, None);
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stderr.contains("Refusing"));
+    assert_eq!(
+        before,
+        t.rust.snapshot(),
+        "even the earlier domain must remain untouched"
+    );
 }
