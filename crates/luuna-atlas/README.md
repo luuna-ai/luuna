@@ -11,8 +11,9 @@ record, bulk, edit, delete, search and show. The lifecycle module provides query
 rank, ready, status, stale, validate, outcome, move, archive, restore, delete-domain,
 prune, compact and config schema/show-path/set/unset. Typed recording APIs are also
 available. Git context and configured raw hooks follow the reference behavior.
-Prime, the public CLI parser/dispatcher and setup/doctor/audit/bridge remain assigned
-to later plans. Coverage and deliberate preservation refusals are recorded in notes/.
+Prime, learn, diff, sync, active-work context and hook guard/injection are available
+under the prime module. The public CLI parser/dispatcher and setup/doctor/audit/bridge
+remain assigned to the tooling plan. Coverage and deliberate preservation refusals are recorded in notes/.
 
 ## Reference
 
