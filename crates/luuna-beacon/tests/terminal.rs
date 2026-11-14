@@ -194,6 +194,8 @@ fn terminal_command_contract_matches_go() {
         }
         let mut ga = Normaliser::new("luuna-beacon", a.path());
         let mut nb = Normaliser::new("luuna-beacon", b.path());
+        let mut artifact_go = Normaliser::new("artifact", a.path());
+        let mut artifact_native = Normaliser::new("artifact", b.path());
         for args in &cases {
             let mut args = args.iter().map(|s| s.to_string()).collect::<Vec<_>>();
             if json {
@@ -222,8 +224,16 @@ fn terminal_command_contract_matches_go() {
             };
             match (parse(&go.stdout), parse(&native.stdout)) {
                 (Some(mut left), Some(mut right)) => {
-                    ga.documents(&mut left);
-                    nb.documents(&mut right);
+                    if matches!(
+                        args.first().map(String::as_str),
+                        Some("skill" | "agent" | "bundle")
+                    ) {
+                        artifact_go.documents(&mut left);
+                        artifact_native.documents(&mut right);
+                    } else {
+                        ga.documents(&mut left);
+                        nb.documents(&mut right);
+                    }
                     assert_eq!(left, right, "{args:?}");
                 }
                 _ => assert_eq!(
