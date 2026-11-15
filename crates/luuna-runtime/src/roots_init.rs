@@ -51,6 +51,7 @@ fn directory(path: &Path) -> Result<(), ApiError> {
         return Ok(());
     }
     let mut builder = fs::DirBuilder::new();
+    builder.recursive(false);
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
