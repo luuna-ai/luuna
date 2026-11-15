@@ -224,6 +224,8 @@ mod policy;
 mod projects;
 mod publication;
 pub mod roots;
+mod roots_init;
+mod roots_routes;
 mod scaffold;
 pub mod stores;
 mod writer;
@@ -667,6 +669,34 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/projects/{id}/prompts/{name}/render",
             get(integrations::render_prompt),
+        )
+        .route(
+            "/api/v1/projects/{id}/intent",
+            get(roots_routes::show).post(roots_routes::init),
+        )
+        .route(
+            "/api/v1/projects/{id}/intent/proposals",
+            get(roots_routes::proposals),
+        )
+        .route(
+            "/api/v1/projects/{id}/intent/questions",
+            get(roots_routes::questions),
+        )
+        .route(
+            "/api/v1/projects/{id}/intent/sprouts",
+            get(roots_routes::sprouts),
+        )
+        .route(
+            "/api/v1/projects/{id}/intent/proposals/{proposal_id}/accept",
+            post(roots_routes::accept),
+        )
+        .route(
+            "/api/v1/projects/{id}/intent/proposals/{proposal_id}/reject",
+            post(roots_routes::reject),
+        )
+        .route(
+            "/api/v1/projects/{id}/intent/sprouts/{sprout_id}/reject",
+            post(roots_routes::reject_sprout),
         )
         .route("/api/v1/tickets/{id}/source", get(writer::ticket_source))
         .route(
