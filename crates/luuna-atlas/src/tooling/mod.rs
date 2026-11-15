@@ -53,18 +53,50 @@ fn parser_error(text: &str) -> CommandOutput {
 /// Execute an Atlas invocation with explicit cwd/environment/stdin. Store resolution occurs
 /// before dispatch, while child commands retain the caller's actual working directory.
 pub fn run(context: &Context, raw: &[String], input: &[u8]) -> CommandOutput {
+    run_context(context, raw, input, true, None)
+}
+/// Managed callers provide an authoritative store root separately from user cwd.
+/// This entrypoint never discovers a different store through Git.
+pub fn run_in_store(context: &Context, raw: &[String], input: &[u8]) -> CommandOutput {
+    run_context(context, raw, input, false, None)
+}
+pub type DispatchCheck<'a> = dyn Fn(&Context, &str) -> crate::Result<()> + 'a;
+/// Apply managed file bounds after parsing, so help/version retain their no-data-read paths.
+pub fn run_in_store_checked(
+    context: &Context,
+    raw: &[String],
+    input: &[u8],
+    check: &DispatchCheck<'_>,
+) -> CommandOutput {
+    run_context(context, raw, input, false, Some(check))
+}
+fn run_context(
+    context: &Context,
+    raw: &[String],
+    input: &[u8],
+    resolve: bool,
+    check: Option<&DispatchCheck<'_>>,
+) -> CommandOutput {
     if context.env.var("LUUNA_ATLAS_API_BRIDGE").as_deref() == Some("1") {
         return bridge::run(context, input);
     }
     let mut ctx = context.clone();
-    ctx.root = git::resolve_store_root(&ctx.cwd, &ctx.env);
+    if resolve {
+        ctx.root = git::resolve_store_root(&ctx.cwd, &ctx.env);
+    }
     ctx.globals = GlobalOptions::prescan(raw);
     record::run(&ctx, "init", |a| {
-        a.output = front(a.ctx, raw, input, &a.registry);
+        a.output = front(a.ctx, raw, input, &a.registry, check);
         Ok(())
     })
 }
-fn front(context: &Context, raw: &[String], input: &[u8], registry: &Registry) -> CommandOutput {
+fn front(
+    context: &Context,
+    raw: &[String],
+    input: &[u8],
+    registry: &Registry,
+    check: Option<&DispatchCheck<'_>>,
+) -> CommandOutput {
     let mut ctx = context.clone();
     let mut args = raw.to_vec();
     let root = Spec::read(
@@ -202,6 +234,11 @@ fn front(context: &Context, raw: &[String], input: &[u8], registry: &Registry) -
     let mut positionals = i.positionals.clone();
     if name == "config" {
         positionals.insert(0, spec.name.clone())
+    }
+    if let Some(check) = check {
+        if let Err(error) = check(&ctx, &name) {
+            return record::run(&ctx, &name, |_| Err(error));
+        }
     }
     let start = std::time::Instant::now();
     let mut out = dispatch(&ctx, &name, &positionals, &i.flat(), input);

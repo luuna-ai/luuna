@@ -52,7 +52,8 @@ use crate::json::{Object, Value};
 
 /// Reads one YAML document. An empty document (only blank lines and comments) is `null`.
 pub fn parse(text: &str) -> Result<Value> {
-    match parse_subset(text) {
+    crate::managed::yaml_source(text.len())?;
+    let value = match parse_subset(text) {
         Err(AtlasError::UnsupportedYaml { line, message }) => {
             // GDL1 is an existing proven loss: an indented first mapping key
             // makes Go ignore a later less-indented key. Explicit document
@@ -66,7 +67,9 @@ pub fn parse(text: &str) -> Result<Value> {
             }
         }
         result => result,
-    }
+    }?;
+    crate::managed::check_value(&value)?;
+    Ok(value)
 }
 mod graph;
 /// Whether rewriting the first YAML document would discard later document data.

@@ -2,7 +2,7 @@
 //! (ADR 0018; ADR 0027 point 4 makes it the clients' "settings" surface): Git,
 //! Python, Node, the Pi launcher, the data directory and database, token and
 //! credential presence (names only, never values), the service port, the pinned
-//! component layout (ADR 0024) and the Bun executable. The report is the same
+//! native component backend and optional JavaScript recipe runtime. The report is the same
 //! JSON in both places; the route builds it from the running runtime's own
 //! configuration, the command from the environment it was started in.
 //!
@@ -81,9 +81,9 @@ pub struct DoctorProbes {
     /// the environment, yet no model run can use them.
     pub empty_provider_keys: Vec<String>,
     pub port: Probe<PortStatus>,
-    /// The pinned component layout: source checkout or portable (ADR 0024).
+    /// Native component backend availability (historical layouts are separate audits).
     pub components: Probe<Result<String, String>>,
-    /// The Bun executable the components run under.
+    /// Optional Bun executable for explicitly selected JavaScript recipes.
     pub bun: Probe<Result<String, String>>,
 }
 
@@ -482,7 +482,6 @@ pub fn host_probes(host: Host) -> DoctorProbes {
             .map(Arc::new)
             .map_err(|error| error.to_string()),
     };
-    let components_for_bun = components.clone();
     let keys = provider_keys();
     DoctorProbes {
         git: Box::new(move || version_of(&git_program.to_string_lossy(), "--version")),
@@ -503,31 +502,17 @@ pub fn host_probes(host: Host) -> DoctorProbes {
         components: Box::new(move || {
             components
                 .as_ref()
-                .map(|components| {
-                    format!(
-                        "pinned Atlas toolchain discovered: {}; Missions and Beacon run natively",
-                        components.describe()
-                    )
-                })
-                .map_err(|error| {
-                    format!("component toolchain unavailable: {error}; set LUUNA_COMPONENTS_ROOT to a source checkout or a packaged layout")
-                })
+                .map(|components| components.describe())
+                .map_err(|error| format!("native components unavailable: {error}"))
         }),
         bun: Box::new(move || {
-            match &components_for_bun {
-            Ok(components) => Ok(format!(
-                "bun {} at {} (revalidated before every legacy component call)",
-                components.runtime_version(),
-                components.bun().display()
-            )),
-            Err(_) => version_of("bun", "--version")
-                .map(|version| {
-                    format!("bun {version} on PATH; the component layout was not discovered")
-                })
+            let executable = std::env::var("LUUNA_BUN").unwrap_or_else(|_| "bun".into());
+            version_of(&executable, "--version")
+                .map(|version| format!("bun {version} (optional JavaScript recipe runtime)"))
                 .map_err(|_| {
-                    "bun not found; install Bun 1.4.3 (npm install bun@1.4.3) or use the packaged layout (LUUNA_BUN)".to_owned()
-                }),
-        }
+                    "Bun is unavailable; install it separately only for optional JavaScript recipes"
+                        .into()
+                })
         }),
     }
 }

@@ -41,7 +41,7 @@ fn capture(ctx: &Context, args: &[&str]) -> GitOutput {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    match c.output() {
+    match crate::process::output(&mut c, &ctx.env) {
         Ok(out) => {
             let failed = !out.status.success();
             GitOutput {

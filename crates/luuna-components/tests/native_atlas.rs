@@ -43,7 +43,9 @@ async fn atlas_memory_workflow_is_native_and_lossless() {
         .await
         .unwrap();
     assert_eq!(
-        call_atlas_native(root, &args(&["search","--type","convention"])).await.unwrap()["total"],
+        call_atlas_native(root, &args(&["search", "--type", "convention"]))
+            .await
+            .unwrap()["total"],
         0
     );
 }
@@ -97,4 +99,54 @@ async fn raw_terminal_contract_needs_neither_component_checkout_nor_bun() {
         .unwrap();
     assert_eq!(out.exit_code, 0);
     assert!(out.stdout.contains("\"command\": \"status\""));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn terminal_hooks_do_not_receive_runtime_or_provider_bindings() {
+    let d = tempfile::tempdir().unwrap();
+    call_atlas_native(d.path(), &args(&["init"])).await.unwrap();
+    let path = d.path().join(".luuna/atlas/config.yaml");
+    let mut config = std::fs::read_to_string(&path).unwrap();
+    config.push_str("\nhooks:\n  post-record: ['printf \"%s|%s|%s\" \"$LUUNA_API_TOKEN\" \"$OPENROUTER_API_KEY\" \"$LUUNA_PI_ARGS_JSON\" > observed']\n");
+    std::fs::write(path, config).unwrap();
+    let env = BTreeMap::from([
+        ("PATH".into(), "/usr/bin:/bin".into()),
+        ("LUUNA_API_TOKEN".into(), "synthetic-runtime-secret".into()),
+        (
+            "OPENROUTER_API_KEY".into(),
+            "synthetic-provider-secret".into(),
+        ),
+        (
+            "LUUNA_PI_ARGS_JSON".into(),
+            "synthetic-private-launcher".into(),
+        ),
+    ]);
+    let out = run_atlas_native(
+        d.path(),
+        &args(&["record", "privacy", "Safe memory", "--type", "convention"]),
+        env,
+        Vec::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out.exit_code, 0, "{}", out.stderr);
+    assert_eq!(
+        std::fs::read_to_string(d.path().join("observed")).unwrap(),
+        "||"
+    );
+}
+
+#[tokio::test]
+async fn managed_terminal_refuses_raw_ipc_before_file_access() {
+    let d = tempfile::tempdir().unwrap();
+    let out = run_atlas_native(
+        d.path(),
+        &args(&["init"]),
+        BTreeMap::from([("LUUNA_ATLAS_API_BRIDGE".into(), "1".into())]),
+        br#"{"op":"readExpertiseFile","path":"unadmitted.jsonl"}"#.to_vec(),
+    )
+    .await;
+    assert!(matches!(out, Err(ComponentError::Protocol)));
+    assert!(!d.path().join(".luuna").exists());
 }

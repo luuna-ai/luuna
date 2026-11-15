@@ -54,8 +54,7 @@ pub fn git(cwd: &Path, env: &Env, args: &[&str]) -> Result<String> {
         #[cfg(unix)]
         cmd.env("PWD", go_abs(&cwd.to_string_lossy()));
     }
-    let output = cmd
-        .output()
+    let output = crate::process::output(&mut cmd, env)
         .map_err(|e| AtlasError::Message(format!("exec: git: {e}")))?;
     if !output.status.success() {
         return Err(AtlasError::Message(match output.status.code() {

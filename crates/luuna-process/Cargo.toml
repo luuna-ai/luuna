@@ -1,0 +1,10 @@
+[package]
+name = "luuna-process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

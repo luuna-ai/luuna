@@ -219,6 +219,42 @@ fn run_one_hook(
         command: command.to_owned(),
         ..HookExecution::default()
     };
+    if env.managed_children() {
+        let result = env
+            .look_path("sh")
+            .ok_or_else(|| std::io::Error::other("sh not found"))
+            .and_then(|sh| {
+                let mut c = Command::new(sh);
+                c.arg("-c")
+                    .arg(command)
+                    .current_dir(cwd)
+                    .env_clear()
+                    .envs(env.vars().iter().map(|(k, v)| (k, v)))
+                    .env("LUUNA_ATLAS_HOOK", "1");
+                crate::process::managed(
+                    &mut c,
+                    Some(stdin),
+                    timeout.min(Duration::from_secs(30)),
+                    1024 * 1024,
+                )
+            });
+        let raw = match result {
+            Ok(out) => {
+                execution.exit_code = out.status.code().unwrap_or(-1);
+                execution.stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+                out.stdout
+            }
+            Err(error) => {
+                execution.timed_out = error.kind() == std::io::ErrorKind::TimedOut;
+                execution.exit_code = if execution.timed_out { 124 } else { 1 };
+                execution.stderr = error.to_string();
+                Vec::new()
+            }
+        };
+        execution.stdout = String::from_utf8_lossy(&raw).into_owned();
+        execution.duration_ms = elapsed_ms(start);
+        return (execution, raw);
+    }
     let started = env
         .look_path("sh")
         .and_then(|sh| spawn_hook(&sh, cwd, env, command).ok());

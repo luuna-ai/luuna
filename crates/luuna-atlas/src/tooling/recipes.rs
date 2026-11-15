@@ -28,14 +28,12 @@ fn command(a: &Action<'_>, program: &str) -> Option<Command> {
     Some(c)
 }
 fn npm(a: &Action<'_>, name: &str) -> Option<PathBuf> {
-    let out = command(a, "bun")?
-        .args(["-e", include_str!("resolver.js")])
-        .env(
-            "LUUNA_ATLAS_RECIPE_PACKAGE",
-            format!("luuna-atlas-recipe-{name}"),
-        )
-        .output()
-        .ok()?;
+    let mut c = command(a, "bun")?;
+    c.args(["-e", include_str!("resolver.js")]).env(
+        "LUUNA_ATLAS_RECIPE_PACKAGE",
+        format!("luuna-atlas-recipe-{name}"),
+    );
+    let out = crate::process::output(&mut c, &a.ctx.env).ok()?;
     if out.status.success() {
         let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
         if !text.is_empty() {
@@ -141,15 +139,14 @@ pub(super) fn external(a: &mut Action<'_>, r: &Provider, action: &str) -> Result
             );
             c.arg(&r.path);
         }
-        let out = c
-            .arg(action)
+        c.arg(action)
             .current_dir(&a.ctx.cwd)
             .env_clear()
             .envs(a.ctx.env.vars().iter().map(|(k, v)| (k, v)))
             .env("LUUNA_ATLAS_RECIPE_NAME", &r.name)
             .env("LUUNA_ATLAS_RECIPE_ACTION", action)
-            .stdin(Stdio::null())
-            .output();
+            .stdin(Stdio::null());
+        let out = crate::process::output(&mut c, &a.ctx.env);
         let (ok, mut text, err, code) = match out {
             Ok(out) => (
                 out.status.success(),
@@ -174,14 +171,12 @@ pub(super) fn external(a: &mut Action<'_>, r: &Provider, action: &str) -> Result
     let Some(mut c) = command(a, "bun") else {
         return Err(message("exec: \"bun\": executable file not found in $PATH"));
     };
-    let out = c
-        .args(["-e", include_str!("recipe_runner.js")])
+    c.args(["-e", include_str!("recipe_runner.js")])
         .env("LUUNA_ATLAS_RECIPE_PATH", &r.path)
         .env("LUUNA_ATLAS_RECIPE_NAME", &r.name)
         .env("LUUNA_ATLAS_RECIPE_ACTION", action)
-        .env("LUUNA_ATLAS_RECIPE_SOURCE", &r.source)
-        .output()
-        .map_err(|e| message(e.to_string()))?;
+        .env("LUUNA_ATLAS_RECIPE_SOURCE", &r.source);
+    let out = crate::process::output(&mut c, &a.ctx.env).map_err(|e| message(e.to_string()))?;
     a.output.stderr += &String::from_utf8_lossy(&out.stderr);
     if !out.status.success() {
         return Err(message(format!(

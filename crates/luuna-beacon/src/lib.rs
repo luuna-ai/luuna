@@ -8,6 +8,7 @@
 mod artifacts;
 mod authoring;
 mod beacon;
+pub mod cli;
 mod config;
 mod error;
 mod gofmt;

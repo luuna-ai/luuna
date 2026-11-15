@@ -1,6 +1,6 @@
 # Current Luuna architecture
 
-Native Missions runtime ticket operations and terminal component commands follow [ADR 0052](decisions/0052-missions-called-natively.md). Tickets and prompts in enabled projects need no legacy toolchain; Atlas and full activation retain their adapter until Atlas wiring.
+Atlas, Beacon and Missions runtime operations and terminal component commands now use compiled Rust libraries ([ADR 0053](decisions/0053-native-component-runtime.md)). Native discovery and first-run setup need no legacy component checkout or Bun. Historical distribution integrity checks remain explicit audits. Managed Atlas parser limits and Unix child ownership preserve finite calls; runtime hooks remain unauthorized. Store modes, command regrouping, cross-platform child ownership and consolidated releases remain migration work.
 
 Terminal first-run setup and persisted user/project settings follow [ADR 0050](decisions/0050-first-run-terminal-setup.md). Interactive `lu init` prepares private tools and credentials before connecting; local dirty changes can be explicitly stashed before the runtime baseline.
 

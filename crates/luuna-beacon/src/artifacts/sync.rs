@@ -28,6 +28,8 @@ pub enum GitEnvironment {
     /// A cleared environment holding exactly this list. A bare program name
     /// is looked up on the list's own `PATH`.
     Exact(Vec<(OsString, OsString)>),
+    /// Embedded terminal policy: finite output/deadline and process-group ownership.
+    ManagedExact(Vec<(OsString, OsString)>),
 }
 
 /// The git program sync starts and the environment it gets (RD52).
@@ -119,6 +121,29 @@ fn run_git(
         step: step.to_owned(),
         output: go_text(go_trim_space(output)),
     };
+    if let GitEnvironment::ManagedExact(list) = &runner.environment {
+        let mut command = Command::new(&runner.program);
+        command
+            .args(arguments)
+            .current_dir(root)
+            .stdin(Stdio::null())
+            .env_clear()
+            .envs(list.iter().map(|(k, v)| (k, v)));
+        let out = luuna_process::capture(
+            &mut command,
+            None,
+            std::time::Duration::from_secs(30),
+            4 * 1024 * 1024,
+        )
+        .map_err(|e| failed(e.to_string().as_bytes()))?;
+        let mut combined = out.stdout;
+        combined.extend(out.stderr);
+        return if out.status.success() {
+            Ok(combined)
+        } else {
+            Err(failed(&combined))
+        };
+    }
     let (mut reader, writer) = std::io::pipe().map_err(|_| failed(b""))?;
     let writer_for_stderr = writer.try_clone().map_err(|_| failed(b""))?;
     let mut command = Command::new(&runner.program);
