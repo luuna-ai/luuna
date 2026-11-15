@@ -827,15 +827,21 @@ pub(crate) fn reconcile_project_files(connection: &mut Connection, data_dir: &Pa
     let files = read_project_files(data_dir)?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let actions = plan_actions(&tx, data_dir, &files)?;
+    let component_action =
+        crate::component_index::plan(&tx, data_dir, &files.keys().cloned().collect())?;
     for (id, action) in &actions {
         apply(&tx, id, action)?;
     }
-    tx.commit()?;
+    crate::component_index::apply(&tx, &component_action)?;
+    // Keep the SQLite writer lease through backfill file replacement too:
+    // another Store must not race a newer writer against an old backfill.
     for (id, action) in &actions {
         if let Action::Backfill(bytes) = action {
             write_bytes(data_dir, id, bytes)?;
         }
     }
+    crate::component_index::backfill(data_dir, &component_action)?;
+    tx.commit()?;
     Ok(())
 }
 

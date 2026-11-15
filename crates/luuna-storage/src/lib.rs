@@ -14,6 +14,7 @@ use thiserror::Error;
 
 mod backup;
 mod baselines;
+mod component_index;
 mod components;
 mod history;
 mod missions;
@@ -156,9 +157,9 @@ impl Store {
     /// file lacks are applied, after an automatic backup of an existing
     /// database under `<directory>/backups/`. A `-wal` or `-shm` left beside
     /// a missing database is moved aside, never replayed. Last, the database
-    /// is reconciled with the project files in the data folder; a damaged
-    /// file, or a database holding records its file lacks, is refused with
-    /// nothing changed.
+    /// is reconciled with project and component record files in the data
+    /// folder; a damaged file, incompatible binding or database history
+    /// missing from its file is refused with nothing changed.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let memory = path == Path::new(":memory:");
