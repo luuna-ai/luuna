@@ -78,6 +78,7 @@ pub struct Env {
     vars: Vec<(OsString, OsString)>,
     args: Vec<String>,
     stdout_is_terminal: bool,
+    managed_children: bool,
 }
 
 impl Env {
@@ -92,6 +93,7 @@ impl Env {
                 .map(|a| a.to_string_lossy().into_owned())
                 .collect(),
             stdout_is_terminal: crate::style::stdout_is_terminal(),
+            managed_children: false,
         }
     }
 
@@ -109,7 +111,19 @@ impl Env {
                 .collect(),
             args,
             stdout_is_terminal,
+            managed_children: false,
         }
+    }
+
+    /// Opt into finite, owned subprocess execution for an embedded terminal job.
+    /// Raw library callers retain the reference tool's subprocess behavior by default.
+    pub fn with_managed_children(mut self) -> Self {
+        self.managed_children = true;
+        self
+    }
+
+    pub(crate) fn managed_children(&self) -> bool {
+        self.managed_children
     }
 
     /// The value of `name` among this environment's own variables (`os.LookupEnv`), with

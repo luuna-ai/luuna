@@ -163,7 +163,7 @@ async fn run(
 
 /// Prepares interactive init; callers relaunch with the returned environment rather
 /// than mutating process environment after Tokio has started worker threads.
-pub async fn prepare(root: &Path, vars: &mut BTreeMap<String, String>) -> io::Result<()> {
+pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::Result<()> {
     let private = directory()?;
     secure_dir(&private)?;
     let tools = private.join("tools");
@@ -221,44 +221,6 @@ pub async fn prepare(root: &Path, vars: &mut BTreeMap<String, String>) -> io::Re
         vars.insert(
             "LUUNA_PI_ARGS_JSON".into(),
             serde_json::to_string(&[entry]).map_err(io::Error::other)?,
-        );
-    }
-    if root.join("components/manifest.json").is_file() {
-        let owned_bun = tools.join("bun/node_modules/.bin/bun");
-        let owned_bun_missing = std::env::var_os("LUUNA_BUN").is_none()
-            && vars
-                .get("LUUNA_BUN")
-                .is_some_and(|path| Path::new(path) == owned_bun)
-            && !owned_bun.is_file();
-        if current("LUUNA_BUN", vars).is_none() || owned_bun_missing {
-            eprintln!("Preparing Luuna's pinned Bun 1.4.3…");
-            let bun = tools.join("bun");
-            fs::create_dir_all(&bun)?;
-            run(
-                "npm",
-                &[
-                    "install",
-                    "--no-audit",
-                    "--no-fund",
-                    "--save-exact",
-                    "bun@1.4.3",
-                ],
-                &bun,
-                vars,
-            )
-            .await?;
-            vars.insert(
-                "LUUNA_BUN".into(),
-                bun.join("node_modules/.bin/bun")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
-        }
-        eprintln!("Preparing the pinned project components…");
-        run("node", &["scripts/components.mjs", "setup"], root, vars).await?;
-        vars.insert(
-            "LUUNA_COMPONENTS_ROOT".into(),
-            root.to_string_lossy().into_owned(),
         );
     }
     if !PROVIDER_KEYS.iter().any(|k| {

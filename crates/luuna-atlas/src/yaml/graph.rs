@@ -247,10 +247,16 @@ impl Document {
         }
         let mut stack: Vec<Frame> = Vec::new();
         let mut active = HashSet::new();
+        let mut budget = crate::managed::YamlBudget::new();
         let mut next = Some((root, true));
         let mut done = None;
         loop {
             if let Some((index, validate)) = next.take() {
+                let scalar_bytes = match &self.nodes[index].kind {
+                    Kind::Scalar(raw, _, _) => raw.len(),
+                    _ => 0,
+                };
+                budget.visit(scalar_bytes, stack.len())?;
                 if !active.insert(index) {
                     return Err(error("Refusing cyclic YAML aliases: Go cannot finish expanding this document. The file is unchanged."));
                 }

@@ -1019,6 +1019,7 @@ dependencies = [
  "chrono",
  "granit-parser",
  "libc",
+ "luuna-process",
  "sha2",
  "tempfile",
  "thiserror 2.0.21",
@@ -1029,6 +1030,7 @@ name = "luuna-beacon"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "luuna-process",
  "regex",
  "serde",
  "serde_json",
@@ -1043,6 +1045,7 @@ name = "luuna-components"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "luuna-atlas",
  "luuna-beacon",
  "luuna-missions",
  "serde",
@@ -1127,6 +1130,13 @@ dependencies = [
  "thiserror 2.0.21",
  "uuid",
  "yaml-rust2",
+]
+
+[[package]]
+name = "luuna-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

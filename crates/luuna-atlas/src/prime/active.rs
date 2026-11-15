@@ -224,7 +224,8 @@ pub fn resolve_active_work(
     let mut gh = Vec::new();
     if !branch.is_empty() {
         if let Some(program) = ctx.env.look_path("gh") {
-            let result = Command::new(program)
+            let mut command = Command::new(program);
+            command
                 .args(["pr", "view", "--json", "number", "--jq", ".number"])
                 .current_dir(&ctx.cwd)
                 .env_clear()
@@ -232,8 +233,8 @@ pub fn resolve_active_work(
                 .env("PWD", &ctx.cwd)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output();
+                .stderr(Stdio::piped());
+            let result = crate::process::output(&mut command, &ctx.env);
             if let Some(result) = result.ok().filter(|r| r.status.success()) {
                 let value = String::from_utf8_lossy(&result.stdout).trim().to_owned();
                 if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {

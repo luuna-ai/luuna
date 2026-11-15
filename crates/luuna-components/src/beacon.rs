@@ -48,6 +48,95 @@ pub async fn call_beacon_native(workspace: &Path, args: &[String]) -> Result<Val
     .map_err(|_| ComponentError::Refused)?
 }
 
+/// Complete terminal frontend, with bounded admission and job-owned serialization.
+pub async fn run_beacon_native(
+    cwd: &Path,
+    args: &[String],
+    mut env: BTreeMap<String, String>,
+    stdin: Vec<u8>,
+) -> Result<luuna_beacon::cli::Output> {
+    if args.len() > 128
+        || args
+            .iter()
+            .any(|a| a.len() > 256 * 1024 || a.contains('\0'))
+        || args.iter().map(String::len).sum::<usize>() > MAX_STDOUT
+        || stdin.len() > MAX_STDOUT
+    {
+        return Err(ComponentError::Protocol);
+    }
+    super::retain_component_env(&mut env);
+    let cwd = cwd.to_owned();
+    let args = args.to_vec();
+    tokio::task::spawn_blocking(move || {
+        let _guard = NATIVE_GATE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cwd = fs::canonicalize(cwd).map_err(|_| ComponentError::Workspace)?;
+        let out = luuna_beacon::cli::run_managed_checked(&cwd, &args, &env, &|| {
+            preflight(&cwd, true)
+                .and_then(|()| terminal_inputs(&cwd, &args))
+                .map_err(|e| format!("Refusing managed Beacon input: {e}"))
+        });
+        if out.stdout.len() > MAX_STDOUT || out.stderr.len() > MAX_STDOUT {
+            return Err(ComponentError::OutputLimit);
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|_| ComponentError::Refused)?
+}
+fn terminal_inputs(cwd: &Path, args: &[String]) -> Result<()> {
+    let mut paths = vec![
+        cwd.join(".luuna/beacon/artifacts.jsonl"),
+        cwd.join(".luuna/beacon/PRIME.md"),
+        cwd.join("CLAUDE.md"),
+        cwd.join(".claude/CLAUDE.md"),
+        cwd.join("AGENTS.md"),
+    ];
+    if args.first().is_some_and(|a| a == "import") {
+        if let Some(path) = args.get(1) {
+            paths.push(cwd.join(path));
+        }
+    }
+    let mut remaining = MAX_INPUT;
+    for path in paths {
+        let metadata = match fs::metadata(&path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => continue,
+        };
+        if !metadata.is_file() {
+            return Err(ComponentError::Workspace);
+        }
+        if metadata.len() > remaining as u64 {
+            return Err(ComponentError::OutputLimit);
+        }
+        let mut file = fs::File::open(&path).map_err(|_| ComponentError::Workspace)?;
+        let mut bytes = Vec::new();
+        file.by_ref()
+            .take(remaining as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| ComponentError::Workspace)?;
+        if bytes.len() > remaining {
+            return Err(ComponentError::OutputLimit);
+        }
+        remaining -= bytes.len();
+        if path.extension().is_some_and(|s| s == "jsonl") {
+            for row in bytes.split(|b| *b == b'\n') {
+                if row.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                if row.len() > MAX_STDOUT {
+                    return Err(ComponentError::OutputLimit);
+                }
+                let v: Value = serde_json::from_slice(row).map_err(|_| ComponentError::Protocol)?;
+                super::atlas::json_budget(&v)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn preflight(root: &Path, initializing: bool) -> Result<()> {
     let mut remaining = MAX_INPUT;
     let mut records = 0usize;
@@ -94,6 +183,18 @@ fn preflight(root: &Path, initializing: bool) -> Result<()> {
             return Err(ComponentError::OutputLimit);
         }
         remaining -= bytes.len();
+        if name == "config.yaml" {
+            if bytes.len() > 256 * 1024 {
+                return Err(ComponentError::OutputLimit);
+            }
+            let parsed = luuna_atlas::managed::with_yaml_limits(
+                luuna_atlas::managed::YamlLimits::default(),
+                || luuna_atlas::yaml::parse(&String::from_utf8_lossy(&bytes)),
+            );
+            if parsed.is_err_and(|e| e.to_string().contains("managed YAML")) {
+                return Err(ComponentError::OutputLimit);
+            }
+        }
         if name.ends_with(".jsonl") {
             for line in bytes.split(|b| *b == b'\n') {
                 if std::str::from_utf8(line).is_ok_and(|s| s.trim().is_empty()) {

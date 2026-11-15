@@ -30,10 +30,11 @@ fn arguments(args: &[String], stdin: &[u8]) -> Result<()> {
 pub async fn run_missions_native(
     cwd: &Path,
     args: &[String],
-    env: BTreeMap<String, String>,
+    mut env: BTreeMap<String, String>,
     stdin: Vec<u8>,
 ) -> Result<Outcome> {
     arguments(args, &stdin)?;
+    super::retain_component_env(&mut env);
     let invocation = Invocation::new(cwd, args.iter().cloned())
         .with_env(env)
         .with_stdin(stdin);
