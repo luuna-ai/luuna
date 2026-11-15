@@ -103,6 +103,17 @@ fn snapshot(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     out.sort();
     out
 }
+fn file_names(root: &Path) -> Vec<PathBuf> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(root).unwrap() {
+        let entry = entry.unwrap();
+        names.push(entry.path());
+        if entry.file_type().unwrap().is_dir() {
+            names.extend(file_names(&entry.path()));
+        }
+    }
+    names
+}
 #[tokio::test]
 async fn every_intent_route_requires_a_token_and_no_agent_route_exists() {
     let data = tempfile::tempdir().unwrap();
@@ -226,9 +237,9 @@ async fn missing_store_is_refused_and_init_has_exact_roots_layout_and_is_not_rep
         assert_eq!(s, StatusCode::OK);
         assert_eq!(b, json!([]));
     }
-    assert!(snapshot(data.path())
+    assert!(file_names(data.path())
         .iter()
-        .all(|(p, _)| p.file_name().unwrap() != ".gitattributes"));
+        .all(|p| p.file_name().unwrap() != ".gitattributes"));
 }
 #[tokio::test]
 async fn human_name_is_required_and_cannot_be_an_agent_or_roots() {
