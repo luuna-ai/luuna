@@ -159,8 +159,7 @@ impl Store {
     /// a missing database is moved aside, never replayed. Last, the database
     /// is reconciled with project and component record files in the data
     /// folder; a damaged file, incompatible binding or database history
-    /// missing from its file is refused with
-    /// nothing changed.
+    /// missing from its file is refused with nothing changed.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let memory = path == Path::new(":memory:");
