@@ -518,7 +518,7 @@ async fn only_explicit_human_decisions_change_agent_proposals_and_sprouts() {
         request(
             &app,
             "POST",
-            "app/intent/proposals/p-missing/accept",
+            "app/intent/proposals/p-0000000/accept",
             Some(json!({"by":"alice"})),
             true
         )
@@ -566,7 +566,7 @@ async fn errors_never_disclose_written_or_canonical_host_paths() {
         request(
             &app,
             "POST",
-            "app/intent/proposals/p-missing/accept",
+            "app/intent/proposals/p-0000000/accept",
             Some(json!({"by":"alice"})),
             true,
         )
@@ -582,7 +582,7 @@ async fn errors_never_disclose_written_or_canonical_host_paths() {
         request(
             &app,
             "POST",
-            "app/intent/proposals/p-missing/accept",
+            "app/intent/proposals/p-0000000/accept",
             Some(json!({"by":"agent:run-r1"})),
             true,
         )
@@ -590,7 +590,7 @@ async fn errors_never_disclose_written_or_canonical_host_paths() {
         request(
             &app,
             "POST",
-            "app/intent/proposals/p-missing/accept",
+            "app/intent/proposals/p-0000000/accept",
             Some(json!({"by":"alice","actor":"human:alice"})),
             true,
         )
