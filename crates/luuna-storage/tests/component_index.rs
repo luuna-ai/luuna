@@ -8,7 +8,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-const FILE: &str = "project-records/components.json";
+const FILE: &str = "project-records/app/components.json";
 fn database(root: &Path) -> PathBuf {
     root.join("luuna.sqlite3")
 }
@@ -24,18 +24,24 @@ fn binding(id: &str, scope: &str) -> MemoryBinding {
     }
 }
 fn register(store: &mut Store, root: &Path) {
+    register_named(store, root, "app");
+}
+fn register_named(store: &mut Store, root: &Path, id: &str) {
     store
         .register_project(
-            "app",
-            "App",
+            id,
+            if id == "app" { "App" } else { "Other" },
             &[(
                 "api".into(),
                 RepositoryObservation {
-                    local_path: root.join("checkout").to_string_lossy().into_owned(),
+                    local_path: root
+                        .join(format!("checkout-{id}"))
+                        .to_string_lossy()
+                        .into_owned(),
                     identity: RepositoryIdentity {
-                        remote: Some("https://example.invalid/app.git".into()),
+                        remote: Some(format!("https://example.invalid/{id}.git")),
                         push_remote: None,
-                        root_commits: vec!["1".repeat(40)],
+                        root_commits: vec![if id == "app" { "1" } else { "3" }.repeat(40)],
                         shallow: false,
                     },
                     head_commit: "2".repeat(40),
@@ -381,5 +387,119 @@ fn oversized_non_json_and_duplicate_field_documents_refuse_without_echoing_conte
             .expect("unusable component document refuses");
         assert!(!format!("{error}").contains("not-json-private-marker"));
         assert_eq!(rows(dir.path()), expected);
+    }
+}
+
+fn add_other(store: &mut Store, root: &Path) {
+    register_named(store, root, "other");
+    store.begin_component_enable("other").unwrap();
+    store.finish_component_enable("other").unwrap();
+    let mut memory = binding("other-one", "project");
+    memory.project_id = "other".into();
+    memory.domain = "other".into();
+    store.record_memory_binding(&memory).unwrap();
+}
+#[test]
+fn project_files_recover_together_and_writes_leave_other_projects_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = populated(dir.path());
+    let app = fs::read(dir.path().join(FILE)).unwrap();
+    add_other(&mut store, dir.path());
+    let other = dir.path().join("project-records/other/components.json");
+    assert_eq!(fs::read(dir.path().join(FILE)).unwrap(), app);
+    let other_bytes = fs::read(&other).unwrap();
+    let other_doc: Value = serde_json::from_slice(&other_bytes).unwrap();
+    assert_eq!(other_doc["project_id"], "other");
+    assert!(other_doc["memories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["project_id"] == "other"));
+    assert_eq!(document(dir.path())["project_id"], "app");
+    let expected = rows(dir.path());
+    drop(store);
+    fs::remove_file(database(dir.path())).unwrap();
+    let store = Store::open(database(dir.path())).unwrap();
+    assert_eq!(rows(dir.path()), expected);
+    assert_eq!(
+        store.component_state("other").unwrap().as_deref(),
+        Some("enabled")
+    );
+    assert_eq!(fs::read(dir.path().join(FILE)).unwrap(), app);
+    assert_eq!(fs::read(other).unwrap(), other_bytes);
+}
+#[test]
+fn misplaced_files_and_cross_project_binding_collisions_refuse_before_any_index_mutation() {
+    for case in 0..3 {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = populated(dir.path());
+        add_other(&mut store, dir.path());
+        drop(store);
+        let before = rows(dir.path());
+        let other = dir.path().join("project-records/other/components.json");
+        let mut file: Value = serde_json::from_slice(&fs::read(&other).unwrap()).unwrap();
+        if case == 0 {
+            file["project_id"] = json!("app");
+        } else {
+            file["memories"][0]["id"] = json!("one");
+        }
+        fs::write(&other, serde_json::to_vec(&file).unwrap()).unwrap();
+        if case == 2 {
+            fs::remove_file(database(dir.path())).unwrap();
+        }
+        assert!(Store::open(database(dir.path())).is_err());
+        if case == 2 {
+            let c = Connection::open(database(dir.path())).unwrap();
+            assert_eq!(
+                c.query_row("SELECT count(*) FROM projects", [], |r| r.get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            assert_eq!(rows(dir.path()), json!({"projects":[],"memories":[]}));
+        } else {
+            assert_eq!(rows(dir.path()), before);
+        }
+    }
+}
+
+#[test]
+fn positional_arrays_cannot_replace_named_component_objects() {
+    for case in 0..3 {
+        let dir = tempfile::tempdir().unwrap();
+        drop(populated(dir.path()));
+        let before = rows(dir.path());
+        let mut file = document(dir.path());
+        match case {
+            0 => {
+                file = json!([
+                    file["schema_version"],
+                    file["project_id"],
+                    file["projects"],
+                    file["memories"]
+                ])
+            }
+            1 => {
+                let r = &file["projects"][0];
+                file["projects"][0] = json!([r["project_id"], r["state"], r["updated_at"]]);
+            }
+            _ => {
+                let r = &file["memories"][0];
+                file["memories"][0] = json!([
+                    r["id"],
+                    r["project_id"],
+                    r["scope"],
+                    r["source_id"],
+                    r["domain"],
+                    r["created_at"],
+                    r["deleted"]
+                ]);
+            }
+        }
+        fs::write(dir.path().join(FILE), serde_json::to_vec(&file).unwrap()).unwrap();
+        assert!(
+            Store::open(database(dir.path())).is_err(),
+            "case {case} must keep named object fields"
+        );
+        assert_eq!(rows(dir.path()), before);
     }
 }
