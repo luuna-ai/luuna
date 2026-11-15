@@ -195,7 +195,9 @@ impl Harness {
         opened["run"]["id"].as_str().unwrap().to_owned()
     }
 
-    /// An approved workflow whose writer settled with a pending candidate.
+    /// An approved workflow whose writer settled with a pending candidate and whose
+    /// workflow the runtime has released (the candidate view reports `active: false`),
+    /// so the next action is admitted.
     async fn pending(&self, scenario: &str, budgets: Value) -> (String, Value) {
         let id = self.approved(scenario, budgets).await;
         let (status, run) = self
@@ -206,9 +208,31 @@ impl Harness {
             )
             .await;
         assert_eq!(status, StatusCode::ACCEPTED, "{run}");
-        assert_eq!(self.settled(&id).await["state"], "validating");
-        let hash = self.candidate(&id).await["evidence"]["candidate"]["hash"].clone();
-        (id, hash)
+        let run = self.settled(&id).await;
+        assert_eq!(
+            run["state"],
+            "validating",
+            "run did not reach validating: run {run}; run.failed payloads {:?}; attempts {}",
+            self.events(&id)
+                .await
+                .iter()
+                .filter(|e| e["type"] == "run.failed")
+                .map(|e| e["payload"].clone())
+                .collect::<Vec<_>>(),
+            self.request("GET", &format!("/api/v1/runs/{id}/attempts"), None)
+                .await
+                .1
+        );
+        let mut view = Value::Null;
+        for _ in 0..600 {
+            view = self.candidate(&id).await;
+            if view["active"] == false {
+                let hash = view["evidence"]["candidate"]["hash"].clone();
+                return (id, hash);
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("workflow {id} still active after the writer settled: {view}");
     }
 
     async fn candidate(&self, id: &str) -> Value {

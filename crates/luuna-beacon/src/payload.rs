@@ -223,7 +223,7 @@ mod tests {
         let mut frontmatter = BTreeMap::new();
         frontmatter.insert(
             "n".to_owned(),
-            json!({"a": [Number::from_f64(1.0), Number::from_f64(2.5), {"b": null}], "big": Number::from_f64(1e21)}),
+            json!({"a": [Number::from_f64(1.0), Number::from_f64(2.5), {"b": null}], "big": Number::from_f64(1e21)}).into(),
         );
         let rendered = Rendered {
             prompt: Prompt {

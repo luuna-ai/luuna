@@ -314,13 +314,22 @@ mod binary {
         variable.push("/");
         variable.push(OsString::from_vec(b"data-\xff".to_vec()));
         let folder = PathBuf::from(&variable);
+        let filesystem_result = std::fs::create_dir(&folder);
         let output = admin(
             &canonical,
             Some(variable),
             &probe(&missing_input(input.path()), &[]),
         );
         assert!(!output.status.success(), "{}", text(&output.stderr));
-        assert!(folder.join("runtime.lock").exists());
+        match filesystem_result {
+            Ok(()) => assert!(folder.join("runtime.lock").exists()),
+            Err(error) => {
+                // APFS rejects invalid UTF-8 filenames. Surface that error
+                // rather than silently falling back to .luuna.
+                assert_eq!(error.raw_os_error(), Some(libc::EILSEQ));
+                assert!(text(&output.stderr).contains(&error.to_string()));
+            }
+        }
         assert!(!canonical.join(".luuna").exists());
     }
 

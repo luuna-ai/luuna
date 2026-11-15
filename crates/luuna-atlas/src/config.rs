@@ -13,6 +13,9 @@ use crate::error::{AtlasError, Result};
 use crate::json::{Object, Value};
 use crate::yaml;
 
+mod rewrite;
+pub use rewrite::{check_lossless_rewrite, write_atomic};
+
 /// A parsed config.yaml, keys in file order.
 pub type Config = Object;
 
@@ -206,8 +209,8 @@ fn merge_defaults(config: &mut Config) {
         Some(Value::Array(items)) => {
             let mut domains = Object::new();
             for item in items {
-                if let Value::String(name) = item {
-                    domains.insert(name.as_str(), Object::new());
+                if let Some(name) = item.string_bytes() {
+                    domains.insert_go_key(name, Value::Object(Object::new()));
                 }
             }
             domains
@@ -220,7 +223,7 @@ fn merge_defaults(config: &mut Config) {
     let mut governance = default_governance();
     if let Some(Value::Object(user)) = config.get("governance") {
         for (key, value) in user.iter() {
-            governance.insert(key, value.clone());
+            governance.insert_go_key(user.key_bytes(key), value.clone());
         }
     }
     config.insert("governance", governance);
@@ -232,13 +235,13 @@ fn merge_defaults(config: &mut Config) {
     let mut shelf_life = default_shelf_life();
     if let Some(Value::Object(user)) = user_classification.get("shelf_life") {
         for (key, value) in user.iter() {
-            shelf_life.insert(key, value.clone());
+            shelf_life.insert_go_key(user.key_bytes(key), value.clone());
         }
     }
     let mut classification = Object::new();
     classification.insert("shelf_life", Object::new());
     for (key, value) in user_classification.iter() {
-        classification.insert(key, value.clone());
+        classification.insert_go_key(user_classification.key_bytes(key), value.clone());
     }
     classification.insert("shelf_life", shelf_life);
     config.insert("classification_defaults", classification);
@@ -266,6 +269,7 @@ pub fn add_domain(atlas_dir: &Path, domain: &str) -> Result<()> {
         if let Some(domains) = config.get_mut("domains").and_then(Value::as_object_mut) {
             domains.insert(domain, Object::new());
         }
+        check_lossless_rewrite(atlas_dir, &config, &[vec!["domains".into(), domain.into()]])?;
         write_config(atlas_dir, &config)?;
     }
     let path = atlas_dir.join("expertise").join(format!("{domain}.jsonl"));
@@ -431,10 +435,7 @@ mod tests {
             "Failed to parse config.yaml: duplicated mapping key (2:1)\n\n 1 | a: 1\n 2 | a: 2\n-----^. Check the YAML syntax."
         );
         let dir = store(Some("a: *x\n"));
-        assert!(matches!(
-            read_config(dir.path()),
-            Err(AtlasError::UnsupportedYaml { line: 1, .. })
-        ));
+        assert_eq!(read_config(dir.path()).unwrap_err().to_string(), "Failed to parse config.yaml: yaml: unknown anchor 'x' referenced. Check the YAML syntax.");
     }
 
     #[test]

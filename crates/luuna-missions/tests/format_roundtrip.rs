@@ -401,6 +401,45 @@ fn unchanged_lines(side: &str, after: &str, kept: &[usize]) -> Vec<String> {
     differences
 }
 
+/// A8 and A10 (s4-missions-lib-refuse, DL100 and DL111): Go exits 0 (checked
+/// in `Pair::run`) and drops the malformed line 4 of `UNUSUAL_ISSUES`; the
+/// port refuses with the JSON error envelope, exit 1, and leaves its whole
+/// tree byte for byte as `write_store` wrote it.
+fn refused_unchanged(pair: &Pair, original: &str, command: &[String]) -> Vec<String> {
+    let mut differences = Vec::new();
+    if read_issues(&pair.go_project)
+        .lines()
+        .any(|line| line == UNUSUAL_ISSUES[3])
+    {
+        differences.push("go: the malformed line 4 was kept, but Go drops it".to_owned());
+    }
+    let expected = TempProject::new();
+    write_store(&expected, original);
+    match &pair.rust_run {
+        Ok(run) => {
+            if run.exit != 1 {
+                differences.push(format!("rust {command:?}: exit {}, want 1", run.exit));
+            }
+            let want = format!(
+                "{{\n  \"success\": false,\n  \"command\": \"{}\",\n  \"error\": \"{REFUSED_LINE_4}\"\n}}\n",
+                command[0]
+            );
+            differences.extend(exact_difference("stdout", want.as_bytes(), &run.stdout));
+            differences.extend(exact_difference("stderr", b"", &run.stderr));
+        }
+        Err(error) => differences.push(format!("rust: {error}")),
+    }
+    differences.extend(
+        exact_tree_differences(&expected.snapshot(), &pair.rust_project.snapshot())
+            .into_iter()
+            .map(|difference| format!("rust changed the store: {difference}")),
+    );
+    differences
+}
+
+/// The refusal (a) for line 4 of `UNUSUAL_ISSUES`.
+const REFUSED_LINE_4: &str = "Refusing to rewrite issues.jsonl: line 4 is not a ticket record the Go tool can read, and rewriting the file would drop it. Nothing was written.";
+
 /// Rewriting the store keeps every unchanged record byte for byte, as Go
 /// does, both for a full rewrite (update, block) and for an append (create).
 #[test]
@@ -439,6 +478,11 @@ fn unchanged_records_rewrite_byte_identical() {
                 let mut differences = unchanged_lines("go", &read_issues(&pair.go_project), kept);
                 if creates && !read_issues(&pair.go_project).starts_with(&original) {
                     differences.push("go: append did not keep the file as a prefix".to_owned());
+                }
+                if !creates {
+                    differences.extend(refused_unchanged(&pair, &original, &command));
+                    report.case(case, serde_json::Map::new(), differences);
+                    continue;
                 }
                 if pair.rust_run.is_ok() {
                     let rust_issues = read_issues(&pair.rust_project);

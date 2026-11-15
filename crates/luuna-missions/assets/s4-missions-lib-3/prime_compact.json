@@ -1,0 +1,45 @@
+{
+  "success": true,
+  "command": "prime",
+  "sections": {
+    "mode": "compact",
+    "title": "Missions Quick Reference",
+    "commands": [
+      {
+        "command": "luuna-missions ready",
+        "description": "Find unblocked work"
+      },
+      {
+        "command": "luuna-missions show <id> [id...]",
+        "description": "View one or more issues"
+      },
+      {
+        "command": "luuna-missions create --title \"...\"",
+        "description": "Create issue (--type, --priority, --from)"
+      },
+      {
+        "command": "luuna-missions update <id> --claim",
+        "description": "Claim work (atomic)"
+      },
+      {
+        "command": "luuna-missions close <id>",
+        "description": "Complete work"
+      },
+      {
+        "command": "luuna-missions dep add <a> <b>",
+        "description": "a depends on b"
+      },
+      {
+        "command": "luuna-missions plan prompt <seed>",
+        "description": "Plan large/ambiguous work"
+      },
+      {
+        "command": "luuna-missions sync",
+        "description": "Stage + commit .luuna/missions/"
+      }
+    ],
+    "planningNote": "**Planning:** Use `luuna-missions plan` for ambiguous or large work — built-in templates: `feature`, `bug`, `refactor`.",
+    "closingNote": "**Before finishing:** `luuna-missions close <ids>`, run the project's quality gates (tests, lint, typecheck), `luuna-missions sync`; push per repo conventions. Never hand-edit `.luuna/missions/*.jsonl`."
+  },
+  "content": "# Missions Quick Reference\n\n```\nluuna-missions ready      # Find unblocked work\nluuna-missions show <id> [id...] # View one or more issues\nluuna-missions create --title \"...\" # Create issue (--type, --priority, --from)\nluuna-missions update <id> --claim # Claim work (atomic)\nluuna-missions close <id> # Complete work\nluuna-missions dep add <a> <b> # a depends on b\nluuna-missions plan prompt <seed> # Plan large/ambiguous work\nluuna-missions sync       # Stage + commit .luuna/missions/\n```\n\n**Planning:** Use `luuna-missions plan` for ambiguous or large work — built-in templates: `feature`, `bug`, `refactor`.\n\n**Before finishing:** `luuna-missions close <ids>`, run the project's quality gates (tests, lint, typecheck), `luuna-missions sync`; push per repo conventions. Never hand-edit `.luuna/missions/*.jsonl`.\n"
+}

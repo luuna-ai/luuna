@@ -36,3 +36,17 @@ Every other Go behaviour is still copied (A4 differences), suspected defects inc
 
 - CF1: `json::Value` derives `Debug` and `PartialEq` (`json.rs:46`), both recursive per nesting level, and `Integer(100) != Number(100.0)`. No `{:?}` and no `==` on Values from user data in non-test code; compare numbers as Go does.
 - CF5: Go's JSONPretty prints an empty line with exit 0 past 10000 levels; the crate copies it (`output.rs:198-199`). Keep copying and list it in the hand-off as a suspected Go defect.
+
+## Implementation decisions and demonstrated A8 cases
+
+The front end reads the exact embedded contract and preserves root/global/local option precedence, help/version short circuits, custom registry choices and flag descriptions. Compatibility version metadata retains `@luuna/atlas-cli` and `runtime: bun`; the native core itself has no Bun dependency. User-selected JavaScript recipe extensions still use their specified extension runtime.
+
+Fresh pinned Go probes show that legacy onboarding without its terminal command/fence can erase following unrelated instructions; modified Cursor rule installation overwrites the whole body; replacing Claude hook groups can discard extra group or handler keys; JSON settings rewrites discard duplicate values and normalize retained negative zero; and doctor repair permanently deletes invalid or stale records. These prospective losses refuse clearly before stored-data writes. Doctor prepares the complete repair before applying any writes. Explicit removal of a provider integration remains intentional.
+
+Malformed/reversed pre-commit markers in Go can duplicate text rather than discard it. That defect is copied. Malformed JSONL aborts doctor before its nominal invalid-line fix, also copied. Doctor summaries describe original checks even after successful repairs. Shared JSON pretty-print depth and compatibility metadata defects remain as documented by earlier slices.
+
+One borrowed crate-private raw-array accessor supports iterative numeric-sidecar traversal without serializing away special numbers. No representation, parser, writer or existing tests are changed by that accessor.
+
+Further comparison cases cover exact Decoder.Token diagnostics, relative bridge paths, failed transport zero values and input mutation, legacy migration notices, empty tracker status/title values, raw YAML threshold keys and ignored-domain identities, surgical edits to invalid UTF-8 instruction bytes, symlink/mode behavior, and explicit whole-file API replacements. Whole-file writeExpertiseFile requests intentionally replace their target; loss guards protect retained values and incidental rewrites rather than blocking the caller's explicit replacement.
+
+The init dispatcher refuses the demonstrated Go loss of unreadable existing .gitattributes rules before creating initialization files. Read-only checks and explicit integration removal retain their Go behavior. Doctor's invalid non-comment JSONL aborts before repair; comments are permitted to disappear on rewrite as the owner directed.

@@ -206,7 +206,7 @@ pub fn hints(screen: Screen) -> &'static str {
         Screen::Runs => "Enter inspect  r refresh",
         Screen::RunDetail => "←→ evidence  f follow  c cancel  a actions  p plan",
         Screen::Plan => "a approve (type approve)  i implement  g run",
-        Screen::Help => "F10 menu  F2 all actions  Esc back",
+        Screen::Help => "c change theme  k keyboard reports  F10 menu  Esc back",
         Screen::Setup => "Guided setup",
         Screen::Commands => "Enter action  Tab context  / search",
     }
@@ -580,6 +580,43 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
         return true;
     }
     let screen = app.workbench.screen;
+    if screen == Screen::Help && matches!(key.code, KeyCode::Char('c' | 'k')) {
+        let result = (|| {
+            let path = crate::config::path()
+                .ok_or_else(|| std::io::Error::other("Set HOME or LUUNA_TUI_CONFIG"))?;
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => "{}".into(),
+                Err(error) => return Err(error),
+            };
+            let (config, warnings) = crate::config::parse(&text);
+            if !warnings.is_empty() {
+                return Err(std::io::Error::other(warnings.join("; ")));
+            }
+            let (name, value) = if key.code == KeyCode::Char('k') {
+                (
+                    "keyboard_enhancement",
+                    serde_json::json!(!config.keyboard_enhancement.unwrap_or(true)),
+                )
+            } else {
+                (
+                    "theme.preset",
+                    serde_json::json!(if config.theme.preset.as_deref() == Some("terminal") {
+                        "classic"
+                    } else {
+                        "terminal"
+                    }),
+                )
+            };
+            crate::config::set(&path, name, value)?;
+            Ok::<_, std::io::Error>(())
+        })();
+        app.status = match result {
+            Ok(()) => "Settings saved. Reopen the workbench to apply them.".into(),
+            Err(error) => format!("Settings were not saved: {error}"),
+        };
+        return true;
+    }
     if app.active_request.is_some() && key.code == KeyCode::Char('u') && screen == Screen::Memory {
         app.status =
             "Wait for the current memory read, or Esc to stop it before changing scope.".into();

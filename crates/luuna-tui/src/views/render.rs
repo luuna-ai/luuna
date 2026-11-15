@@ -1015,8 +1015,18 @@ fn render_help(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) 
         None => "defaults in use",
     };
     lines.push(Line::raw(format!("{path} ({state})")));
+    if let Some(project) = crate::config::loaded().and_then(|loaded| loaded.project_path.as_ref()) {
+        lines.push(Line::raw(format!(
+            "Project overrides: {}",
+            project.display()
+        )));
+    }
+
     lines.push(Line::raw(
-        "Keys, colors and terminal options. luuna-tui --print-config writes every default; restart to apply changes.",
+        "Press c to switch theme or k to toggle enhanced keyboard reports. Changes save immediately; reopen to apply.",
+    ));
+    lines.push(Line::raw(
+        "For any setting: lu config set <name> <JSON value>. lu --print-config lists defaults.",
     ));
     for warning in crate::config::loaded()
         .map(|l| l.warnings.as_slice())

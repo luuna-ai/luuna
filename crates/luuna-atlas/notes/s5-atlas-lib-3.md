@@ -1,40 +1,98 @@
-# Notes for s5-atlas-lib-3: lifecycle commands, YAML and config writers
+# Atlas lifecycle, full YAML and config rewriting
 
-Copied from the plan s5-atlas-lib-slots (plan.md) so that this plan starts from them. Paths below are under `crates/luuna-atlas/`.
+Reference: Luuna Atlas c4db80c3f2e622afbdd84f09077fd73b2a92d199, Go 1.27.0.
+The CLI parser and runtime wiring are later plans; these are typed library operations.
 
-## Ownership
+## Implemented surface
 
-- Owns: `src/lifecycle/**` (query, rank, ready, status with FormatStatus, stale, validate, outcome, move, archive, restore, delete-domain with RemoveDomain, prune, compact, retention, config set/unset/schema, `config show --path`, and the embedded `contract.json` data); `tests/parity_lifecycle.rs`, `tests/fixtures/s5-atlas-lib-3/` and this file.
-- Foundation files it may still edit: `src/yaml.rs` (full YAML, keeping the GDL1 refusal); possibly `src/config.rs`; the README section 'Supported YAML subset'. These are the only foundation edits planned among -2 to -5. Two plans that edit the same foundation file cannot run together.
-- Needs on main: s5-atlas-lib-2 (schema, scores, git, `run_hooks`, record summary, `confirm`, options, time helpers).
+lifecycle::run accepts Context, command, positional arguments and Options with
+explicit flags and input. It implements query/rank/ready/status/stale/validate,
+outcome/move/archive/restore/delete-domain/prune/compact and config
+schema/show-path/set/unset. Shared health, anchors, supersession components, stale
+analysis, merge_records and format_status support the remaining prime work.
 
-## Ownership notes
+The embedded lifecycle/contract.json is copied byte-for-byte from the reference.
+No imported text is executed. The reader retains the exact ordinary subset path
+and adds an iterative event graph for anchors, aliases, merges, tags, binary bytes,
+complex keys, directives and first-document handling. Raw binary keys retain
+identity separately from their Go UTF-8 display. Array JSONL rows keep Go's raw
+sidecar for query/API/archive serialization while record field lookup sees no fields.
 
-- Only delete-domain and compact call `confirm.rs` (delete never prompts).
-- This plan owns the embedded `contract.json` data (AS16), inside `src/lifecycle/`.
-- Edits `yaml.rs`, possibly `config.rs`, and the README YAML section.
+## Preservation decisions
 
-## Assumptions that name this plan
+Every relevant rewrite preflights raw data and prospective retained values before
+changing stored files. Multi-file transfers and multi-domain prune/compact preflight
+all affected files before their first stored-data write.
 
-- AS13: port the human paths faithfully on top of -2's `style.rs` and renderers.
-- AS16: embed the data of `internal/atlas/contract.json` that the port needs (configSchema for config set/unset/schema, help text); `src/lifecycle/` owns the copy and -5 reads help data through it. If the data may not be copied, state the same data as Rust literals; the bytes are the same.
+* GDL1's indented first document followed by unrelated less-indented content remains
+  a refusal. Additional document data, discarded config root/domain/default
+  subtrees and retained negative-zero sign loss also refuse.
+* Ordinary anchors, aliases, merge keys, tagged values and invalid-UTF-8 binary
+  strings survive Go rewrites and are supported. There is no blanket alias refusal.
+* Explicit config replacement/deletion covers the selected subtree. A descendant
+  assignment cannot silently discard an existing scalar ancestor.
+* The earlier duplicate-key, legacy-outcome, conflicting-alias, retained-number,
+  filtered-outcome and false/zero-ID guards apply to lifecycle writers.
+* Move refuses duplicate source IDs that would remove additional records after
+  appending only one destination row. A hook-changing ID cannot remove an unrelated
+  source record. Go's copy-like result when a changed ID matches no source remains.
+* Restore proves the later hardcoded strict live read can succeed before removing
+  its archive row. Go can otherwise lose that row even with allow-unknown-types.
+* Automatic prune cannot overwrite a retained archive_reason. Explicit archive
+  status changes and stripping archive metadata on restore are intentional.
+* Archive array rows survive rewrites. Their retained negative-zero values receive
+  the same iterative sign guard as object fields.
+* Unreadable/blocked archive destinations refuse before live data changes. An
+  exclusive zero-length access probe in the nearest existing parent checks OS
+  write access and is removed immediately; no archive directory is created by the
+  preflight. No existing path is truncated by this probe.
+* Compaction detects a source changed during hooks/preparation and refuses to overwrite
+  it. Actual Go loses such hook-written rows in both auto/apply modes. Raw hook
+  side effects remain the responsibility of the hook author; commands do not undo them.
+* Comments and YAML formatting changes alone follow Go. Refusals preserve original
+  stored bytes, modes and links; successful operations retain Go's write order.
 
-## Go data loss (A8)
+Config add follows a symlink through truncation; config set/unset replace the
+symlink with an atomic 0600 file. This corrects the earlier inferred claim that
+all config writers follow links. Temp-file collision controls retain the existing
+file. Raw hooks keep their original semantics; managed background-child cleanup
+belongs to the wire plan.
 
-GDL1 (observed): a `config.yaml` whose first key is indented and a later key is less indented (the indented first key case, for example `  b: 1` then `a: 2`). Go's yaml.v3 reads the later key as a second document, so `config show` prints the config without `a` and `add` rewrites the file without `a: 2`. The port refuses with `unsupported YAML at line 2: content after the end of the document is not supported` (`yaml.rs:399-404`), exits 1 and leaves the file untouched.
-This plan keeps that refusal when it extends `yaml.rs` and adds a test that the file is unchanged after the refused command.
+## Known boundaries
 
-GDL2 (inferred, not built on): `config.yaml` using anchors, aliases and merge keys, rewritten by Go's `add` or `config set`/`config unset`. Today the crate refuses these files, so nothing is lost. When this plan adds anchors, aliases and merge keys, it first probes Go's rewrite on such files. Any case where a key or value present before is absent after is refused with a clear error, the file left untouched, and listed in the plan and hand-off as a deliberate difference. Where nothing is lost, it copies Go.
+The graph reader accepts 10000 flow/block levels and rejects the next level, as
+the reference does. Cyclic aliases are refused rather than reproducing Go's
+nontermination or stack failure. This is not a claim of exhaustive YAML test-suite
+conformance: malformed-input wording outside the exercised matrix may still differ
+from yaml.v3 (the carried CF3 boundary). Existing JSON parsing depth stays unchanged.
+Go's empty successful JSONPretty result beyond 10000 output levels remains copied.
+Go Number's uint64 behavior remains copied, including config validation distinctions.
 
-Comments on rewrite (decided for the owner, AS19 confirmed; orchestration ledger, needs-owner-wave-2.md, decided item 3): loss of comments alone on a rewrite of `config.yaml` is copied from Go and is listed in the hand-off as a known loss. Loss of keys, values, documents, lines, records or body text is refused with the file untouched.
+The raw Object sidecar and registry array Text fix close foundation representation
+and recursion gaps. Only the specifically planned obsolete YAML subset assertions
+and the [1,2] raw-array expected literal changed; their inputs and unrelated checks
+remain. The array correction now expects the exact Go-preserved array.
 
-Every other Go behaviour is still copied (A4 differences), suspected defects included. Only the cases named here are deliberate differences from Go.
+## Evidence
 
-## Carried from the foundation reviews
+The isolated lifecycle suite covers JSON/human output, quiet behavior, errors,
+schema/alias validation, raw-name identity, timestamps/numeric boundaries, hooks,
+archive/restore, multi-file refusal, compaction strategies/limits and Git-history
+staleness. Four separate hostile groups stream fixtures and exercise YAML depth,
+deep registry Text, raw array sidecars and a 20000-node supersession cycle, including
+a 128 KiB native thread stack. Run hostile tests only after compilation/reference
+build with a 4 GiB address-space cap, 120-second timeout and a disk-backed TMPDIR.
 
-- CF1: `json::Value` derives `Debug` and `PartialEq` (`json.rs:46`), both recursive per nesting level, and `Integer(100) != Number(100.0)`. No `{:?}` and no `==` on Values from user data in non-test code; compare numbers as Go does.
-- CF2: config and file writes follow symlinks as Go's `os.WriteFile` does (`config.rs:279`, `commands.rs:219`). Copy it, do not fix it, list it in the hand-off as a suspected Go defect. Applies to config set/unset: they follow symlinks as Go does (symlink).
-- CF3: for some invalid `config.yaml` the inner yaml.v3 syntax-error text or line number differs from Go's. Match Go's syntax-error text or list each remaining case as a known difference; never change the exit code or write the file.
-- CF4: `[a]:d` (no space after the colon) as a later key is reported as unsupported where Go gives a syntax error; on line 1 Go accepts it and the crate refuses it. Require whitespace or end of line after the colon in `refuse_flow_key`, or list it as a known difference.
-- CF5: Go's JSONPretty prints an empty line with exit 0 past 10000 levels; the crate copies it (`output.rs:198-199`). Keep copying and list it in the hand-off as a suspected Go defect.
-- CF6: Go's `Number()` returns 0 for a uint64, so a port of Number must not reuse `as_f64` unchanged. Applies to config values.
+The existing Go, formatting and action suites remain unchanged. Reference-dependent
+tests are ignored by default and must be run explicitly. WSL results do not establish
+native macOS/Windows execution or hosted CI success.
+
+## Dependency and redistribution
+
+Only granit-parser =2.1.0 is added; default features are disabled and std/error_messages
+enabled. Registry checksum:
+05f05586d4d4df3d47123207826c40b252728b438a1a07bad3c01ee6bea401df.
+It is MIT OR Apache-2.0, Rust 1.81, with already-locked arraydeque/smallvec dependencies
+and no build script. Base lock packages and versions are retained. The release must
+carry the parser's upstream license/attribution notices, including its parser-lineage
+notices, alongside the existing project licenses.

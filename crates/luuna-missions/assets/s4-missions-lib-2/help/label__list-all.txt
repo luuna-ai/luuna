@@ -1,0 +1,7 @@
+Usage: luuna-missions label list-all [options]
+
+List all labels used in the project
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

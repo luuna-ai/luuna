@@ -1,0 +1,25 @@
+Usage: luuna-missions update [options] <id>
+
+Update issue fields
+
+Options:
+  --status <status>        New status (open|in_progress|closed)
+  --title <text>           New title
+  --assignee <name>        New assignee
+  --description <text>     New description
+  --desc <text>            New description (alias for --description)
+  --body <text>            New description (alias for --description)
+  --type <type>            New type (task|bug|feature|epic)
+  --priority <n>           New priority 0-4 or P0-P4
+  --add-label <labels>     Add label(s) (comma-separated)
+  --remove-label <labels>  Remove label(s) (comma-separated)
+  --set-labels <labels>    Set labels (comma-separated, empty to clear)
+  --extensions <json>      Shallow-merge JSON object into Issue.extensions
+  --clear-extensions       Remove the extensions field
+  --claim                  Atomically claim: open → in_progress, assignee = --as
+                           (fails if taken)
+  --as <agent>             Identity for --claim (default: $USER)
+  --intent <r-id>          Set linked roots idea(s) (repeatable, replaces)
+                           (default: [])
+  --json                   Output as JSON
+  -h, --help               display help for command

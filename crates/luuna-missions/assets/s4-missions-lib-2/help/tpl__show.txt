@@ -1,0 +1,7 @@
+Usage: luuna-missions tpl show [options] <id>
+
+Show template with steps
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

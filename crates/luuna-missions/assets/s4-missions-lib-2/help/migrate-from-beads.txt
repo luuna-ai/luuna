@@ -1,0 +1,7 @@
+Usage: luuna-missions migrate-from-beads [options]
+
+Migrate issues from beads issue tracker
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

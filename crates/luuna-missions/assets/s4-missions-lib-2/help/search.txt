@@ -1,0 +1,22 @@
+Usage: luuna-missions search [options] <query>
+
+Full-text search title + description
+
+Arguments:
+  query                 Case-insensitive substring to match
+
+Options:
+  --status <status>     Filter by status (open|in_progress|closed)
+  --type <type>         Filter by type (task|bug|feature|epic)
+  --assignee <name>     Filter by assignee
+  --label <labels>      Filter: must have ALL labels (comma-separated, AND)
+  --label-any <labels>  Filter: must have any label (comma-separated, OR)
+  --unlabeled           Filter: issues with no labels
+  --priority <levels>   Filter by priority (comma-separated, e.g. 0,1 or P0,P1)
+  --priority-max <n>    Filter to priority <= n (e.g. --priority-max 1 = P0+P1)
+  --limit <n>           Max issues to show (default: "50")
+  --sort <mode>         Sort order (priority|created|updated|id) (default:
+                        "priority")
+  --format <mode>       Output format (markdown|compact|plain|ids|json)
+  --json                Output as JSON (alias for --format json)
+  -h, --help            display help for command

@@ -137,7 +137,7 @@ pub fn parse_arguments(argv: &[String], command: Option<&Command>) -> Result<Inp
 }
 
 /// Reads the hidden token on a terminal: never echoed, never logged; Ctrl-C exits 130.
-fn read_secret(question: &str, process: &mut Process) -> Result<String, u8> {
+pub(crate) fn read_secret(question: &str, process: &mut Process) -> Result<String, u8> {
     process.out(&format!("{question}: "));
     if !process.stdin_terminal {
         let mut text = String::new();

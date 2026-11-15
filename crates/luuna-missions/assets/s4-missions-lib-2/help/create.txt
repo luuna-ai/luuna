@@ -1,0 +1,18 @@
+Usage: luuna-missions create [options]
+
+Create a new issue
+
+Options:
+  --title <text>        Issue title
+  --type <type>         Issue type (task|bug|feature|epic) (default: "task")
+  --priority <n>        Priority 0-4 or P0-P4 (default: "2")
+  --assignee <name>     Assignee name
+  --description <text>  Issue description
+  --desc <text>         Issue description (alias for --description)
+  --body <text>         Issue description (alias for --description)
+  --labels <labels>     Comma-separated labels
+  --from <id>           Record the issue this was discovered from (provenance,
+                        non-blocking)
+  --intent <r-id>       Link to a roots idea (repeatable) (default: [])
+  --json                Output as JSON
+  -h, --help            display help for command

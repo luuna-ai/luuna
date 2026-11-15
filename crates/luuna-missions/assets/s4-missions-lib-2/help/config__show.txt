@@ -1,0 +1,8 @@
+Usage: luuna-missions config show [options]
+
+Print the current config (or a value at --path)
+
+Options:
+  --path <path>  Dot-path to read (e.g. plan_templates.feature.sections.context)
+  --json         Output as JSON
+  -h, --help     display help for command

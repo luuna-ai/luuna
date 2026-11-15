@@ -1,0 +1,35 @@
+Usage: luuna-missions plan submit [options] <seed-id>
+
+Validate a plan, spawn children, write plans.jsonl row
+
+Options:
+  --plan <file>      Path to plan JSON, or '-' to read from stdin
+  --overwrite        Replace an existing non-draft plan: rewrite the row, bump
+                     revision, flag obsolete children
+  --record-decision  Best-effort: after success, record the chosen approach as a
+                     luuna-atlas decision
+  --domain <name>    Force the luuna-atlas domain used for --record-decision
+  --name <text>      Human-readable plan label; overrides plan JSON 'name' and
+                     the seed-title default
+  --json             Output as JSON
+  -h, --help         display help for command
+
+Plan file shape:
+
+  {
+    "template": "feature",
+    "name": "Schema-driven config editor",
+    "sections": {
+      "approach": "Plain-text approach...",
+      "steps": [{ "title": "Step 1", "labels": ["nightwatch"] }, ...],
+      "acceptance": ["criterion 1", ...]
+    }
+  }
+
+The shape mirrors 'luuna-missions plan prompt': drop the plan_request wrapper, and
+sections is an object keyed by name (not the array of section metadata
+that the prompt emits). Section names and value kinds match the template.
+
+Plan name resolution:
+  --name flag > plan JSON 'name' > parent seed title (fallback)
+

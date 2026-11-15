@@ -1,0 +1,15 @@
+Usage: luuna-missions config [options] [command]
+
+Read, write, and inspect .luuna/missions/config.yaml
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  schema [options]              Emit the JSON Schema for
+                                .luuna/missions/config.yaml
+  show [options]                Print the current config (or a value at --path)
+  set [options] <path> <value>  Set a config value at <path>; <value> is
+                                YAML-parsed
+  unset [options] <path>        Remove the config value at <path>
+  help [command]                display help for command

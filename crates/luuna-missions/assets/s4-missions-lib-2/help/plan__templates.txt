@@ -1,0 +1,7 @@
+Usage: luuna-missions plan templates [options]
+
+List available plan templates
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

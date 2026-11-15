@@ -1,0 +1,9 @@
+Usage: luuna-missions plan prompt [options] <seed-id>
+
+Emit structured planning prompt JSON for a seed
+
+Options:
+  --template <name>  Override the inferred template
+  --domain <name>    Force the luuna-atlas domain used for prior_art enrichment
+  --json             Output as JSON
+  -h, --help         display help for command

@@ -1,0 +1,7 @@
+Usage: luuna-missions config set [options] <path> <value>
+
+Set a config value at <path>; <value> is YAML-parsed
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

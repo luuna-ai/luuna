@@ -162,9 +162,9 @@ export interface HomeSummary {
 export const BLOCKING_RUN_STATES: readonly RunState[] = ["failed", "paused", "interrupted", "testing_blocked"];
 const SETTLED: readonly RunState[] = ["completed", "failed", "cancelled", "interrupted", "reviewed"];
 
-/** The latest baseline per registered repository, by record order (newest last). */
+/** The latest baseline per registered repository, in runtime order (newest first). */
 export function latestBaselinePerRepository(baselines: BaselineEvidence[], repositoryIds: string[]): Record<string, BaselineEvidence | undefined> {
-  return Object.fromEntries(repositoryIds.map((id) => [id, baselines.filter((baseline) => baseline.identity.repository_id === id).at(-1)]));
+  return Object.fromEntries(repositoryIds.map((id) => [id, baselines.find((baseline) => baseline.identity.repository_id === id)]));
 }
 
 /** Projects with their validation health (latest baseline per repository) and the blockers waiting on the developer. */

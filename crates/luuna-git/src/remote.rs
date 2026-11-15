@@ -242,6 +242,8 @@ impl RemoteOperations {
 
     /// Push exactly `commit` to `refs/heads/<branch>` on `url`. No tags follow
     /// and nothing is forced: a branch that moved elsewhere refuses the push.
+    /// A command-local remote without a fetch mapping prevents Git from updating
+    /// any remote-tracking refs in the checkout's shared Git directory.
     pub async fn push_commit(
         &self,
         checkout: &Path,
@@ -250,6 +252,25 @@ impl RemoteOperations {
         branch: &str,
         credential: Option<&PushCredential>,
     ) -> Result<(), GitError> {
+        // Recent Git versions recognize configured remotes by their effective
+        // push URL, even when push is given a URL rather than a remote name.
+        // In a linked worktree that also writes tracking refs/reflogs into the
+        // developer checkout. Use an explicitly named, command-local remote with
+        // no fetch refspec instead. Never reuse a configured name: its fetch,
+        // mirror or push settings could mutate refs or publish extra branches.
+        let output = self.inspector.git(Some(checkout), &["remote"], &[]).await?;
+        if output.status != Some(0) {
+            return Err(GitError::Command {
+                command: "remote".into(),
+                detail: output.stderr,
+            });
+        }
+        let remotes = String::from_utf8_lossy(&output.stdout);
+        let name = (0_u64..)
+            .map(|n| format!("luuna-publication-{n}"))
+            .find(|name| !remotes.lines().any(|remote| remote == name))
+            .expect("a finite config leaves an unused remote name");
+        let url_setting = format!("remote.{name}.url={url}");
         let refspec = format!("{commit}:refs/heads/{branch}");
         let mut command = self.inspector.command(
             Some(checkout),
@@ -258,12 +279,14 @@ impl RemoteOperations {
                 "credential.helper=",
                 "-c",
                 "push.default=nothing",
+                "-c",
+                &url_setting,
                 "push",
                 "--no-follow-tags",
                 "--no-verify",
                 "--porcelain",
                 "--",
-                url,
+                &name,
                 &refspec,
             ],
             &[],

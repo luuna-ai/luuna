@@ -1,12 +1,8 @@
 //! `show`, `list` and `search` with every output format
 //! (`internal/cli/issue_read.go`, `internal/cli/issue_query.go`).
 //!
-//! Plan context is not ported until s4-missions-lib-4. A ticket whose
-//! `plan_id` names a record in `plans.jsonl` carries plan context: showing
-//! or listing it in a format that prints the plan (markdown, plain and json)
-//! returns [`Error::Unsupported`], as does `show pl-<id>` for an id that is
-//! not a ticket, because Go runs `plan show` for it. The `ids` and `compact`
-//! formats never print plan context, so they are ported for such tickets.
+//! Plan annotations, summaries and text blocks follow Go; a single plan id
+//! delegates to the native plan reader while multi-id show reports each miss.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -14,11 +10,10 @@ use std::collections::{HashMap, HashSet};
 use super::output::{format_mode, Envelope};
 use super::shared::{go_lower, split_labels, validate_status, validate_type};
 use super::{options, Context, Failure};
-use crate::error::{Error, Result, PLAN_4};
+use crate::error::Result;
 use crate::json::{self, Value};
 use crate::json_error::go_quote;
 use crate::model::{self, Ticket};
-use crate::store::{read_records, DataFile, Record, Store};
 
 /// The sort modes of `list` and `search` (`issueSorts`).
 pub(super) const SORTS: [&str; 4] = ["priority", "created", "updated", "id"];
@@ -27,58 +22,7 @@ pub(super) const SORTS: [&str; 4] = ["priority", "created", "updated", "id"];
 /// and `search` payloads, as Go's errors name it.
 pub(super) const ISSUE_WITH_PLAN: &str = "*cli.issueWithPlan";
 
-/// The id of a `plans.jsonl` record, the only part the read commands need to
-/// tell whether a ticket carries plan context.
-pub(super) struct PlanId(String);
-
-impl Record for PlanId {
-    fn from_line(line: &[u8]) -> Option<Self> {
-        let members = Value::decode(line).ok().and_then(Value::into_object)?;
-        Some(Self(match members.get("id") {
-            Some(Value::String(id)) => id.clone(),
-            _ => String::new(),
-        }))
-    }
-
-    fn record_id(&self) -> &str {
-        &self.0
-    }
-
-    fn to_line(&self) -> Result<Vec<u8>> {
-        Ok(Vec::new())
-    }
-}
-
-/// The ids of the plans in `plans.jsonl` (Go's `loadPlanIndex`, `byID`).
-pub(super) struct Plans(HashSet<String>);
-
-impl Plans {
-    pub(super) fn load(store: &Store) -> Result<Self> {
-        let plans: Vec<PlanId> = read_records(&store.path(DataFile::Plans))?;
-        Ok(Self(plans.into_iter().map(|plan| plan.0).collect()))
-    }
-
-    /// Go's `planIndex.forIssue`: the ticket names a plan that exists.
-    pub(super) fn carries(&self, ticket: &Ticket) -> bool {
-        !ticket.plan_id.is_empty() && self.0.contains(&ticket.plan_id)
-    }
-
-    /// Refuses output that would print the plan context of `ticket`.
-    pub(super) fn refuse(&self, ticket: &Ticket, what: &str) -> Result<(), Failure> {
-        if self.carries(ticket) {
-            return Err(Error::unsupported(
-                format!(
-                    "{what} of {}, a ticket with plan context (plan_id {})",
-                    ticket.id(),
-                    ticket.plan_id
-                ),
-                PLAN_4,
-            )
-            .into());
-        }
-        Ok(())
-    }
-}
+use super::plans::context::ReadPlans as Plans;
 
 /// Go's `PriorityLabels[priority]`, else the number.
 pub(super) fn priority_label(priority: i64) -> String {
@@ -450,12 +394,6 @@ pub(super) fn println(context: &mut Context<'_>, text: &str) {
     context.stdout.push(b'\n');
 }
 
-/// The part of the one-line format Go adds for plan context, which is
-/// refused before it can be printed.
-pub(super) fn plan_suffix(plans: &Plans, ticket: &Ticket) -> Result<(), Failure> {
-    plans.refuse(ticket, "the plan status in the one-line format")
-}
-
 /// Go's `renderIssues` for `list`.
 pub(super) fn render_list(
     context: &mut Context<'_>,
@@ -466,10 +404,7 @@ pub(super) fn render_list(
 ) -> Result<(), Failure> {
     let closed = closed_ids(all);
     if mode == "json" {
-        for ticket in tickets {
-            plans.refuse(ticket, "--json output")?;
-        }
-        let issues = records_array(tickets)?;
+        let issues = plans.annotated(tickets)?;
         context.json_with_records(
             Envelope::new(true, "list")
                 .raw("issues", &issues)
@@ -483,8 +418,10 @@ pub(super) fn render_list(
             "ids" => println(context, &ticket.id),
             "compact" => println(context, &compact_ticket(ticket, &closed)),
             _ => {
-                plan_suffix(plans, ticket)?;
-                println(context, &one_line_ticket(ticket, &closed));
+                println(
+                    context,
+                    &(one_line_ticket(ticket, &closed) + &plans.suffix(ticket)),
+                );
             }
         }
     }
@@ -571,10 +508,7 @@ pub(super) fn search(context: &mut Context<'_>, args: &[String]) -> Result<(), F
     sort_tickets(&mut tickets, sort).map_err(Failure::message)?;
     truncate(&mut tickets, limit);
     if mode == "json" {
-        for ticket in &tickets {
-            plans.refuse(ticket, "--json output")?;
-        }
-        let issues = records_array(&tickets)?;
+        let issues = plans.annotated(&tickets)?;
         context.json_with_records(
             Envelope::new(true, "search")
                 .string("query", query)
@@ -593,10 +527,7 @@ pub(super) fn search(context: &mut Context<'_>, args: &[String]) -> Result<(), F
         let line = match mode {
             "ids" => ticket.id.clone(),
             "compact" => compact_ticket(ticket, &closed),
-            _ => {
-                plan_suffix(&plans, ticket)?;
-                one_line_ticket(ticket, &closed)
-            }
+            _ => one_line_ticket(ticket, &closed) + &plans.suffix(ticket),
         };
         println(context, &line);
     }
@@ -622,28 +553,40 @@ pub(super) fn show(context: &mut Context<'_>, args: &[String]) -> Result<(), Fai
     if let [id] = options.positionals.as_slice() {
         let Some(ticket) = lookup.get(id.as_str()).copied() else {
             if id.starts_with("pl-") {
-                return Err(Error::unsupported(
-                    format!("show {id}, which runs `plan show` for a plan id"),
-                    PLAN_4,
-                )
-                .into());
+                if mode != "markdown" && mode != "json" {
+                    context.exit_code = 1;
+                    context.stderr.extend_from_slice(format!("✗ luuna-missions show {id}: --format {mode} is not supported for plan ids; pass --json or use 'luuna-missions plan show {id}'\n").as_bytes());
+                    return Ok(());
+                }
+                let mut invocation = context.invocation.clone();
+                invocation.args = vec!["plan".into(), "show".into(), id.clone()];
+                if mode == "json" {
+                    invocation.args.push("--json".into());
+                }
+                let out = super::run(&invocation)?;
+                context.stdout.extend(out.stdout);
+                context.stderr.extend(out.stderr);
+                context.exit_code = out.exit_code;
+                return Ok(());
             }
             return Err(Failure::message(format!("Issue not found: {id}")));
         };
         match mode {
             "json" => {
-                plans.refuse(ticket, "--json output")?;
                 let record = ticket.marshal_json()?;
-                context.json_with_records(
-                    Envelope::new(true, "show").raw("issue", &record),
-                    model::GO_TYPE,
-                )?;
+                let mut out = Envelope::new(true, "show").raw("issue", &record);
+                if let Some((plan, children)) = plans.single(ticket, &lookup)? {
+                    out = out.raw("plan", &plan).raw("plan_children", &children);
+                }
+                context.json_with_records(out, model::GO_TYPE)?;
             }
             "ids" => println(context, &ticket.id),
             "compact" => println(context, &compact_ticket(ticket, &closed_ids(&tickets))),
             _ => {
-                plans.refuse(ticket, "the plan block")?;
                 println(context, &format_ticket_full(ticket));
+                context
+                    .stdout
+                    .extend(plans.block(ticket, &lookup).as_bytes());
             }
         }
         return Ok(());
@@ -669,9 +612,6 @@ pub(super) fn show(context: &mut Context<'_>, args: &[String]) -> Result<(), Fai
         context.exit_code = 1;
     }
     if mode == "json" {
-        for ticket in &found {
-            plans.refuse(ticket, "--json output")?;
-        }
         // Go builds this payload as a map, so its keys are sorted.
         let mut envelope = Envelope::object().string("command", "show");
         if !failures.is_empty() {
@@ -695,9 +635,7 @@ pub(super) fn show(context: &mut Context<'_>, args: &[String]) -> Result<(), Fai
             if index > 0 {
                 results.push(b',');
             }
-            results.extend_from_slice(b"{\"issue\":");
-            results.extend_from_slice(&ticket.marshal_json()?);
-            results.push(b'}');
+            results.extend(plans.result(ticket, &lookup)?);
         }
         results.push(b']');
         context.json_with_records(
@@ -720,10 +658,7 @@ pub(super) fn show(context: &mut Context<'_>, args: &[String]) -> Result<(), Fai
         let line = match mode {
             "ids" => ticket.id.clone(),
             "compact" => compact_ticket(ticket, &closed),
-            _ => {
-                plans.refuse(ticket, "the plan block")?;
-                format_ticket_full(ticket)
-            }
+            _ => format_ticket_full(ticket) + &plans.block(ticket, &lookup),
         };
         println(context, &line);
         if mode == "plain" && index + 1 < count {
@@ -773,13 +708,6 @@ mod tests {
 
     const PLAN: &str = r#"{"id":"pl-1","seed":"a","template":"t","status":"draft","children":[]}"#;
 
-    fn assert_plan_refusal(result: Result<Outcome>) {
-        match result {
-            Err(Error::Unsupported { plan, .. }) => assert_eq!(plan, "s4-missions-lib-4"),
-            other => panic!("expected Unsupported, got {other:?}"),
-        }
-    }
-
     #[test]
     fn plan_context_and_plan_ids_are_refused() {
         let temp = project(
@@ -787,18 +715,18 @@ mod tests {
             &format!("{PLAN}\n"),
         );
         let root = temp.path();
-        assert_plan_refusal(go(root, &["show", "a"]));
-        assert_plan_refusal(go(root, &["show", "a", "--json"]));
-        assert_plan_refusal(go(root, &["show", "a", "--format", "plain"]));
-        assert_plan_refusal(go(root, &["show", "a", "b"]));
-        assert_plan_refusal(go(root, &["show", "b", "a", "--json"]));
-        assert_plan_refusal(go(root, &["list"]));
-        assert_plan_refusal(go(root, &["list", "--json"]));
-        assert_plan_refusal(go(root, &["search", "T", "--json"]));
-        assert_plan_refusal(go(root, &["search", "T"]));
-        assert_plan_refusal(go(root, &["show", "pl-1"]));
-        assert_plan_refusal(go(root, &["show", "pl-1", "--json"]));
-        assert_plan_refusal(go(root, &["show", "pl-zz", "--format", "ids"]));
+        super::super::plans::foundation_checks::read(root, &["show", "a"]);
+        super::super::plans::foundation_checks::read(root, &["show", "a", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["show", "a", "--format", "plain"]);
+        super::super::plans::foundation_checks::read(root, &["show", "a", "b"]);
+        super::super::plans::foundation_checks::read(root, &["show", "b", "a", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["list"]);
+        super::super::plans::foundation_checks::read(root, &["list", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["search", "T", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["search", "T"]);
+        super::super::plans::foundation_checks::read(root, &["show", "pl-1"]);
+        super::super::plans::foundation_checks::read(root, &["show", "pl-1", "--json"]);
+        super::super::plans::foundation_checks::read(root, &["show", "pl-zz", "--format", "ids"]);
         // Formats that never print plan context, a filter that hides the
         // ticket, and a plan id that names no plan are ported.
         assert_eq!(

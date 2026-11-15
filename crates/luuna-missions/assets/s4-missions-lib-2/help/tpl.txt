@@ -1,0 +1,15 @@
+Usage: luuna-missions tpl [options] [command]
+
+Manage issue templates (molecules)
+
+Options:
+  -h, --help             display help for command
+
+Commands:
+  create [options]       Create a new template
+  step                   Manage template steps
+  list [options]         List all templates
+  show [options] <id>    Show template with steps
+  pour [options] <id>    Instantiate template into issues
+  status [options] <id>  Show convoy status for a template
+  help [command]         display help for command

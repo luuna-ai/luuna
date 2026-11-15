@@ -23,6 +23,18 @@ Presentation follows the [desktop design system](../../docs/DESIGN-SYSTEM.md) ([
 
 For the native Tauri 2 window:
 
+On the configured macOS development machine, the shared Just recipes build and
+open a real app bundle: `just lu-gui-build`, `just lu-gui`, and
+`just lu-gui-rebuild`. `just lu-gui-dev` uses Tauri's live development loop.
+`script/build_and_run.sh` is the build/relaunch entrypoint and the local Codex
+Run action calls it. The macOS native connection command invokes the fixed
+`~/.config/luuna/launch.py` helper; it receives the local URL and service token
+over a bounded anonymous pipe. The helper uses the same runtime.json, service
+and credential sources as `just lu`, with no token pasted into the GUI or put
+in launch arguments. This local profile requires the configured helper; it is
+not a claim that a standalone distributed installer provisions it. Development
+inspectors open only with `LUUNA_DESKTOP_DEVTOOLS=1`.
+
 ```sh
 npm run desktop
 ```

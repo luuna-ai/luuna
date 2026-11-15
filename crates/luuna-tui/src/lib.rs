@@ -20,6 +20,7 @@ pub mod protocol;
 pub mod refs;
 pub mod sandbox;
 pub mod scroll;
+pub mod setup;
 pub mod terminal;
 pub mod text;
 pub mod theme;

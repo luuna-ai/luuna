@@ -1,4 +1,4 @@
-//! Explicit real-CLI tests: no model, provider credential or personal store.
+//! Native component integration tests: no model, provider credential or personal store.
 use crate::{integrations::*, AppState, RuntimeConfig};
 use axum::{
     extract::{Path, Query, State},
@@ -99,7 +99,6 @@ async fn raw(state: &AppState, component: &str, project: &str, args: &[&str]) ->
         .unwrap()
 }
 #[tokio::test]
-#[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
 async fn components_real_scopes_snapshot_staleness_and_restart() {
     Box::pin(scopes_snapshot_staleness_and_restart()).await;
 }
@@ -351,7 +350,6 @@ async fn delete_checks(state: &AppState, selected: &MemoryRecord) {
     );
 }
 #[tokio::test]
-#[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
 async fn components_real_uncertain_memory_and_delete_reconcile_after_restart() {
     let root = tempfile::tempdir().unwrap();
     let state = setup(root.path());
@@ -476,7 +474,6 @@ async fn components_real_uncertain_memory_and_delete_reconcile_after_restart() {
     assert_eq!(result.err().unwrap().0, StatusCode::CONFLICT);
 }
 #[tokio::test]
-#[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
 async fn components_real_duplicate_memory_delivery_refuses_acknowledgement() {
     let root = tempfile::tempdir().unwrap();
     let state = setup(root.path());
@@ -546,7 +543,6 @@ async fn components_real_duplicate_memory_delivery_refuses_acknowledgement() {
 }
 
 #[tokio::test]
-#[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
 async fn components_real_schema_change_invalidates_approval_even_with_same_prompt_body() {
     let root = tempfile::tempdir().unwrap();
     let state = setup(root.path());
@@ -667,7 +663,6 @@ async fn components_real_schema_change_invalidates_approval_even_with_same_promp
 }
 
 #[tokio::test]
-#[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
 async fn components_real_uncertain_prompt_reconciles_and_memory_edits_stale_context() {
     let root = tempfile::tempdir().unwrap();
     let state = setup(root.path());
@@ -788,7 +783,6 @@ async fn components_real_uncertain_prompt_reconciles_and_memory_edits_stale_cont
     );
 }
 #[tokio::test]
-#[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
 async fn components_real_promotion_widens_scope_and_export_keeps_private_memory_home() {
     let root = tempfile::tempdir().unwrap();
     let state = setup(root.path());
@@ -1002,7 +996,6 @@ fn real_runtime(data_dir: &std::path::Path) -> AppState {
 /// prompt round-trips through the real CLIs into a second runtime whose
 /// checkout is a fresh clone with the same remote and root commits.
 #[tokio::test]
-#[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
 async fn components_real_import_round_trips_tickets_memory_and_prompts_from_an_export() {
     use crate::projects::{
         confirm_manifest, discover, import_project, register_project, ConfirmManifest,
@@ -1282,7 +1275,6 @@ async fn components_real_import_round_trips_tickets_memory_and_prompts_from_an_e
 }
 
 #[tokio::test]
-#[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
 async fn components_real_memory_correction_stales_the_plan_that_selected_it_and_exports_user_memory(
 ) {
     let root = tempfile::tempdir().unwrap();
@@ -1445,7 +1437,6 @@ async fn components_real_memory_correction_stales_the_plan_that_selected_it_and_
 }
 
 #[tokio::test]
-#[ignore = "requires pinned Bun and real component checkouts; run with --ignored"]
 async fn components_real_retention_deletes_only_expired_process_memory_under_the_ledger() {
     let root = tempfile::tempdir().unwrap();
     let state = setup(root.path());

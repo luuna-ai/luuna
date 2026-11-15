@@ -44,10 +44,10 @@ pub const LOCK_STALE_AFTER: Duration = Duration::from_secs(30);
 /// the type's field aliases are applied. A JSON array on a line is accepted and reads as
 /// an empty record, which is what the Go tool's code sees of it.
 ///
-/// Known difference: the Go tool also keeps the array itself and writes it back when the
-/// record is encoded again (model.go:26-59); a [`Record`] cannot carry it, so
-/// [`write_archive`] writes such a row as `{}`. [`write_records`] refuses it either way,
-/// as it has no type to derive an id from.
+/// The original array is retained in a private record sidecar, as Go's
+/// RecordFromValue/RecordValue does. Field lookup still sees an empty map,
+/// but JSON query/API/archive output preserves the array. Whole expertise
+/// rewrites still fail when an array has no type from which to derive an ID.
 pub fn read_records(path: &Path, registry: &Registry, allow_unknown: bool) -> Result<Vec<Record>> {
     let Ok(data) = fs::read(path) else {
         return Ok(Vec::new());
@@ -79,7 +79,7 @@ pub fn read_records(path: &Path, registry: &Registry, allow_unknown: bool) -> Re
         let mut raw = match &mut value {
             Value::Object(object) => std::mem::take(object),
             // The Go tool's code sees an array row as an empty record (model.go:36-45).
-            Value::Array(_) => Object::new(),
+            Value::Array(items) => Object::from_record_array(std::mem::take(items)),
             _ => {
                 return Err(AtlasError::Message(
                     "raw is not an Object. (evaluating '\"outcome\" in raw')".to_owned(),
@@ -457,79 +457,114 @@ impl Diagnostic<'_> {
     }
 
     /// An empty message means the value was read without error.
+    /// Container continuations use explicit frames, preserving the diagnostic
+    /// grammar without a Rust stack frame for every user nesting level.
     fn value(&mut self) -> String {
-        self.space();
-        let Some(ch) = self.at() else {
-            return "Unexpected EOF".to_owned();
-        };
-        match ch {
-            b'{' => {
-                self.pos += 1;
-                self.space();
-                if self.at() == Some(b'}') {
+        enum Frame {
+            ObjectAfterValue,
+            ArrayAfterValue,
+        }
+        let mut stack = Vec::new();
+        'read_value: loop {
+            self.space();
+            let Some(ch) = self.at() else {
+                return "Unexpected EOF".to_owned();
+            };
+            match ch {
+                b'{' => {
                     self.pos += 1;
-                    return String::new();
-                }
-                if self.at() != Some(b'"') {
-                    return "Expected '}'".to_owned();
-                }
-                loop {
-                    let message = self.string_value();
-                    if !message.is_empty() {
-                        return message;
-                    }
-                    self.space();
-                    if self.at() != Some(b':') {
-                        return "Expected ':' before value in object property definition"
-                            .to_owned();
-                    }
-                    self.pos += 1;
-                    let message = self.value();
-                    if !message.is_empty() {
-                        return message;
-                    }
                     self.space();
                     if self.at() == Some(b'}') {
                         self.pos += 1;
-                        return String::new();
-                    }
-                    if self.at() != Some(b',') {
-                        return "Expected '}'".to_owned();
-                    }
-                    self.pos += 1;
-                    self.space();
-                    if self.at() != Some(b'"') {
-                        return "Property name must be a string literal".to_owned();
+                    } else {
+                        if self.at() != Some(b'"') {
+                            return "Expected '}'".to_owned();
+                        }
+                        let message = self.property();
+                        if !message.is_empty() {
+                            return message;
+                        }
+                        stack.push(Frame::ObjectAfterValue);
+                        continue 'read_value;
                     }
                 }
-            }
-            b'[' => {
-                self.pos += 1;
-                self.space();
-                if self.at() == Some(b']') {
+                b'[' => {
                     self.pos += 1;
-                    return String::new();
-                }
-                loop {
-                    let message = self.value();
-                    if !message.is_empty() {
-                        return message;
-                    }
                     self.space();
                     if self.at() == Some(b']') {
                         self.pos += 1;
-                        return String::new();
+                    } else {
+                        stack.push(Frame::ArrayAfterValue);
+                        continue 'read_value;
                     }
-                    if self.at() != Some(b',') {
-                        return "Expected ']'".to_owned();
-                    }
-                    self.pos += 1;
-                    self.space();
-                    if self.at() == Some(b']') {
-                        return "Unexpected comma at the end of array expression".to_owned();
+                }
+                _ => {
+                    let message = self.scalar_value(ch);
+                    if !message.is_empty() {
+                        return message;
                     }
                 }
             }
+            loop {
+                self.space();
+                match stack.last() {
+                    None => return String::new(),
+                    Some(Frame::ObjectAfterValue) => {
+                        if self.at() == Some(b'}') {
+                            self.pos += 1;
+                            stack.pop();
+                            continue;
+                        }
+                        if self.at() != Some(b',') {
+                            return "Expected '}'".to_owned();
+                        }
+                        self.pos += 1;
+                        self.space();
+                        if self.at() != Some(b'"') {
+                            return "Property name must be a string literal".to_owned();
+                        }
+                        let message = self.property();
+                        if !message.is_empty() {
+                            return message;
+                        }
+                        continue 'read_value;
+                    }
+                    Some(Frame::ArrayAfterValue) => {
+                        if self.at() == Some(b']') {
+                            self.pos += 1;
+                            stack.pop();
+                            continue;
+                        }
+                        if self.at() != Some(b',') {
+                            return "Expected ']'".to_owned();
+                        }
+                        self.pos += 1;
+                        self.space();
+                        if self.at() == Some(b']') {
+                            return "Unexpected comma at the end of array expression".to_owned();
+                        }
+                        continue 'read_value;
+                    }
+                }
+            }
+        }
+    }
+
+    fn property(&mut self) -> String {
+        let message = self.string_value();
+        if !message.is_empty() {
+            return message;
+        }
+        self.space();
+        if self.at() != Some(b':') {
+            return "Expected ':' before value in object property definition".to_owned();
+        }
+        self.pos += 1;
+        String::new()
+    }
+
+    fn scalar_value(&mut self, ch: u8) -> String {
+        match ch {
             b'"' => self.string_value(),
             b'\'' => "Single quotes (') are not allowed in JSON".to_owned(),
             // Go's %c of a byte prints the code point of the same value.
@@ -989,7 +1024,7 @@ mod tests {
                 r#"{"type":"decision","title":"t","id":"mx-111111","outcomes":[{"agent":"a","status":"success"}]}"#,
                 r#"{"type":"decision","title":"u","outcome":null}"#,
                 r#"{"type":"decision","title":"v","outcome":{"status":"x"},"outcomes":[]}"#,
-                "{}",
+                "[1,2]",
             ]
         );
         fs::write(&path, "{\"type\":\"nope\",\"id\":\"mx-1\"}\n").unwrap();

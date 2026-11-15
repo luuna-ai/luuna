@@ -1,0 +1,13 @@
+Usage: luuna-missions plan adopt [options] <plan-id> <seed-ids...>
+
+Adopt existing open missions into a plan (link-only; bumps plan revision)
+
+Options:
+  --step <i>       1-based step index within the plan blueprint; sets
+                   plan_step_index on adopted missions
+  --at <i>         1-based position in plan.children to insert the adopted
+                   missions (default: append)
+  --before <seed>  Insert the adopted missions before this existing child seed
+  --after <seed>   Insert the adopted missions after this existing child seed
+  --json           Output as JSON
+  -h, --help       display help for command

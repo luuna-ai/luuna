@@ -1,0 +1,7 @@
+Usage: luuna-missions tpl list [options]
+
+List all templates
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

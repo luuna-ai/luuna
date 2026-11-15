@@ -13,6 +13,7 @@ use luuna_domain::CheckStatus;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     ffi::OsString,
     path::{Path, PathBuf},
     process::Stdio,
@@ -659,23 +660,31 @@ impl Executor {
         let mut sorted = parts.to_vec();
         sorted.sort();
         sorted.dedup();
-        let identity = serde_json::json!({
-            "os": std::env::consts::OS,
-            "arch": std::env::consts::ARCH,
-            "parts": sorted,
-        });
-        sha256_hex(identity.to_string().as_bytes())
+        let identity = BTreeMap::from([
+            ("os", serde_json::json!(std::env::consts::OS)),
+            ("arch", serde_json::json!(std::env::consts::ARCH)),
+            ("parts", serde_json::json!(sorted)),
+        ]);
+        sha256_hex(
+            serde_json::to_string(&identity)
+                .unwrap_or_default()
+                .as_bytes(),
+        )
     }
 
     /// Deterministic identity of the execution environment that produced evidence.
     pub fn fingerprint(resolved: &Path, tool_version: Option<&str>) -> String {
-        let identity = serde_json::json!({
-            "os": std::env::consts::OS,
-            "arch": std::env::consts::ARCH,
-            "executable": resolved.to_string_lossy(),
-            "tool_version": tool_version,
-        });
-        sha256_hex(identity.to_string().as_bytes())
+        let identity = BTreeMap::from([
+            ("os", serde_json::json!(std::env::consts::OS)),
+            ("arch", serde_json::json!(std::env::consts::ARCH)),
+            ("executable", serde_json::json!(resolved.to_string_lossy())),
+            ("tool_version", serde_json::json!(tool_version)),
+        ]);
+        sha256_hex(
+            serde_json::to_string(&identity)
+                .unwrap_or_default()
+                .as_bytes(),
+        )
     }
 
     /// The fingerprint of a probed tool. A failed probe is part of the
@@ -683,14 +692,18 @@ impl Executor {
     fn fingerprint_for(resolved: &Path, version: &ToolVersion) -> String {
         match version {
             ToolVersion::Failed(failure) => {
-                let identity = serde_json::json!({
-                    "os": std::env::consts::OS,
-                    "arch": std::env::consts::ARCH,
-                    "executable": resolved.to_string_lossy(),
-                    "tool_version": null,
-                    "probe_failure": failure,
-                });
-                sha256_hex(identity.to_string().as_bytes())
+                let identity = BTreeMap::from([
+                    ("os", serde_json::json!(std::env::consts::OS)),
+                    ("arch", serde_json::json!(std::env::consts::ARCH)),
+                    ("executable", serde_json::json!(resolved.to_string_lossy())),
+                    ("tool_version", serde_json::Value::Null),
+                    ("probe_failure", serde_json::json!(failure)),
+                ]);
+                sha256_hex(
+                    serde_json::to_string(&identity)
+                        .unwrap_or_default()
+                        .as_bytes(),
+                )
             }
             other => Self::fingerprint(resolved, other.text()),
         }
@@ -2722,3 +2735,6 @@ mod legacy_artifact_tests {
         assert_eq!(std::fs::read(&legacy).unwrap(), b"old evidence");
     }
 }
+
+#[cfg(test)]
+mod fingerprint_pin_tests;

@@ -1,9 +1,9 @@
-//! Pinned, bounded CLI integration for the independently maintained components.
+//! Native, bounded component integration and explicit legacy artifact auditing.
 //!
 //! These are native host processes, not a sandbox. Callers choose private,
 //! project-scoped workspaces; no developer store is discovered or imported.
 //!
-//! Two layouts are accepted (ADR 0024). A *source checkout* is the Luuna
+//! The historical distribution audit accepts two layouts (ADR 0024). A *source checkout* is the Luuna
 //! repository with its exact-commit submodules: identity is proved by Git
 //! metadata (gitlinks, the committed manifest, a clean checkout at the pin). A
 //! *portable layout* is what `scripts/stage-components.mjs` writes for the
@@ -12,6 +12,24 @@
 //! digest of its staged tree, and optionally the pinned Bun executable. Its
 //! identity is proved by recomputing those digests; a mismatch is refused by
 //! component name and never silently degraded.
+/// Runtime connection and provider credentials never enter native component children.
+fn retain_component_env(env: &mut BTreeMap<String, String>) {
+    env.retain(|key, _| {
+        let key = key.to_ascii_uppercase();
+        key != "LUUNA_URL"
+            && key != "LUUNA_PI_ARGS_JSON"
+            && !key.ends_with("_API_KEY")
+            && !key.ends_with("_TOKEN")
+            && !key.starts_with("LUUNA_PI_")
+    });
+}
+mod atlas;
+mod beacon;
+pub use atlas::{call_atlas_native, run_atlas_native};
+mod missions;
+pub use beacon::{call_beacon_native, run_beacon_native};
+pub use missions::{call_missions_native, run_missions_native};
+
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -32,7 +50,6 @@ pub type Result<T> = std::result::Result<T, ComponentError>;
 const MAX_STDOUT: usize = 4 * 1024 * 1024;
 const MAX_STDERR: usize = 64 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(30);
-const CLI_BRIDGE: &str = include_str!("../assets/cli-bridge.mjs");
 /// Written by `scripts/stage-components.mjs`; its presence selects the portable layout.
 pub const DIST_MANIFEST: &str = "components/dist-manifest.json";
 const DIST_KIND: &str = "luuna-portable-components";
@@ -43,6 +60,10 @@ const DIGEST_MAX_DEPTH: usize = 64;
 
 #[derive(Debug, Error)]
 pub enum ComponentError {
+    #[error("{0}")]
+    Atlas(luuna_atlas::AtlasError),
+    #[error("{0}")]
+    Missions(luuna_missions::Error),
     #[error(
         "component integration is unavailable; install the pinned component dependencies and Bun"
     )]
@@ -153,8 +174,33 @@ enum Layout {
     },
 }
 
-#[derive(Clone, Debug)]
+/// Compiled-in native components. Discovery never inspects a checkout, executable,
+/// environment override or component package. Store admission happens per request.
+#[derive(Clone, Debug, Default)]
 pub struct Components {
+    _native: (),
+}
+impl Components {
+    pub fn discover() -> Result<Self> {
+        Ok(Self::default())
+    }
+    pub fn describe(&self) -> String {
+        "native Atlas, Beacon and Missions libraries".into()
+    }
+    pub async fn call(&self, component: &str, workspace: &Path, args: &[String]) -> Result<Value> {
+        match component.strip_prefix("luuna-").unwrap_or(component) {
+            "atlas" => call_atlas_native(workspace, args).await,
+            "beacon" => call_beacon_native(workspace, args).await,
+            "missions" => call_missions_native(workspace, args).await,
+            _ => Err(ComponentError::Identity),
+        }
+    }
+}
+
+/// Explicit verification of historical portable/source distributions. This API does
+/// not activate a component and is not consulted by native runtime discovery.
+#[derive(Clone, Debug)]
+pub struct DistributionAudit {
     root: PathBuf,
     bun: PathBuf,
     version: String,
@@ -163,7 +209,7 @@ pub struct Components {
     layout: Layout,
 }
 
-impl Components {
+impl DistributionAudit {
     /// Resolve installation paths without reading a developer credential store.
     /// The exact checkout and Bun executable are revalidated before every call.
     ///
@@ -304,46 +350,11 @@ impl Components {
         }
     }
 
-    /// Invoke only the pinned source entrypoint, with explicit argument arrays.
-    /// Raw command arguments, stdout and stderr are never put into error text.
-    pub async fn call(&self, component: &str, workspace: &Path, args: &[String]) -> Result<Value> {
-        let name = component.strip_prefix("luuna-").unwrap_or(component);
-        let pin = self.pins.get(name).ok_or(ComponentError::Identity)?;
-        if args.is_empty()
-            || args.len() > 128
-            || args
-                .iter()
-                .any(|arg| arg.len() > 256 * 1024 || arg.contains('\0'))
-        {
-            return Err(ComponentError::Protocol);
-        }
+    /// Explicit audit of a historical artifact. Never used by native dispatch.
+    pub async fn verify(&self, component: &str, workspace: &Path) -> Result<()> {
+        let pin = self.pins.get(component).ok_or(ComponentError::Identity)?;
         let workspace = prepare_workspace(workspace)?;
-        self.validate(pin, &workspace).await?;
-        adopt_legacy_layout(&workspace)?;
-        let data_dir = data_dir(name);
-        if args[0] != "init" && !workspace.join(data_dir).is_dir() {
-            return Err(ComponentError::Workspace);
-        }
-        check_project_data_links(&workspace, data_dir)?;
-        if name == "missions"
-            && args[0] != "init"
-            && !workspace.join(data_dir).join("config.yaml").is_file()
-        {
-            return Err(ComponentError::Workspace);
-        }
-        if name == "atlas" && args[0] != "init" {
-            let cfg = self
-                .invoke(pin, &workspace, &["config".into(), "show".into()])
-                .await?;
-            if cfg.get("hooks").is_some_and(nonempty_hooks) {
-                return Err(ComponentError::Hooks);
-            }
-        }
-        let value = self.invoke(pin, &workspace, args).await?;
-        if value.get("success").and_then(Value::as_bool) != Some(true) {
-            return Err(ComponentError::Protocol);
-        }
-        Ok(value)
+        self.validate(pin, &workspace).await
     }
 
     async fn validate(&self, pin: &Pin, workspace: &Path) -> Result<()> {
@@ -451,62 +462,8 @@ impl Components {
         }
         Ok(())
     }
-
-    async fn invoke(&self, pin: &Pin, workspace: &Path, args: &[String]) -> Result<Value> {
-        let mut cli_args = args.to_vec();
-        if !cli_args.iter().any(|arg| arg == "--json") {
-            cli_args.push("--json".into());
-        }
-        if pin.cli.primary == "luuna-atlas"
-            && !cli_args.iter().any(|arg| arg == "--quiet" || arg == "-q")
-        {
-            cli_args.push("--quiet".into());
-        }
-        let input = serde_json::to_vec(&serde_json::json!({
-            "entrypoint": self.root.join(&pin.path).join(&pin.cli.entrypoint), "args": cli_args
-        }))
-        .map_err(|_| ComponentError::Protocol)?;
-        if input.len() > 1024 * 1024 {
-            return Err(ComponentError::OutputLimit);
-        }
-        let arguments = ["--no-env-file", "--no-install", "--eval", CLI_BRIDGE].map(Into::into);
-        let result = output(&self.bun, &arguments, workspace, workspace, Some(&input)).await?;
-        if !result.status.success() {
-            // Diagnostic data for the operator's log only: the component's
-            // structured `error` field when its JSON answer carries one,
-            // bounded; the typed error stays opaque and carries no output.
-            let detail: String = serde_json::from_slice::<Value>(&result.stdout)
-                .ok()
-                .and_then(|value| value["error"].as_str().map(ToOwned::to_owned))
-                .unwrap_or_else(|| String::from_utf8_lossy(&result.stdout).into_owned())
-                .chars()
-                .take(300)
-                .collect();
-            let stderr_line: String = String::from_utf8_lossy(&result.stderr)
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .chars()
-                .take(400)
-                .collect();
-            eprintln!(
-                "luuna-components: {} refused the operation ({:?}): {detail} {stderr_line}",
-                pin.cli.primary, result.status
-            );
-            return Err(ComponentError::Refused);
-        }
-        serde_json::from_slice(&result.stdout).map_err(|_| ComponentError::Protocol)
-    }
 }
 
-fn nonempty_hooks(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Object(map) => map.values().any(nonempty_hooks),
-        Value::Array(values) => !values.is_empty(),
-        _ => true,
-    }
-}
 fn packaged_root_beside_executable() -> Option<PathBuf> {
     let directory = std::env::current_exe().ok()?.parent()?.to_path_buf();
     directory.join(DIST_MANIFEST).is_file().then_some(directory)
@@ -809,6 +766,7 @@ const DATA_ROOT: &str = ".luuna";
 
 /// Relative store directory for a component name (`missions`, `atlas`; any
 /// other name is `beacon`), below the workspace.
+#[cfg(test)]
 fn data_dir(name: &str) -> &'static str {
     match name {
         "missions" => ".luuna/missions",
@@ -977,7 +935,6 @@ async fn git(cwd: &Path, args: &[&str], workspace: &Path) -> Result<String> {
 struct Captured {
     status: ExitStatus,
     stdout: Vec<u8>,
-    stderr: Vec<u8>,
 }
 async fn bounded(mut stream: impl tokio::io::AsyncRead + Unpin, limit: usize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -1083,7 +1040,7 @@ async fn output_with_deadline(
     let stdout = child.stdout.take().ok_or(ComponentError::Unavailable)?;
     let stderr = child.stderr.take().ok_or(ComponentError::Unavailable)?;
     let capture = async {
-        let (status, stdout, stderr, _) = tokio::try_join!(
+        let (status, stdout, _stderr, _) = tokio::try_join!(
             async { child.wait().await.map_err(|_| ComponentError::Unavailable) },
             bounded(stdout, MAX_STDOUT),
             bounded(stderr, MAX_STDERR),
@@ -1101,11 +1058,7 @@ async fn output_with_deadline(
                 Ok::<(), ComponentError>(())
             }
         )?;
-        Ok(Captured {
-            status,
-            stdout,
-            stderr,
-        })
+        Ok(Captured { status, stdout })
     };
     let result = tokio::time::timeout(deadline, capture).await;
     drop(owner); // Ends all owned descendants before any error/result is returned.
@@ -1258,14 +1211,7 @@ mod tests {
 
     #[test]
     fn component_futures_fit_small_native_thread_stacks() {
-        let runner = Components {
-            root: PathBuf::new(),
-            bun: PathBuf::new(),
-            version: "1.4.3".into(),
-            manifest: Value::Null,
-            pins: BTreeMap::new(),
-            layout: Layout::Source,
-        };
+        let runner = Components::default();
         let args = ["list".into()];
         let call = runner.call("atlas", Path::new("unused"), &args);
         let read = bounded(tokio::io::empty(), MAX_STDOUT);
@@ -1579,8 +1525,8 @@ mod tests {
             .unwrap();
             Self { root, bun }
         }
-        fn components(&self) -> Result<Components> {
-            Components::from_root(self.root.clone(), self.bun.clone())
+        fn components(&self) -> Result<DistributionAudit> {
+            DistributionAudit::from_root(self.root.clone(), self.bun.clone())
         }
         fn rewrite_dist(&self, edit: impl FnOnce(&mut Value)) {
             let path = self.root.join(DIST_MANIFEST);
@@ -1695,7 +1641,7 @@ mod tests {
             dist["runtime"]["sha256"] = Value::String(sha256_file(&fixture.bun).unwrap())
         });
         fixture.components().unwrap();
-        let refused = Components::from_root(fixture.root.clone(), other).unwrap_err();
+        let refused = DistributionAudit::from_root(fixture.root.clone(), other).unwrap_err();
         assert_eq!(component_named(&refused), Some("bun"));
         assert!(refused.to_string().contains("not the staged one"));
 

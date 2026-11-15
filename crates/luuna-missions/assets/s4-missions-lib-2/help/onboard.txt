@@ -1,0 +1,9 @@
+Usage: luuna-missions onboard [options]
+
+Add missions section to CLAUDE.md / AGENTS.md
+
+Options:
+  --stdout    Print what would be written to stdout
+  --check     Check status without modifying files
+  --json      Output as JSON
+  -h, --help  display help for command

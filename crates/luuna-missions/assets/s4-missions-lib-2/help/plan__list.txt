@@ -1,0 +1,11 @@
+Usage: luuna-missions plan list [options]
+
+List plans with optional filters
+
+Options:
+  --seed <id>          Filter by parent seed id
+  --status <status>    Filter by status (draft|approved|active|done)
+  --outcome <outcome>  Filter by outcome (success|partial|failure)
+  --template <name>    Filter by template name
+  --json               Output as JSON
+  -h, --help           display help for command

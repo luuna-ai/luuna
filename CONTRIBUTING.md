@@ -33,7 +33,7 @@ npm run build
 
 Run `npm run components:setup` with Bun 1.4.3 after cloning, or clone with `--recurse-submodules` and then install frozen component dependencies. `npm run components:verify` checks exact pins; `npm run test:components` exercises real CLI JSON operations on disposable stores. Until the migration changes of [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md) bring them into this repository, the component sources live in their public `luuna-ai` repositories and are consumed as these pinned submodules.
 
-Luuna Roots lives in `roots/` as its own Cargo workspace, separate from the root one. Run its checks from the repository root:
+Luuna Roots lives in `roots/`. Its library, roots-core, is a member of the root Cargo workspace, so the root `cargo fmt`, `cargo clippy` and `cargo test` commands build, lint and test it. `roots/Cargo.toml` remains the workspace of roots-cli, with `roots/Cargo.lock`. Run the Roots workspace checks from the repository root:
 
 ```sh
 RUSTUP_TOOLCHAIN=1.90.0 cargo fmt --manifest-path roots/Cargo.toml --all -- --check
@@ -50,6 +50,16 @@ The remaining checks, each run where its prerequisites exist: `node scripts/chec
 `npm test` includes component pin rejection tests, JSON-schema fixtures and API-client tests. These are separate from the Rust tests and component CLI suites. Each maintained CLI has its own Bun lockfile and package scripts; follow its package README rather than running its hook installer against the root repository.
 
 Run the schema/fixture suite when changing contracts, state transitions, or protocol handling. Keep fixtures synthetic. A deterministic Pi fixture validates framing and lifecycle logic; a real provider smoke test validates the pinned engine/model profile. Provider credentials belong in private configuration or environment bindings, never in source or test logs. Mark provider/platform checks as unavailable when their prerequisites are absent.
+
+The installer in `packaging/installer/` has its own checks. They need only a POSIX shell and standard utilities, never use the network or the real home, and are not part of `npm test`:
+
+```sh
+sh packaging/installer/tests/run.sh
+TEST_SHELL=dash sh packaging/installer/tests/run.sh
+TEST_SHELL=bash sh packaging/installer/tests/run.sh
+sh packaging/installer/tests/check-manifests.sh
+shellcheck -s sh packaging/installer/install.sh packaging/installer/install-manifest.sh packaging/installer/tests/*.sh
+```
 
 For the prepared Linux cloud machine, `bash scripts/setup-cloud.sh` reproduces the pinned Rust/Bun/Pi tools, frozen component installs, npm workspace, and Rust build. Tool caches live under `/workspace/.tools` and `/workspace/.cache`, outside the checkout. Native desktop system libraries and provider credentials are separate prerequisites.
 
@@ -74,7 +84,7 @@ Install the pinned Pi package `@earendil-works/pi-coding-agent@1.3.0` in a priva
 | `LUUNA_PORT` | Loopback service port, default `4242` |
 | `LUUNA_RUN_TIMEOUT_SECONDS` | Positive run deadline, default `600` |
 
-Supported inherited key names currently include `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`, and `OPENROUTER_API_KEY`. An existing OAuth login alone does not configure this isolated demo. Never copy credentials into repository configuration or diagnostic output.
+Supported inherited key names currently include `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`, and `OPENROUTER_API_KEY`. An existing OAuth login alone does not configure the default isolated demo. For explicitly opted-in OpenAI OAuth, use `tools/pi/oauth-launch.mjs` as Node's launcher argument, followed by `--luuna-auth-file <absolute-private-auth.json>` and `--luuna-pi-root <absolute-pinned-package-directory>`, and set `LUUNA_PI_AUTH_FILE` to the same auth file for diagnostics and redaction. This shares only the selected OpenAI grant and Pi's locked refresh, with no token copies or API-key fallback; see [ADR 0049](docs/decisions/0049-opt-in-openai-oauth.md). Never copy credentials into repository configuration or diagnostic output.
 
 With the necessary private settings present, launch from the repository root:
 
@@ -99,3 +109,7 @@ Review must examine requirements, the diff, current code, and check evidence ind
 Record material architecture changes in `docs/decisions/` and update `docs/CURRENT-ARCHITECTURE.md`. Package publication requires a deliberate release and verified credentials. New original contributions are MIT licensed; preserve derived components' upstream notices. See [SECURITY.md](SECURITY.md) for sensitive findings.
 
 Changes to this repository itself ship under [ADR 0044](docs/decisions/0044-one-repository-and-agent-shipping.md). During the migration, agents work under a plan audited against the owner's signed migration charter, review the changes, and push, open pull requests and merge only through the ship gate. Agent reviews together with the local check evidence described above are the only gate on a merge until the CI pipeline planned for after the migration exists.
+
+## Native Beacon integration
+
+`cargo test --locked -p luuna-components --test native_beacon` exercises the process-free Beacon adapter, including an isolated empty-PATH child and bounded store/output refusals. `cargo test --locked -p luuna-runtime --lib beacon_native_tests` exercises authenticated prompt routes and source/schema invalidation without a legacy component handle. These tests need no provider, Bun, component checkout or personal store. Fresh full project activation still needs the remaining Missions/Atlas adapters until their ports land. The existing ignored real-component suites retain the pinned setup prerequisites described above.

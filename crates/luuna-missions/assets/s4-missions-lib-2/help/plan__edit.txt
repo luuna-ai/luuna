@@ -1,0 +1,18 @@
+Usage: luuna-missions plan edit [options] <id>
+
+Edit plan fields in place (accepts plan id or seed id); bumps revision
+
+Options:
+  --name <text>                 Set the plan's human-readable label
+  --section <name-and-text...>  Replace a text section: --section <name> <text>
+                                (V1: text sections only)
+  --step <i>                    1-based step index to edit (requires
+                                --title/--priority/--type)
+  --title <text>                New title for the step (with --step); propagates
+                                to child seed
+  --priority <p>                New priority (0-4 or P0-P4) for the step (with
+                                --step)
+  --type <type>                 New type for the step (with --step):
+                                task|bug|feature|epic
+  --json                        Output as JSON
+  -h, --help                    display help for command

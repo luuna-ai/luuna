@@ -1,0 +1,7 @@
+Usage: luuna-missions label remove [options] <issue> <labels...>
+
+Remove labels from an issue
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

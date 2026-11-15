@@ -3205,7 +3205,7 @@ pub(crate) async fn writer_worker(
     let _ = state.event(
         &job.run_id,
         "pi.spawned",
-        json!({"pid": process.pid(), "pi_version": PI_VERSION, "tools": process.tools().declared, "omitted_tools": process.tools().omitted_json(), "scope_guard": guard.to_string_lossy(), "scope": scope, "provider_credentials": luuna_engine_pi::configured_provider_keys()}),
+        json!({"pid": process.pid(), "pi_version": PI_VERSION, "tools": process.tools().declared, "omitted_tools": process.tools().omitted_json(), "scope_guard": guard.to_string_lossy(), "scope": scope, "provider_credentials": crate::doctor::provider_keys().configured}),
     );
     let budgets = job.plan.budgets.clone();
     let previous_usage = match state
@@ -4776,7 +4776,11 @@ mod redaction_tests {
             let link = worktrees.path().join("link");
             std::os::unix::fs::symlink(worktrees.path().join("attempt-previous"), &link).unwrap();
             let through_link = link.join("app").to_string_lossy().into_owned();
-            let result = failed_result(dir.path(), 1, body.as_bytes());
+            // Use the resolved spelling in this case, including macOS's
+            // /var -> /private/var alias, just as a tool resolving cwd would.
+            let resolved_body =
+                body.replace(&recorded, &real.canonicalize().unwrap().to_string_lossy());
+            let result = failed_result(dir.path(), 1, resolved_body.as_bytes());
             let output = repair_check_output(
                 dir.path(),
                 &[result],

@@ -1,0 +1,9 @@
+Usage: luuna-missions completions [options] <shell>
+
+Output shell completion script
+
+Arguments:
+  shell       Shell type (bash, zsh, fish)
+
+Options:
+  -h, --help  display help for command

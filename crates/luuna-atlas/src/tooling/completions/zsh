@@ -1,0 +1,9 @@
+# luuna-atlas zsh completions
+# Add to ~/.zshrc: eval "$(luuna-atlas completions zsh)"
+_atlas() {
+  local -a words
+  words=(init add record edit query setup prime hook onboard status validate prune archive restore search show stale rank outcome doctor ready sync delete delete-domain move learn compact config diff upgrade completions audit --version --json --quiet --verbose --timing --allow-unknown-types --allow-domain-mismatch --format)
+  _describe 'luuna-atlas commands' words
+}
+compdef _atlas luuna-atlas
+compdef _atlas la

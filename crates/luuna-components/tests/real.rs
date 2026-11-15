@@ -4,14 +4,10 @@ fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
 }
 
-/// Explicitly separate genuine component evidence from ordinary unit tests.
-/// Run after `npm run components:setup`:
-/// cargo test --locked -p luuna-components --test real -- --ignored
+/// The complete native component workflow runs without installed source packages.
 #[tokio::test]
-#[ignore = "requires installed pinned Bun 1.4.3 and all three actual component submodules"]
 async fn actual_cli_workflows_and_large_private_arguments() {
-    let runner = Components::discover()
-        .expect("run npm run components:setup and configure LUUNA_BUN if needed");
+    let runner = Components::discover().expect("native components are compiled in");
     let fixture = tempfile::tempdir().unwrap();
     let workspace = fixture.path().canonicalize().unwrap();
     for name in ["luuna-missions", "luuna-atlas", "luuna-beacon"] {

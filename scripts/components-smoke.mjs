@@ -3,9 +3,12 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { manifest, repositoryRoot, runComponent, verifyComponent } from './components.mjs';
+import { nativeExecutable, repositoryRoot, runComponent } from './components.mjs';
 
-// Exercise the real pinned CLIs against fresh, test-owned stores. No user data is read.
+// Compile before entering synthetic HOME environments; commands reuse this binary.
+nativeExecutable(repositoryRoot, true);
+
+// Exercise the compiled native CLIs against fresh, test-owned stores. No user data is read.
 const fixture = mkdtempSync(join(tmpdir(), 'luuna-components-'));
 let checks = 0;
 try {
@@ -13,7 +16,7 @@ try {
   const project = join(fixture, 'project');
   mkdirSync(home); mkdirSync(project);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-    /^(PATH|SystemRoot|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|TMPDIR|LUUNA_BUN)$/i.test(key)));
+    /^(PATH|SystemRoot|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|TMPDIR|LUUNA_BUN|CARGO_TARGET_DIR)$/i.test(key)));
   Object.assign(env, { HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: home,
     NO_COLOR: '1', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(home, 'gitconfig'),
     GIT_TERMINAL_PROMPT: '0' });
@@ -24,7 +27,6 @@ try {
     checks++;
     return result;
   };
-  for (const component of manifest().components) verifyComponent(repositoryRoot, component, true);
   json('missions', ['init']);
   const ticket = json('missions', ['create', '--title', 'Verify extracted component consumption']);
   const shown = json('missions', ['show', ticket.id]);

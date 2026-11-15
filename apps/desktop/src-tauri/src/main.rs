@@ -23,12 +23,14 @@ fn main() {
         .on_menu_event(|app, event| menu::forward(app, event.id().as_ref()));
     builder
         .setup(|_app| {
-            // Development builds open the WebView inspector so rendering and console issues are visible.
+            // Opt in when diagnosing rendering; ordinary local GUI launches stay focused on the app.
             #[cfg(debug_assertions)]
             {
                 use tauri::Manager;
-                if let Some(window) = _app.get_webview_window("main") {
-                    window.open_devtools();
+                if std::env::var("LUUNA_DESKTOP_DEVTOOLS").as_deref() == Ok("1") {
+                    if let Some(window) = _app.get_webview_window("main") {
+                        window.open_devtools();
+                    }
                 }
             }
             Ok(())

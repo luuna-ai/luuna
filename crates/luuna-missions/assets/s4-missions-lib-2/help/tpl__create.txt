@@ -1,0 +1,8 @@
+Usage: luuna-missions tpl create [options]
+
+Create a new template
+
+Options:
+  --name <text>  Template name
+  --json         Output as JSON
+  -h, --help     display help for command

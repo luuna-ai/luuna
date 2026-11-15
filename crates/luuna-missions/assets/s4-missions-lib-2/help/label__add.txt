@@ -1,0 +1,7 @@
+Usage: luuna-missions label add [options] <issue> <labels...>
+
+Add labels to an issue
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

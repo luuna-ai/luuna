@@ -1,0 +1,3503 @@
+{
+  "version": "0.11.0",
+  "baseline": "27477c313a3049b1579dfdc32c39da600726721f",
+  "cli": {
+    "name": "luuna-atlas",
+    "description": "Structured expertise management",
+    "hidden": false,
+    "arguments": [],
+    "options": [
+      {
+        "flags": "-v, --version",
+        "short": "-v",
+        "long": "--version",
+        "name": "version",
+        "attribute": "version",
+        "description": "Print version",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "mandatory": false
+      },
+      {
+        "flags": "--json",
+        "long": "--json",
+        "name": "json",
+        "attribute": "json",
+        "description": "Output as structured JSON",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "mandatory": false
+      },
+      {
+        "flags": "-q, --quiet",
+        "short": "-q",
+        "long": "--quiet",
+        "name": "quiet",
+        "attribute": "quiet",
+        "description": "Suppress non-error output",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "mandatory": false
+      },
+      {
+        "flags": "--verbose",
+        "long": "--verbose",
+        "name": "verbose",
+        "attribute": "verbose",
+        "description": "Show full details in output",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "mandatory": false
+      },
+      {
+        "flags": "--timing",
+        "long": "--timing",
+        "name": "timing",
+        "attribute": "timing",
+        "description": "Print execution time to stderr",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "mandatory": false
+      },
+      {
+        "flags": "--allow-unknown-types",
+        "long": "--allow-unknown-types",
+        "name": "allow-unknown-types",
+        "attribute": "allowUnknownTypes",
+        "description": "tolerate on-disk records of unregistered types (worktree/CI lag escape hatch)",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "mandatory": false
+      },
+      {
+        "flags": "--allow-domain-mismatch",
+        "long": "--allow-domain-mismatch",
+        "name": "allow-domain-mismatch",
+        "attribute": "allowDomainMismatch",
+        "description": "tolerate records that violate per-domain allowed_types/required_fields (escape hatch for record/validate; ignored by sync)",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "mandatory": false
+      },
+      {
+        "flags": "--format <format>",
+        "long": "--format",
+        "name": "format",
+        "attribute": "format",
+        "description": "output format for record-rendering commands (prime, query, search)",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "mandatory": false,
+        "choices": [
+          "markdown",
+          "compact",
+          "xml",
+          "plain"
+        ]
+      }
+    ],
+    "help": "Luuna Atlas v0.11.0 — Structured expertise management\n\nUsage: luuna-atlas <command> [options]\n\nCommands:\n  init                Initialize .luuna/atlas/ in the current project\n  add <domain>        Add a new expertise domain\n  record [options] <domain> [content]  Record an expertise record\n  edit [options] <domain> <id>  Edit an existing expertise record\n  query [options] [domain]  Query expertise records\n  setup [options] [provider]  Set up luuna-atlas integration for a specific agent provider\n  prime [options] [domains...]  Generate a priming prompt from expertise records\n  hook                Claude Code PreToolUse handler (installed by `luuna-atlas setup claude`): injects file-anchored records, denies hand edits of .luuna/atlas/expertise/*.jsonl; reads hook JSON on stdin\n  onboard [options]   Generate or update a CLAUDE.md/AGENTS.md snippet pointing to luuna-atlas prime\n  status              Show status of expertise records\n  validate            Validate expertise records against schemas\n  prune [options]     Soft-archive (default) or hard-delete stale records, plus tier-demote superseded ones\n  archive [options] <domain> [id]  Soft-archive one or more live records (symmetric to `luuna-atlas restore`; pairs with `luuna-atlas prune` for bulk decay)\n  restore <id>        Restore a soft-archived record from .luuna/atlas/archive/ back to live expertise\n  search [options] [query]  Search expertise records across domains\n  show <ids...>       Show full record bodies by ID (the detail behind `luuna-atlas prime`'s index)\n  stale [domains...]  List records that look stale: anchors changed since the evidence commit, missing anchors, or past shelf life unconfirmed\n  rank [options] [domain]  Rank records by confirmation-frequency score (highest first)\n  outcome [options] <domain> <id>  Append an outcome to an existing expertise record\n  doctor [options]    Run health checks on expertise records\n  ready [options]     Show recently added or updated expertise records\n  sync [options]      Validate, stage, and commit .luuna/atlas/ changes\n  delete [options] <domain> [id]  Delete an expertise record or multiple records in bulk\n  delete-domain [options] <domain>  Delete an expertise domain and its expertise file\n  move [options] <source-domain> <id> <target-domain>  Move a record from one domain to another, preserving its ID and metadata\n  learn [options]     Show changed files and suggest domains for recording learnings\n  compact [options] [domain]  Compact records: analyze candidates or apply a compaction\n  config              Read and write .luuna/atlas/config.yaml\n  diff [options]      Show expertise record changes since a git ref\n  upgrade [options]   Upgrade Luuna Atlas after publication\n  completions <shell>  Output shell completion script (bash, zsh, fish)\n  audit [options]     Audit corpus health (evidence coverage, rule density, floaters, per-domain mix)\n\nOptions:\n  -v, --version       Print version\n  --json              Output as structured JSON\n  -q, --quiet         Suppress non-error output\n  --verbose           Show full details in output\n  --timing            Print execution time to stderr\n  --allow-unknown-types  tolerate on-disk records of unregistered types (worktree/CI lag escape hatch)\n  --allow-domain-mismatch  tolerate records that violate per-domain allowed_types/required_fields (escape hatch for record/validate; ignored by sync)\n  --format <format>   output format for record-rendering commands (prime, query, search) (choices: \"markdown\", \"compact\", \"xml\", \"plain\")\n  -h, --help          display help for command\n\nRun 'luuna-atlas <command> --help' for command-specific help.\n",
+    "commands": [
+      {
+        "name": "init",
+        "description": "Initialize .luuna/atlas/ in the current project",
+        "hidden": false,
+        "arguments": [],
+        "options": [],
+        "help": "init v0.11.0 — Structured expertise management\n\nUsage: init <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'init <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "add",
+        "description": "Add a new expertise domain",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": true,
+            "variadic": false
+          }
+        ],
+        "options": [],
+        "help": "add v0.11.0 — Structured expertise management\n\nUsage: add <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'add <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "record",
+        "description": "Record an expertise record",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": true,
+            "variadic": false
+          },
+          {
+            "name": "content",
+            "required": false,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--type <type>",
+            "long": "--type",
+            "name": "type",
+            "attribute": "type",
+            "description": "record type",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "convention",
+              "pattern",
+              "failure",
+              "decision",
+              "reference",
+              "guide"
+            ]
+          },
+          {
+            "flags": "--classification <classification>",
+            "long": "--classification",
+            "name": "classification",
+            "attribute": "classification",
+            "description": "classification level",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": "tactical",
+            "choices": [
+              "foundational",
+              "tactical",
+              "observational"
+            ]
+          },
+          {
+            "flags": "--name <name>",
+            "long": "--name",
+            "name": "name",
+            "attribute": "name",
+            "description": "name of the convention or pattern",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--content <content>",
+            "long": "--content",
+            "name": "content",
+            "attribute": "content",
+            "description": "content for convention records (explicit flag wins over positional [content])",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--description <description>",
+            "long": "--description",
+            "name": "description",
+            "attribute": "description",
+            "description": "description of the record",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--resolution <resolution>",
+            "long": "--resolution",
+            "name": "resolution",
+            "attribute": "resolution",
+            "description": "resolution for failure records",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--title <title>",
+            "long": "--title",
+            "name": "title",
+            "attribute": "title",
+            "description": "title for decision records",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--rationale <rationale>",
+            "long": "--rationale",
+            "name": "rationale",
+            "attribute": "rationale",
+            "description": "rationale for decision records",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--files <files>",
+            "long": "--files",
+            "name": "files",
+            "attribute": "files",
+            "description": "related files (comma-separated)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--dir-anchor <path>",
+            "long": "--dir-anchor",
+            "name": "dir-anchor",
+            "attribute": "dirAnchor",
+            "description": "repo-relative directory the record applies to (repeatable; auto-populated from changed files when omitted)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": []
+          },
+          {
+            "flags": "--tags <tags>",
+            "long": "--tags",
+            "name": "tags",
+            "attribute": "tags",
+            "description": "comma-separated tags",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--evidence-commit <commit>",
+            "long": "--evidence-commit",
+            "name": "evidence-commit",
+            "attribute": "evidenceCommit",
+            "description": "evidence: commit hash (auto-populated from git if omitted)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--evidence-issue <issue>",
+            "long": "--evidence-issue",
+            "name": "evidence-issue",
+            "attribute": "evidenceIssue",
+            "description": "evidence: issue reference",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--evidence-file <file>",
+            "long": "--evidence-file",
+            "name": "evidence-file",
+            "attribute": "evidenceFile",
+            "description": "evidence: file path",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--evidence-bead <bead>",
+            "long": "--evidence-bead",
+            "name": "evidence-bead",
+            "attribute": "evidenceBead",
+            "description": "evidence: bead ID",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--evidence-missions <id>",
+            "long": "--evidence-missions",
+            "name": "evidence-missions",
+            "attribute": "evidenceMissions",
+            "description": "evidence: missions issue ID",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--evidence-gh <ref>",
+            "long": "--evidence-gh",
+            "name": "evidence-gh",
+            "attribute": "evidenceGh",
+            "description": "evidence: GitHub issue or PR reference",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--evidence-linear <ticket>",
+            "long": "--evidence-linear",
+            "name": "evidence-linear",
+            "attribute": "evidenceLinear",
+            "description": "evidence: Linear ticket reference",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--relates-to <ids>",
+            "long": "--relates-to",
+            "name": "relates-to",
+            "attribute": "relatesTo",
+            "description": "comma-separated record IDs this relates to",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--supersedes <ids>",
+            "long": "--supersedes",
+            "name": "supersedes",
+            "attribute": "supersedes",
+            "description": "comma-separated record IDs this supersedes",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--outcome-status <status>",
+            "long": "--outcome-status",
+            "name": "outcome-status",
+            "attribute": "outcomeStatus",
+            "description": "outcome status",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "success",
+              "failure",
+              "partial"
+            ]
+          },
+          {
+            "flags": "--outcome-duration <ms>",
+            "long": "--outcome-duration",
+            "name": "outcome-duration",
+            "attribute": "outcomeDuration",
+            "description": "outcome duration in milliseconds",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--outcome-test-results <text>",
+            "long": "--outcome-test-results",
+            "name": "outcome-test-results",
+            "attribute": "outcomeTestResults",
+            "description": "outcome test results summary",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--outcome-agent <agent>",
+            "long": "--outcome-agent",
+            "name": "outcome-agent",
+            "attribute": "outcomeAgent",
+            "description": "outcome agent name",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--force",
+            "long": "--force",
+            "name": "force",
+            "attribute": "force",
+            "description": "force recording even if duplicate exists",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--stdin",
+            "long": "--stdin",
+            "name": "stdin",
+            "attribute": "stdin",
+            "description": "read JSON record(s) from stdin (single object or array)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--batch <file>",
+            "long": "--batch",
+            "name": "batch",
+            "attribute": "batch",
+            "description": "read JSON record(s) from file (single object or array)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--dry-run",
+            "long": "--dry-run",
+            "name": "dry-run",
+            "attribute": "dryRun",
+            "description": "preview what would be recorded without writing",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "record v0.11.0 — Structured expertise management\n\nUsage: record <command> [options]\n\nOptions:\n  --type <type>       record type (choices: \"convention\", \"pattern\", \"failure\", \"decision\", \"reference\", \"guide\")\n  --classification <classification>  classification level (choices: \"foundational\", \"tactical\", \"observational\", default: \"tactical\")\n  --name <name>       name of the convention or pattern\n  --content <content>  content for convention records (explicit flag wins over positional [content])\n  --description <description>  description of the record\n  --resolution <resolution>  resolution for failure records\n  --title <title>     title for decision records\n  --rationale <rationale>  rationale for decision records\n  --files <files>     related files (comma-separated)\n  --dir-anchor <path>  repo-relative directory the record applies to (repeatable; auto-populated from changed files when omitted) (default: [])\n  --tags <tags>       comma-separated tags\n  --evidence-commit <commit>  evidence: commit hash (auto-populated from git if omitted)\n  --evidence-issue <issue>  evidence: issue reference\n  --evidence-file <file>  evidence: file path\n  --evidence-bead <bead>  evidence: bead ID\n  --evidence-missions <id>  evidence: missions issue ID\n  --evidence-gh <ref>  evidence: GitHub issue or PR reference\n  --evidence-linear <ticket>  evidence: Linear ticket reference\n  --relates-to <ids>  comma-separated record IDs this relates to\n  --supersedes <ids>  comma-separated record IDs this supersedes\n  --outcome-status <status>  outcome status (choices: \"success\", \"failure\", \"partial\")\n  --outcome-duration <ms>  outcome duration in milliseconds\n  --outcome-test-results <text>  outcome test results summary\n  --outcome-agent <agent>  outcome agent name\n  --force             force recording even if duplicate exists\n  --stdin             read JSON record(s) from stdin (single object or array)\n  --batch <file>      read JSON record(s) from file (single object or array)\n  --dry-run           preview what would be recorded without writing\n  -h, --help          display help for command\n\nRun 'record <command> --help' for command-specific help.\n\nRequired fields per record type:\n  convention   --content (or positional [content])\n  pattern      --name, --description (or [content])\n  failure      --description, --resolution\n  decision     --title, --rationale\n  reference    --name, --description (or [content])\n  guide        --name, --description (or [content])\n\n--description alone works for every type except failure (needs --resolution):\nit fills convention content, a derived pattern/reference/guide name, and a\ndecision title (first sentence) + rationale. Explicit flags win.\n\nBatch recording examples:\n  luuna-atlas record cli --batch records.json\n  luuna-atlas record cli --batch records.json --dry-run\n  echo '[{\"type\":\"convention\",\"content\":\"test\"}]' > batch.json && luuna-atlas record cli --batch batch.json\n\n",
+        "commands": []
+      },
+      {
+        "name": "edit",
+        "description": "Edit an existing expertise record",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": true,
+            "variadic": false
+          },
+          {
+            "name": "id",
+            "required": true,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--classification <classification>",
+            "long": "--classification",
+            "name": "classification",
+            "attribute": "classification",
+            "description": "update classification",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "foundational",
+              "tactical",
+              "observational"
+            ]
+          },
+          {
+            "flags": "--content <content>",
+            "long": "--content",
+            "name": "content",
+            "attribute": "content",
+            "description": "update content (convention)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--name <name>",
+            "long": "--name",
+            "name": "name",
+            "attribute": "name",
+            "description": "update name (pattern)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--description <description>",
+            "long": "--description",
+            "name": "description",
+            "attribute": "description",
+            "description": "update description",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--resolution <resolution>",
+            "long": "--resolution",
+            "name": "resolution",
+            "attribute": "resolution",
+            "description": "update resolution (failure)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--title <title>",
+            "long": "--title",
+            "name": "title",
+            "attribute": "title",
+            "description": "update title (decision)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--rationale <rationale>",
+            "long": "--rationale",
+            "name": "rationale",
+            "attribute": "rationale",
+            "description": "update rationale (decision)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--files <files>",
+            "long": "--files",
+            "name": "files",
+            "attribute": "files",
+            "description": "update related files (comma-separated)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--relates-to <ids>",
+            "long": "--relates-to",
+            "name": "relates-to",
+            "attribute": "relatesTo",
+            "description": "update linked record IDs (comma-separated)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--supersedes <ids>",
+            "long": "--supersedes",
+            "name": "supersedes",
+            "attribute": "supersedes",
+            "description": "update superseded record IDs (comma-separated)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--outcome-status <status>",
+            "long": "--outcome-status",
+            "name": "outcome-status",
+            "attribute": "outcomeStatus",
+            "description": "set outcome status",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "success",
+              "failure",
+              "partial"
+            ]
+          },
+          {
+            "flags": "--outcome-duration <ms>",
+            "long": "--outcome-duration",
+            "name": "outcome-duration",
+            "attribute": "outcomeDuration",
+            "description": "set outcome duration in milliseconds",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--outcome-test-results <text>",
+            "long": "--outcome-test-results",
+            "name": "outcome-test-results",
+            "attribute": "outcomeTestResults",
+            "description": "set outcome test results summary",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--outcome-agent <agent>",
+            "long": "--outcome-agent",
+            "name": "outcome-agent",
+            "attribute": "outcomeAgent",
+            "description": "set outcome agent name",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "edit v0.11.0 — Structured expertise management\n\nUsage: edit <command> [options]\n\nOptions:\n  --classification <classification>  update classification (choices: \"foundational\", \"tactical\", \"observational\")\n  --content <content>  update content (convention)\n  --name <name>       update name (pattern)\n  --description <description>  update description\n  --resolution <resolution>  update resolution (failure)\n  --title <title>     update title (decision)\n  --rationale <rationale>  update rationale (decision)\n  --files <files>     update related files (comma-separated)\n  --relates-to <ids>  update linked record IDs (comma-separated)\n  --supersedes <ids>  update superseded record IDs (comma-separated)\n  --outcome-status <status>  set outcome status (choices: \"success\", \"failure\", \"partial\")\n  --outcome-duration <ms>  set outcome duration in milliseconds\n  --outcome-test-results <text>  set outcome test results summary\n  --outcome-agent <agent>  set outcome agent name\n  -h, --help          display help for command\n\nRun 'edit <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "query",
+        "description": "Query expertise records",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": false,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--type <type>",
+            "long": "--type",
+            "name": "type",
+            "attribute": "type",
+            "description": "filter by record type",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--classification <classification>",
+            "long": "--classification",
+            "name": "classification",
+            "attribute": "classification",
+            "description": "filter by classification",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "foundational",
+              "tactical",
+              "observational"
+            ]
+          },
+          {
+            "flags": "--file <file>",
+            "long": "--file",
+            "name": "file",
+            "attribute": "file",
+            "description": "filter by associated file path (substring match)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--outcome-status <status>",
+            "long": "--outcome-status",
+            "name": "outcome-status",
+            "attribute": "outcomeStatus",
+            "description": "filter by outcome status",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "success",
+              "failure"
+            ]
+          },
+          {
+            "flags": "--sort-by-score",
+            "long": "--sort-by-score",
+            "name": "sort-by-score",
+            "attribute": "sortByScore",
+            "description": "sort results by confirmation-frequency score (highest first)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--all",
+            "long": "--all",
+            "name": "all",
+            "attribute": "all",
+            "description": "show all domains",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--format <format>",
+            "long": "--format",
+            "name": "format",
+            "attribute": "format",
+            "description": "output format for records",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "markdown",
+              "compact",
+              "xml",
+              "plain",
+              "ids"
+            ]
+          }
+        ],
+        "help": "query v0.11.0 — Structured expertise management\n\nUsage: query <command> [options]\n\nOptions:\n  --type <type>       filter by record type\n  --classification <classification>  filter by classification (choices: \"foundational\", \"tactical\", \"observational\")\n  --file <file>       filter by associated file path (substring match)\n  --outcome-status <status>  filter by outcome status (choices: \"success\", \"failure\")\n  --sort-by-score     sort results by confirmation-frequency score (highest first)\n  --all               show all domains\n  --format <format>   output format for records (choices: \"markdown\", \"compact\", \"xml\", \"plain\", \"ids\")\n  -h, --help          display help for command\n\nRun 'query <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "setup",
+        "description": "Set up luuna-atlas integration for a specific agent provider",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "provider",
+            "required": false,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--check",
+            "long": "--check",
+            "name": "check",
+            "attribute": "check",
+            "description": "verify provider integration is installed",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--remove",
+            "long": "--remove",
+            "name": "remove",
+            "attribute": "remove",
+            "description": "remove provider integration",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--hooks",
+            "long": "--hooks",
+            "name": "hooks",
+            "attribute": "hooks",
+            "description": "install a pre-commit git hook running luuna-atlas validate",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--list",
+            "long": "--list",
+            "name": "list",
+            "attribute": "list",
+            "description": "list discovered providers (built-in, .luuna/atlas/recipes/, luuna-atlas-recipe-* npm)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "setup v0.11.0 — Structured expertise management\n\nUsage: setup <command> [options]\n\nOptions:\n  --check             verify provider integration is installed\n  --remove            remove provider integration\n  --hooks             install a pre-commit git hook running luuna-atlas validate\n  --list              list discovered providers (built-in, .luuna/atlas/recipes/, luuna-atlas-recipe-* npm)\n  -h, --help          display help for command\n\nRun 'setup <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "prime",
+        "description": "Generate a priming prompt from expertise records",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domains",
+            "required": false,
+            "variadic": true
+          }
+        ],
+        "options": [
+          {
+            "flags": "--compact",
+            "long": "--compact",
+            "name": "compact",
+            "attribute": "compact",
+            "description": "alias for --format compact (the default: one-line index per record)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--full",
+            "long": "--full",
+            "name": "full",
+            "attribute": "full",
+            "description": "alias for --format markdown (full record bodies instead of the index)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--manifest",
+            "long": "--manifest",
+            "name": "manifest",
+            "attribute": "manifest",
+            "description": "emit a domain index instead of full records (for monolith projects)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--domain <domains...>",
+            "long": "--domain",
+            "name": "domain",
+            "attribute": "domain",
+            "description": "domain(s) to include",
+            "required": true,
+            "optional": false,
+            "variadic": true,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--exclude-domain <domains...>",
+            "long": "--exclude-domain",
+            "name": "exclude-domain",
+            "attribute": "excludeDomain",
+            "description": "domain(s) to exclude",
+            "required": true,
+            "optional": false,
+            "variadic": true,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--context",
+            "long": "--context",
+            "name": "context",
+            "attribute": "context",
+            "description": "filter records to only those relevant to changed files",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--files <paths...>",
+            "long": "--files",
+            "name": "files",
+            "attribute": "files",
+            "description": "filter records to only those relevant to specified files",
+            "required": true,
+            "optional": false,
+            "variadic": true,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--all",
+            "long": "--all",
+            "name": "all",
+            "attribute": "all",
+            "description": "opt out of auto-context-scope and emit the full corpus (full mode only; manifest mode is unaffected)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--export <path>",
+            "long": "--export",
+            "name": "export",
+            "attribute": "export",
+            "description": "export output to a file",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--budget <tokens>",
+            "long": "--budget",
+            "name": "budget",
+            "attribute": "budget",
+            "description": "token budget for output (default: 4000)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--no-limit",
+            "long": "--no-limit",
+            "name": "no-limit",
+            "attribute": "limit",
+            "description": "disable token budget limit",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": true,
+            "mandatory": false
+          },
+          {
+            "flags": "--records-only",
+            "long": "--records-only",
+            "name": "records-only",
+            "attribute": "recordsOnly",
+            "description": "emit only the record lines (no contract, quick reference, or session-close footer); for editor hooks",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--dry-run",
+            "long": "--dry-run",
+            "name": "dry-run",
+            "attribute": "dryRun",
+            "description": "emit JSON summary of records that would be primed (id, type, domain, tokens) without rendering content; respects --budget and skips pre-prime hooks",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "prime v0.11.0 — Structured expertise management\n\nUsage: prime <command> [options]\n\nOptions:\n  --compact           alias for --format compact (the default: one-line index per record)\n  --full              alias for --format markdown (full record bodies instead of the index)\n  --manifest          emit a domain index instead of full records (for monolith projects)\n  --domain <domains...>  domain(s) to include\n  --exclude-domain <domains...>  domain(s) to exclude\n  --context           filter records to only those relevant to changed files\n  --files <paths...>  filter records to only those relevant to specified files\n  --all               opt out of auto-context-scope and emit the full corpus (full mode only; manifest mode is unaffected)\n  --export <path>     export output to a file\n  --budget <tokens>   token budget for output (default: 4000)\n  --no-limit          disable token budget limit\n  --records-only      emit only the record lines (no contract, quick reference, or session-close footer); for editor hooks\n  --dry-run           emit JSON summary of records that would be primed (id, type, domain, tokens) without rendering content; respects --budget and skips pre-prime hooks\n  -h, --help          display help for command\n\nRun 'prime <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "hook",
+        "description": "Claude Code PreToolUse handler (installed by `luuna-atlas setup claude`): injects file-anchored records, denies hand edits of .luuna/atlas/expertise/*.jsonl; reads hook JSON on stdin",
+        "hidden": false,
+        "arguments": [],
+        "options": [],
+        "help": "hook v0.11.0 — Structured expertise management\n\nUsage: hook <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'hook <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "onboard",
+        "description": "Generate or update a CLAUDE.md/AGENTS.md snippet pointing to luuna-atlas prime",
+        "hidden": false,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--stdout",
+            "long": "--stdout",
+            "name": "stdout",
+            "attribute": "stdout",
+            "description": "print snippet to stdout instead of writing to file",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--provider <provider>",
+            "long": "--provider",
+            "name": "provider",
+            "attribute": "provider",
+            "description": "customize snippet for a specific provider (e.g. claude)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--check",
+            "long": "--check",
+            "name": "check",
+            "attribute": "check",
+            "description": "check if onboarding snippet is installed and up to date",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "onboard v0.11.0 — Structured expertise management\n\nUsage: onboard <command> [options]\n\nOptions:\n  --stdout            print snippet to stdout instead of writing to file\n  --provider <provider>  customize snippet for a specific provider (e.g. claude)\n  --check             check if onboarding snippet is installed and up to date\n  -h, --help          display help for command\n\nRun 'onboard <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "status",
+        "description": "Show status of expertise records",
+        "hidden": false,
+        "arguments": [],
+        "options": [],
+        "help": "status v0.11.0 — Structured expertise management\n\nUsage: status <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'status <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "validate",
+        "description": "Validate expertise records against schemas",
+        "hidden": false,
+        "arguments": [],
+        "options": [],
+        "help": "validate v0.11.0 — Structured expertise management\n\nUsage: validate <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'validate <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "prune",
+        "description": "Soft-archive (default) or hard-delete stale records, plus tier-demote superseded ones",
+        "hidden": false,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--dry-run",
+            "long": "--dry-run",
+            "name": "dry-run",
+            "attribute": "dryRun",
+            "description": "Show what would be pruned without removing",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          },
+          {
+            "flags": "--hard",
+            "long": "--hard",
+            "name": "hard",
+            "attribute": "hard",
+            "description": "Permanently delete stale records instead of moving them to .luuna/atlas/archive/",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          },
+          {
+            "flags": "--aggressive",
+            "long": "--aggressive",
+            "name": "aggressive",
+            "attribute": "aggressive",
+            "description": "Collapse superseded records straight to archived in one pass instead of one tier at a time",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          },
+          {
+            "flags": "--check-anchors",
+            "long": "--check-anchors",
+            "name": "check-anchors",
+            "attribute": "checkAnchors",
+            "description": "Demote records whose file/dir anchors no longer resolve (R-05f)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          },
+          {
+            "flags": "--explain",
+            "long": "--explain",
+            "name": "explain",
+            "attribute": "explain",
+            "description": "Print per-record reasons for each demotion (anchor list + decision)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          }
+        ],
+        "help": "prune v0.11.0 — Structured expertise management\n\nUsage: prune <command> [options]\n\nOptions:\n  --dry-run           Show what would be pruned without removing (default: false)\n  --hard              Permanently delete stale records instead of moving them to .luuna/atlas/archive/ (default: false)\n  --aggressive        Collapse superseded records straight to archived in one pass instead of one tier at a time (default: false)\n  --check-anchors     Demote records whose file/dir anchors no longer resolve (R-05f) (default: false)\n  --explain           Print per-record reasons for each demotion (anchor list + decision) (default: false)\n  -h, --help          display help for command\n\nRun 'prune <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "archive",
+        "description": "Soft-archive one or more live records (symmetric to `luuna-atlas restore`; pairs with `luuna-atlas prune` for bulk decay)",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": true,
+            "variadic": false
+          },
+          {
+            "name": "id",
+            "required": false,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--records <ids>",
+            "long": "--records",
+            "name": "records",
+            "attribute": "records",
+            "description": "comma-separated list of record IDs to archive",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--reason <text>",
+            "long": "--reason",
+            "name": "reason",
+            "attribute": "reason",
+            "description": "why this record is being archived (required, free-text)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": true
+          },
+          {
+            "flags": "--dry-run",
+            "long": "--dry-run",
+            "name": "dry-run",
+            "attribute": "dryRun",
+            "description": "preview what would be archived without making changes",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          }
+        ],
+        "help": "archive v0.11.0 — Structured expertise management\n\nUsage: archive <command> [options]\n\nOptions:\n  --records <ids>     comma-separated list of record IDs to archive\n  --reason <text>     why this record is being archived (required, free-text)\n  --dry-run           preview what would be archived without making changes (default: false)\n  -h, --help          display help for command\n\nRun 'archive <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "restore",
+        "description": "Restore a soft-archived record from .luuna/atlas/archive/ back to live expertise",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "id",
+            "required": true,
+            "variadic": false
+          }
+        ],
+        "options": [],
+        "help": "restore v0.11.0 — Structured expertise management\n\nUsage: restore <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'restore <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "search",
+        "description": "Search expertise records across domains",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "query",
+            "required": false,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--domain <domain>",
+            "long": "--domain",
+            "name": "domain",
+            "attribute": "domain",
+            "description": "limit search to a specific domain",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--type <type>",
+            "long": "--type",
+            "name": "type",
+            "attribute": "type",
+            "description": "filter by record type",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "convention",
+              "pattern",
+              "failure",
+              "decision",
+              "reference",
+              "guide"
+            ]
+          },
+          {
+            "flags": "--tag <tag>",
+            "long": "--tag",
+            "name": "tag",
+            "attribute": "tag",
+            "description": "filter by tag",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--classification <classification>",
+            "long": "--classification",
+            "name": "classification",
+            "attribute": "classification",
+            "description": "filter by classification",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "foundational",
+              "tactical",
+              "observational"
+            ]
+          },
+          {
+            "flags": "--file <file>",
+            "long": "--file",
+            "name": "file",
+            "attribute": "file",
+            "description": "filter by associated file path (substring match)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--outcome-status <status>",
+            "long": "--outcome-status",
+            "name": "outcome-status",
+            "attribute": "outcomeStatus",
+            "description": "filter by outcome status",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "success",
+              "failure",
+              "partial"
+            ]
+          },
+          {
+            "flags": "--sort-by-score",
+            "long": "--sort-by-score",
+            "name": "sort-by-score",
+            "attribute": "sortByScore",
+            "description": "sort results by confirmation-frequency score (highest first)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--no-boost",
+            "long": "--no-boost",
+            "name": "no-boost",
+            "attribute": "boost",
+            "description": "disable confirmation-frequency boost on BM25 ranking (pure BM25)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": true,
+            "mandatory": false
+          },
+          {
+            "flags": "--archived",
+            "long": "--archived",
+            "name": "archived",
+            "attribute": "archived",
+            "description": "include soft-archived records from .luuna/atlas/archive/ (excluded by default)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--format <format>",
+            "long": "--format",
+            "name": "format",
+            "attribute": "format",
+            "description": "output format for records",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "markdown",
+              "compact",
+              "xml",
+              "plain",
+              "ids"
+            ]
+          }
+        ],
+        "help": "search v0.11.0 — Structured expertise management\n\nUsage: search <command> [options]\n\nOptions:\n  --domain <domain>   limit search to a specific domain\n  --type <type>       filter by record type (choices: \"convention\", \"pattern\", \"failure\", \"decision\", \"reference\", \"guide\")\n  --tag <tag>         filter by tag\n  --classification <classification>  filter by classification (choices: \"foundational\", \"tactical\", \"observational\")\n  --file <file>       filter by associated file path (substring match)\n  --outcome-status <status>  filter by outcome status (choices: \"success\", \"failure\", \"partial\")\n  --sort-by-score     sort results by confirmation-frequency score (highest first)\n  --no-boost          disable confirmation-frequency boost on BM25 ranking (pure BM25)\n  --archived          include soft-archived records from .luuna/atlas/archive/ (excluded by default)\n  --format <format>   output format for records (choices: \"markdown\", \"compact\", \"xml\", \"plain\", \"ids\")\n  -h, --help          display help for command\n\nRun 'search <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "show",
+        "description": "Show full record bodies by ID (the detail behind `luuna-atlas prime`'s index)",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "ids",
+            "required": true,
+            "variadic": true
+          }
+        ],
+        "options": [],
+        "help": "show v0.11.0 — Structured expertise management\n\nUsage: show <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'show <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "stale",
+        "description": "List records that look stale: anchors changed since the evidence commit, missing anchors, or past shelf life unconfirmed",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domains",
+            "required": false,
+            "variadic": true
+          }
+        ],
+        "options": [],
+        "help": "stale v0.11.0 — Structured expertise management\n\nUsage: stale <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'stale <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "rank",
+        "description": "Rank records by confirmation-frequency score (highest first)",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": false,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--type <type>",
+            "long": "--type",
+            "name": "type",
+            "attribute": "type",
+            "description": "filter by record type",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "convention",
+              "pattern",
+              "failure",
+              "decision",
+              "reference",
+              "guide"
+            ]
+          },
+          {
+            "flags": "--limit <n>",
+            "long": "--limit",
+            "name": "limit",
+            "attribute": "limit",
+            "description": "return at most N records",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": "10"
+          },
+          {
+            "flags": "--min-score <n>",
+            "long": "--min-score",
+            "name": "min-score",
+            "attribute": "minScore",
+            "description": "exclude records whose confirmation score is below N (default: 0, i.e. include all)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": "0"
+          }
+        ],
+        "help": "rank v0.11.0 — Structured expertise management\n\nUsage: rank <command> [options]\n\nOptions:\n  --type <type>       filter by record type (choices: \"convention\", \"pattern\", \"failure\", \"decision\", \"reference\", \"guide\")\n  --limit <n>         return at most N records (default: \"10\")\n  --min-score <n>     exclude records whose confirmation score is below N (default: 0, i.e. include all) (default: \"0\")\n  -h, --help          display help for command\n\nRun 'rank <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "outcome",
+        "description": "Append an outcome to an existing expertise record",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": true,
+            "variadic": false
+          },
+          {
+            "name": "id",
+            "required": true,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--status <status>",
+            "long": "--status",
+            "name": "status",
+            "attribute": "status",
+            "description": "outcome status",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "choices": [
+              "success",
+              "failure",
+              "partial"
+            ]
+          },
+          {
+            "flags": "--duration <ms>",
+            "long": "--duration",
+            "name": "duration",
+            "attribute": "duration",
+            "description": "duration in milliseconds",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--agent <name>",
+            "long": "--agent",
+            "name": "agent",
+            "attribute": "agent",
+            "description": "agent name",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--notes <text>",
+            "long": "--notes",
+            "name": "notes",
+            "attribute": "notes",
+            "description": "notes about the outcome",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--test-results <text>",
+            "long": "--test-results",
+            "name": "test-results",
+            "attribute": "testResults",
+            "description": "test results summary",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "outcome v0.11.0 — Structured expertise management\n\nUsage: outcome <command> [options]\n\nOptions:\n  --status <status>   outcome status (choices: \"success\", \"failure\", \"partial\")\n  --duration <ms>     duration in milliseconds\n  --agent <name>      agent name\n  --notes <text>      notes about the outcome\n  --test-results <text>  test results summary\n  -h, --help          display help for command\n\nRun 'outcome <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "doctor",
+        "description": "Run health checks on expertise records",
+        "hidden": false,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--fix",
+            "long": "--fix",
+            "name": "fix",
+            "attribute": "fix",
+            "description": "auto-fix fixable issues",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "doctor v0.11.0 — Structured expertise management\n\nUsage: doctor <command> [options]\n\nOptions:\n  --fix               auto-fix fixable issues\n  -h, --help          display help for command\n\nRun 'doctor <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "ready",
+        "description": "Show recently added or updated expertise records",
+        "hidden": false,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--limit <n>",
+            "long": "--limit",
+            "name": "limit",
+            "attribute": "limit",
+            "description": "maximum number of records to show",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": "10"
+          },
+          {
+            "flags": "--domain <domain>",
+            "long": "--domain",
+            "name": "domain",
+            "attribute": "domain",
+            "description": "limit to a specific domain",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--since <duration>",
+            "long": "--since",
+            "name": "since",
+            "attribute": "since",
+            "description": "show records from the last duration (e.g. 24h, 7d, 2w)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "ready v0.11.0 — Structured expertise management\n\nUsage: ready <command> [options]\n\nOptions:\n  --limit <n>         maximum number of records to show (default: \"10\")\n  --domain <domain>   limit to a specific domain\n  --since <duration>  show records from the last duration (e.g. 24h, 7d, 2w)\n  -h, --help          display help for command\n\nRun 'ready <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "sync",
+        "description": "Validate, stage, and commit .luuna/atlas/ changes",
+        "hidden": false,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--message <message>",
+            "long": "--message",
+            "name": "message",
+            "attribute": "message",
+            "description": "custom commit message",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--no-validate",
+            "long": "--no-validate",
+            "name": "no-validate",
+            "attribute": "validate",
+            "description": "skip validation step",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": true,
+            "mandatory": false
+          }
+        ],
+        "help": "sync v0.11.0 — Structured expertise management\n\nUsage: sync <command> [options]\n\nOptions:\n  --message <message>  custom commit message\n  --no-validate       skip validation step\n  -h, --help          display help for command\n\nRun 'sync <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "delete",
+        "description": "Delete an expertise record or multiple records in bulk",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": true,
+            "variadic": false
+          },
+          {
+            "name": "id",
+            "required": false,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--records <ids>",
+            "long": "--records",
+            "name": "records",
+            "attribute": "records",
+            "description": "comma-separated list of record IDs to delete",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--all-except <ids>",
+            "long": "--all-except",
+            "name": "all-except",
+            "attribute": "allExcept",
+            "description": "delete all records except these comma-separated IDs",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--dry-run",
+            "long": "--dry-run",
+            "name": "dry-run",
+            "attribute": "dryRun",
+            "description": "preview what would be deleted without making changes",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          }
+        ],
+        "help": "delete v0.11.0 — Structured expertise management\n\nUsage: delete <command> [options]\n\nOptions:\n  --records <ids>     comma-separated list of record IDs to delete\n  --all-except <ids>  delete all records except these comma-separated IDs\n  --dry-run           preview what would be deleted without making changes (default: false)\n  -h, --help          display help for command\n\nRun 'delete <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "delete-domain",
+        "description": "Delete an expertise domain and its expertise file",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": true,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--yes",
+            "long": "--yes",
+            "name": "yes",
+            "attribute": "yes",
+            "description": "skip confirmation prompt",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--dry-run",
+            "long": "--dry-run",
+            "name": "dry-run",
+            "attribute": "dryRun",
+            "description": "preview what would be deleted without making changes",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          }
+        ],
+        "help": "delete-domain v0.11.0 — Structured expertise management\n\nUsage: delete-domain <command> [options]\n\nOptions:\n  --yes               skip confirmation prompt\n  --dry-run           preview what would be deleted without making changes (default: false)\n  -h, --help          display help for command\n\nRun 'delete-domain <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "move",
+        "description": "Move a record from one domain to another, preserving its ID and metadata",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "source-domain",
+            "required": true,
+            "variadic": false
+          },
+          {
+            "name": "id",
+            "required": true,
+            "variadic": false
+          },
+          {
+            "name": "target-domain",
+            "required": true,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--dry-run",
+            "long": "--dry-run",
+            "name": "dry-run",
+            "attribute": "dryRun",
+            "description": "preview the move without making changes",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          },
+          {
+            "flags": "--force",
+            "long": "--force",
+            "name": "force",
+            "attribute": "force",
+            "description": "bypass target domain's allowed_types gate (required_fields still enforced)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": false
+          }
+        ],
+        "help": "move v0.11.0 — Structured expertise management\n\nUsage: move <command> [options]\n\nOptions:\n  --dry-run           preview the move without making changes (default: false)\n  --force             bypass target domain's allowed_types gate (required_fields still enforced) (default: false)\n  -h, --help          display help for command\n\nRun 'move <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "learn",
+        "description": "Show changed files and suggest domains for recording learnings",
+        "hidden": false,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--since <ref>",
+            "long": "--since",
+            "name": "since",
+            "attribute": "since",
+            "description": "git ref to diff against",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": "HEAD~1"
+          }
+        ],
+        "help": "learn v0.11.0 — Structured expertise management\n\nUsage: learn <command> [options]\n\nOptions:\n  --since <ref>       git ref to diff against (default: \"HEAD~1\")\n  -h, --help          display help for command\n\nRun 'learn <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "compact",
+        "description": "Compact records: analyze candidates or apply a compaction",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "domain",
+            "required": false,
+            "variadic": false
+          }
+        ],
+        "options": [
+          {
+            "flags": "--analyze",
+            "long": "--analyze",
+            "name": "analyze",
+            "attribute": "analyze",
+            "description": "show compaction candidates",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--apply",
+            "long": "--apply",
+            "name": "apply",
+            "attribute": "apply",
+            "description": "apply a compaction (replace records with summary)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--auto",
+            "long": "--auto",
+            "name": "auto",
+            "attribute": "auto",
+            "description": "automatically compact all candidates",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--dry-run",
+            "long": "--dry-run",
+            "name": "dry-run",
+            "attribute": "dryRun",
+            "description": "preview what --auto would do without writing (use with --auto)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--min-group <size>",
+            "long": "--min-group",
+            "name": "min-group",
+            "attribute": "minGroup",
+            "description": "minimum group size for auto-compaction (default: 5)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": "5"
+          },
+          {
+            "flags": "--max-records <count>",
+            "long": "--max-records",
+            "name": "max-records",
+            "attribute": "maxRecords",
+            "description": "maximum records to compact in one run (default: 50)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": "50"
+          },
+          {
+            "flags": "--yes",
+            "long": "--yes",
+            "name": "yes",
+            "attribute": "yes",
+            "description": "skip confirmation prompts (use with --auto)",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--records <ids>",
+            "long": "--records",
+            "name": "records",
+            "attribute": "records",
+            "description": "comma-separated record IDs to compact",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--type <type>",
+            "long": "--type",
+            "name": "type",
+            "attribute": "type",
+            "description": "record type for the replacement",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--name <name>",
+            "long": "--name",
+            "name": "name",
+            "attribute": "name",
+            "description": "name for replacement (pattern/reference/guide)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--title <title>",
+            "long": "--title",
+            "name": "title",
+            "attribute": "title",
+            "description": "title for replacement (decision)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--description <description>",
+            "long": "--description",
+            "name": "description",
+            "attribute": "description",
+            "description": "description for replacement",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--content <content>",
+            "long": "--content",
+            "name": "content",
+            "attribute": "content",
+            "description": "content for replacement (convention)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--resolution <resolution>",
+            "long": "--resolution",
+            "name": "resolution",
+            "attribute": "resolution",
+            "description": "resolution for replacement (failure)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--rationale <rationale>",
+            "long": "--rationale",
+            "name": "rationale",
+            "attribute": "rationale",
+            "description": "rationale for replacement (decision)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "compact v0.11.0 — Structured expertise management\n\nUsage: compact <command> [options]\n\nOptions:\n  --analyze           show compaction candidates\n  --apply             apply a compaction (replace records with summary)\n  --auto              automatically compact all candidates\n  --dry-run           preview what --auto would do without writing (use with --auto)\n  --min-group <size>  minimum group size for auto-compaction (default: 5) (default: \"5\")\n  --max-records <count>  maximum records to compact in one run (default: 50) (default: \"50\")\n  --yes               skip confirmation prompts (use with --auto)\n  --records <ids>     comma-separated record IDs to compact\n  --type <type>       record type for the replacement\n  --name <name>       name for replacement (pattern/reference/guide)\n  --title <title>     title for replacement (decision)\n  --description <description>  description for replacement\n  --content <content>  content for replacement (convention)\n  --resolution <resolution>  resolution for replacement (failure)\n  --rationale <rationale>  rationale for replacement (decision)\n  -h, --help          display help for command\n\nRun 'compact <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "config",
+        "description": "Read and write .luuna/atlas/config.yaml",
+        "hidden": false,
+        "arguments": [],
+        "options": [],
+        "help": "config v0.11.0 — Structured expertise management\n\nUsage: config <command> [options]\n\nCommands:\n  schema              Emit AtlasConfig JSON Schema for schema-driven configuration UIs\n  show [options]      Emit the effective AtlasConfig as JSON. Pass --path to read a single knob; falls back to the schema default when the knob is unset.\n  set <path> <value>  Set a config knob via dot-notation path. <value> is YAML-parsed (so booleans, numbers, lists, and objects all work uniformly). The full resulting config is validated against the schema before atomic write under a file lock; invalid values are rejected with a schema-referenced error. Last-writer-wins semantics under concurrent writes — re-read via `luuna-atlas config show` after every write.\n  unset <path>        Remove a config knob via dot-notation path so subsequent reads fall back to the schema default. Empty parent objects along the unset path are pruned when the schema allows the parent to be omitted; required-field removals are rejected with a schema-referenced error (use `luuna-atlas config set` to override). Idempotent — unsetting a never-set path is a silent no-op. Atomic write under a file lock.\n  help [command]      display help for command\n\nOptions:\n  -h, --help          display help for command\n\nRun 'config <command> --help' for command-specific help.\n",
+        "commands": [
+          {
+            "name": "schema",
+            "description": "Emit AtlasConfig JSON Schema for schema-driven configuration UIs",
+            "hidden": false,
+            "arguments": [],
+            "options": [],
+            "help": "schema v0.11.0 — Structured expertise management\n\nUsage: schema <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'schema <command> --help' for command-specific help.\n",
+            "commands": []
+          },
+          {
+            "name": "show",
+            "description": "Emit the effective AtlasConfig as JSON. Pass --path to read a single knob; falls back to the schema default when the knob is unset.",
+            "hidden": false,
+            "arguments": [],
+            "options": [
+              {
+                "flags": "--path <path>",
+                "long": "--path",
+                "name": "path",
+                "attribute": "path",
+                "description": "Dot-notation path to a single knob (e.g. governance.max_entries, search.boost_factor)",
+                "required": true,
+                "optional": false,
+                "variadic": false,
+                "negate": false,
+                "mandatory": false
+              }
+            ],
+            "help": "show v0.11.0 — Structured expertise management\n\nUsage: show <command> [options]\n\nOptions:\n  --path <path>       Dot-notation path to a single knob (e.g. governance.max_entries, search.boost_factor)\n  -h, --help          display help for command\n\nRun 'show <command> --help' for command-specific help.\n",
+            "commands": []
+          },
+          {
+            "name": "set",
+            "description": "Set a config knob via dot-notation path. <value> is YAML-parsed (so booleans, numbers, lists, and objects all work uniformly). The full resulting config is validated against the schema before atomic write under a file lock; invalid values are rejected with a schema-referenced error. Last-writer-wins semantics under concurrent writes — re-read via `luuna-atlas config show` after every write.",
+            "hidden": false,
+            "arguments": [
+              {
+                "name": "path",
+                "required": true,
+                "variadic": false
+              },
+              {
+                "name": "value",
+                "required": true,
+                "variadic": false
+              }
+            ],
+            "options": [],
+            "help": "set v0.11.0 — Structured expertise management\n\nUsage: set <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'set <command> --help' for command-specific help.\n",
+            "commands": []
+          },
+          {
+            "name": "unset",
+            "description": "Remove a config knob via dot-notation path so subsequent reads fall back to the schema default. Empty parent objects along the unset path are pruned when the schema allows the parent to be omitted; required-field removals are rejected with a schema-referenced error (use `luuna-atlas config set` to override). Idempotent — unsetting a never-set path is a silent no-op. Atomic write under a file lock.",
+            "hidden": false,
+            "arguments": [
+              {
+                "name": "path",
+                "required": true,
+                "variadic": false
+              }
+            ],
+            "options": [],
+            "help": "unset v0.11.0 — Structured expertise management\n\nUsage: unset <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'unset <command> --help' for command-specific help.\n",
+            "commands": []
+          }
+        ]
+      },
+      {
+        "name": "diff",
+        "description": "Show expertise record changes since a git ref",
+        "hidden": false,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--since <ref>",
+            "long": "--since",
+            "name": "since",
+            "attribute": "since",
+            "description": "git ref to diff against",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false,
+            "default": "HEAD~1"
+          }
+        ],
+        "help": "diff v0.11.0 — Structured expertise management\n\nUsage: diff <command> [options]\n\nOptions:\n  --since <ref>       git ref to diff against (default: \"HEAD~1\")\n  -h, --help          display help for command\n\nRun 'diff <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "update",
+        "description": "Deprecated: use 'upgrade' instead",
+        "hidden": true,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--check",
+            "long": "--check",
+            "name": "check",
+            "attribute": "check",
+            "description": "only check for updates, do not install",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "update v0.11.0 — Structured expertise management\n\nUsage: update <command> [options]\n\nOptions:\n  --check             only check for updates, do not install\n  -h, --help          display help for command\n\nRun 'update <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "upgrade",
+        "description": "Upgrade Luuna Atlas after publication",
+        "hidden": false,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--check",
+            "long": "--check",
+            "name": "check",
+            "attribute": "check",
+            "description": "Check for updates without installing",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "upgrade v0.11.0 — Structured expertise management\n\nUsage: upgrade <command> [options]\n\nOptions:\n  --check             Check for updates without installing\n  -h, --help          display help for command\n\nRun 'upgrade <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "completions",
+        "description": "Output shell completion script (bash, zsh, fish)",
+        "hidden": false,
+        "arguments": [
+          {
+            "name": "shell",
+            "required": true,
+            "variadic": false
+          }
+        ],
+        "options": [],
+        "help": "completions v0.11.0 — Structured expertise management\n\nUsage: completions <command> [options]\n\nOptions:\n  -h, --help          display help for command\n\nRun 'completions <command> --help' for command-specific help.\n",
+        "commands": []
+      },
+      {
+        "name": "audit",
+        "description": "Audit corpus health (evidence coverage, rule density, floaters, per-domain mix)",
+        "hidden": false,
+        "arguments": [],
+        "options": [
+          {
+            "flags": "--ci",
+            "long": "--ci",
+            "name": "ci",
+            "attribute": "ci",
+            "description": "Exit 1 if any signal is in FAIL band; output JSON",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--suggest",
+            "long": "--suggest",
+            "name": "suggest",
+            "attribute": "suggest",
+            "description": "Emit specific record IDs to archive/revise/attribute",
+            "required": false,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--domain <name>",
+            "long": "--domain",
+            "name": "domain",
+            "attribute": "domain",
+            "description": "Scope all metrics to one domain",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          },
+          {
+            "flags": "--ignore-domains <list>",
+            "long": "--ignore-domains",
+            "name": "ignore-domains",
+            "attribute": "ignoreDomains",
+            "description": "Comma-separated domain names excluded from audit (merged with audit.ignore_domains from config)",
+            "required": true,
+            "optional": false,
+            "variadic": false,
+            "negate": false,
+            "mandatory": false
+          }
+        ],
+        "help": "audit v0.11.0 — Structured expertise management\n\nUsage: audit <command> [options]\n\nOptions:\n  --ci                Exit 1 if any signal is in FAIL band; output JSON\n  --suggest           Emit specific record IDs to archive/revise/attribute\n  --domain <name>     Scope all metrics to one domain\n  --ignore-domains <list>  Comma-separated domain names excluded from audit (merged with audit.ignore_domains from config)\n  -h, --help          display help for command\n\nRun 'audit <command> --help' for command-specific help.\n",
+        "commands": []
+      }
+    ]
+  },
+  "configSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Atlas Configuration",
+    "description": "Schema for .luuna/atlas/config.yaml. Mirrors the AtlasConfig TypeScript interface in src/schemas/config.ts. Consumers (e.g. the Luuna desktop) render generic configuration UIs against this schema via `luuna-atlas config schema --json`.",
+    "type": "object",
+    "required": [
+      "version",
+      "domains",
+      "governance",
+      "classification_defaults"
+    ],
+    "properties": {
+      "version": {
+        "type": "string",
+        "title": "Config version",
+        "description": "Schema version of the on-disk config. Bumped only when the shape changes in a backwards-incompatible way.",
+        "default": "1"
+      },
+      "domains": {
+        "type": "object",
+        "title": "Domains",
+        "description": "Per-domain configuration keyed by domain name. Empty object is valid (a fresh project starts with no declared domains; `luuna-atlas record` auto-creates them).",
+        "additionalProperties": {
+          "type": "object",
+          "title": "Domain configuration",
+          "description": "Per-domain rules. Empty/missing fields preserve back-compat (any registered type accepted, no extra required fields).",
+          "properties": {
+            "allowed_types": {
+              "type": "array",
+              "title": "Allowed record types",
+              "description": "Gates `--type` on write for this domain. Empty/missing means all registered types are allowed. `disabled_types` wins over `allowed_types` on overlap so retiring a type does not hard-fail peers.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required_fields": {
+              "type": "array",
+              "title": "Required top-level fields",
+              "description": "Additional top-level fields every record in this domain must carry, on top of the per-type schema requirements.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "default": {}
+      },
+      "governance": {
+        "type": "object",
+        "title": "Governance limits",
+        "description": "Per-domain record-count thresholds. Atlas warns at `warn_entries` and refuses writes past `hard_limit` (configurable per project).",
+        "properties": {
+          "max_entries": {
+            "type": "integer",
+            "title": "Soft target",
+            "description": "Soft target for records per domain. Status reports flag domains above this number; writes are not blocked.",
+            "minimum": 1,
+            "default": 100
+          },
+          "warn_entries": {
+            "type": "integer",
+            "title": "Warn threshold",
+            "description": "Threshold at which `luuna-atlas record` prints a 'consider compacting' warning.",
+            "minimum": 1,
+            "default": 150
+          },
+          "hard_limit": {
+            "type": "integer",
+            "title": "Hard limit",
+            "description": "Maximum records per domain. Writes past this number are refused.",
+            "minimum": 1,
+            "default": 200
+          }
+        },
+        "required": [
+          "max_entries",
+          "warn_entries",
+          "hard_limit"
+        ],
+        "additionalProperties": false
+      },
+      "classification_defaults": {
+        "type": "object",
+        "title": "Classification defaults",
+        "description": "Shelf-life windows (in days) for time-bound record classifications.",
+        "properties": {
+          "shelf_life": {
+            "type": "object",
+            "title": "Shelf life (days)",
+            "description": "How long records of each classification remain in primary expertise before `luuna-atlas prune` considers them stale. `foundational` records are permanent and are not listed here.",
+            "properties": {
+              "tactical": {
+                "type": "integer",
+                "title": "Tactical shelf life",
+                "description": "Days a tactical record remains live before becoming prune-eligible.",
+                "minimum": 1,
+                "default": 14
+              },
+              "observational": {
+                "type": "integer",
+                "title": "Observational shelf life",
+                "description": "Days an observational record remains live before becoming prune-eligible.",
+                "minimum": 1,
+                "default": 30
+              }
+            },
+            "required": [
+              "tactical",
+              "observational"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "shelf_life"
+        ],
+        "additionalProperties": false
+      },
+      "prime": {
+        "type": "object",
+        "title": "Prime defaults",
+        "description": "Defaults applied when `luuna-atlas prime` is invoked without overriding flags.",
+        "properties": {
+          "default_mode": {
+            "type": "string",
+            "title": "Default prime mode",
+            "description": "`full` (the default) emits the budget-capped record index, failures first; `manifest` emits a quick reference + per-domain counts instead of records.",
+            "enum": [
+              "manifest",
+              "full"
+            ],
+            "default": "full"
+          },
+          "tier_weights": {
+            "type": "object",
+            "title": "Trust-tier ranking weights",
+            "description": "Per-record sort score = stars * `star` + classification weight. Override only the knobs you want to retune; unset fields keep their default. Higher scores surface first.",
+            "properties": {
+              "star": {
+                "type": "number",
+                "title": "Star weight",
+                "description": "Multiplier applied to a record's confirmation-score (★ count from outcomes).",
+                "minimum": 0,
+                "default": 100
+              },
+              "foundational": {
+                "type": "number",
+                "title": "Foundational weight",
+                "description": "Base score added to every foundational record.",
+                "minimum": 0,
+                "default": 50
+              },
+              "tactical": {
+                "type": "number",
+                "title": "Tactical weight",
+                "description": "Base score added to every tactical record.",
+                "minimum": 0,
+                "default": 20
+              },
+              "observational": {
+                "type": "number",
+                "title": "Observational weight",
+                "description": "Base score added to every observational record.",
+                "minimum": 0,
+                "default": 10
+              }
+            },
+            "additionalProperties": false
+          },
+          "session_close": {
+            "type": "object",
+            "title": "Session-close footer",
+            "description": "Footer appended after `luuna-atlas prime` (and the embedded snippet emitted by `luuna-atlas setup` / `luuna-atlas onboard`). `style` selects a built-in preset; `custom` overrides the preset with verbatim prose.",
+            "properties": {
+              "style": {
+                "type": "string",
+                "title": "Preset style",
+                "description": "`directive` = numbered imperative + type glossary + anti-filler guardrails. `conditional` = the v0.10.0 'if you discovered…' reframe (default). `minimal` = one-line nudge. `none` = suppress the footer entirely.",
+                "enum": [
+                  "directive",
+                  "conditional",
+                  "minimal",
+                  "none"
+                ],
+                "default": "conditional"
+              },
+              "custom": {
+                "type": "string",
+                "title": "Custom override",
+                "description": "Verbatim prose to emit in place of the preset. Wins over `style` when both are set; the embedded variant (used by `luuna-atlas setup` / `luuna-atlas onboard`) is also overridden."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "search": {
+        "type": "object",
+        "title": "Search tuning",
+        "description": "Knobs that tune `luuna-atlas search` / `luuna-atlas rank` ranking.",
+        "properties": {
+          "boost_factor": {
+            "type": "number",
+            "title": "Confirmation boost factor",
+            "description": "Multiplier applied to BM25 scores via `applyConfirmationBoost`. 0 disables the boost.",
+            "minimum": 0,
+            "default": 0.1
+          }
+        },
+        "required": [
+          "boost_factor"
+        ],
+        "additionalProperties": false
+      },
+      "custom_types": {
+        "type": "object",
+        "title": "Custom record types",
+        "description": "Project-defined record types keyed by type name. Treated identically to built-ins by the registry (CLI flags, validation, dedup, formatters).",
+        "additionalProperties": {
+          "type": "object",
+          "title": "Custom record type",
+          "description": "Definition of a custom record type. May extend a built-in to inherit its required/optional fields, dedup_key, id_key, summary, compact strategy, section title, and file-extraction behavior — override only what differs; arrays merge as a union. Custom-from-custom is not supported.",
+          "properties": {
+            "extends": {
+              "type": "string",
+              "title": "Built-in to extend",
+              "description": "Name of a built-in type (convention, pattern, failure, decision, reference, guide). Custom-from-custom is rejected.",
+              "enum": [
+                "convention",
+                "pattern",
+                "failure",
+                "decision",
+                "reference",
+                "guide"
+              ]
+            },
+            "required": {
+              "type": "array",
+              "title": "Required fields",
+              "description": "Top-level fields a record of this type must carry.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "optional": {
+              "type": "array",
+              "title": "Optional fields",
+              "description": "Additional top-level fields a record of this type may carry.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "dedup_key": {
+              "type": "string",
+              "title": "Dedup key",
+              "description": "Field used to detect duplicates on write (e.g. 'name' or 'content')."
+            },
+            "id_key": {
+              "type": "string",
+              "title": "Display ID field",
+              "description": "Field used to render a record's identifying label in compact output."
+            },
+            "summary": {
+              "type": "string",
+              "title": "Summary template",
+              "description": "Compact-line summary template used by `luuna-atlas prime`."
+            },
+            "extracts_files": {
+              "type": "boolean",
+              "title": "Extracts files",
+              "description": "Whether records of this type carry a list of file anchors."
+            },
+            "files_field": {
+              "type": "string",
+              "title": "Files field name",
+              "description": "Field name that holds file anchors when extracts_files is true (e.g. 'files')."
+            },
+            "compact": {
+              "type": "string",
+              "title": "Compact strategy",
+              "description": "How `luuna-atlas compact` collapses duplicates of this type.",
+              "enum": [
+                "concat",
+                "merge_outcomes",
+                "keep_latest",
+                "manual"
+              ]
+            },
+            "section_title": {
+              "type": "string",
+              "title": "Section title",
+              "description": "Heading used when grouping this type in `luuna-atlas prime` output."
+            },
+            "aliases": {
+              "type": "object",
+              "title": "Field aliases",
+              "description": "Map canonical (current) field name to legacy aliases. Records on disk that carry a legacy field are rewritten to the canonical name at read time.",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "decay": {
+        "type": "object",
+        "title": "Decay knobs",
+        "description": "Configuration for tier-demotion behavior in `luuna-atlas prune`. Currently only `anchor_validity` is wired; `weight` is reserved for the future fitness blend.",
+        "properties": {
+          "anchor_validity": {
+            "type": "object",
+            "title": "Anchor-validity decay",
+            "description": "Tier-demotion knobs for `luuna-atlas prune --check-anchors`. A record decays one tier per pass when its file/dir anchors stop resolving and `valid_fraction` drops below `threshold`, provided the record is older than `grace_days`. Records with zero anchors are exempt (absence means 'applies globally').",
+            "properties": {
+              "threshold": {
+                "type": "number",
+                "title": "Validity threshold",
+                "description": "Demote when the fraction of resolving anchors drops below this value. Range: [0, 1].",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.5
+              },
+              "grace_days": {
+                "type": "integer",
+                "title": "Grace period (days)",
+                "description": "Records younger than this many days are exempt from anchor-validity decay so brand-new records can stabilize.",
+                "minimum": 0,
+                "default": 7
+              },
+              "weight": {
+                "type": "number",
+                "title": "Fitness weight",
+                "description": "Reserved for the future fitness blend (R-05g). Currently unused; safe to leave unset."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "audit": {
+        "type": "object",
+        "title": "Audit configuration",
+        "description": "Knobs for `luuna-atlas audit`. Global thresholds are merged on top of defaults; per-domain entries layer on top of the global thresholds for that domain only.",
+        "properties": {
+          "thresholds": {
+            "type": "object",
+            "title": "Audit thresholds",
+            "description": "PASS/WARN/FAIL bands for `luuna-atlas audit`. Below `_warn` is FAIL; between `_warn` and the primary threshold is WARN; meeting the primary threshold is PASS. Floater and stale knobs use a single PASS ceiling.",
+            "properties": {
+              "evidence_coverage": {
+                "type": "number",
+                "title": "Evidence coverage (PASS)",
+                "description": "PASS when ≥ this fraction of records carry any tracker (missions/gh/linear/bead) or commit evidence. Range: [0, 1].",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.5
+              },
+              "evidence_coverage_warn": {
+                "type": "number",
+                "title": "Evidence coverage (WARN)",
+                "description": "WARN when evidence coverage is between this value and `evidence_coverage`. Below this is FAIL. Range: [0, 1].",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.3
+              },
+              "floater_max": {
+                "type": "number",
+                "title": "Floater rate (PASS ceiling)",
+                "description": "PASS when the fraction of records without any tracker, relates_to, or commit evidence is ≤ this value. Above is WARN/FAIL.",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.2
+              },
+              "rule_density_min": {
+                "type": "number",
+                "title": "Convention rule-density (PASS)",
+                "description": "PASS when ≥ this fraction of convention records contain a rule-signal word (because, must not, avoid, always, never, …). Range: [0, 1].",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.25
+              },
+              "rule_density_warn": {
+                "type": "number",
+                "title": "Convention rule-density (WARN)",
+                "description": "WARN when rule-density is between this value and `rule_density_min`. Below this is FAIL. Range: [0, 1].",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.15
+              },
+              "max_records_per_domain": {
+                "type": "integer",
+                "title": "Records per domain (PASS ceiling)",
+                "description": "Informational ceiling on records per domain; auditors flag domains above this number. Distinct from `governance.hard_limit` which gates writes.",
+                "minimum": 1,
+                "default": 200
+              },
+              "max_stale": {
+                "type": "integer",
+                "title": "Stale records (PASS ceiling)",
+                "description": "Informational ceiling on stale (past-shelf-life) records per domain. PASS when ≤ this value.",
+                "minimum": 0,
+                "default": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "ignore_domains": {
+            "type": "array",
+            "title": "Domains excluded from audit",
+            "description": "Domains skipped entirely by `luuna-atlas audit` (e.g. reference-doc domains that are legitimately convention-heavy and evidence-light).",
+            "items": {
+              "type": "string"
+            }
+          },
+          "per_domain": {
+            "type": "object",
+            "title": "Per-domain threshold overrides",
+            "description": "Threshold overrides keyed by domain name. Partial overrides are merged on top of the global thresholds; keys not declared inherit the global value.",
+            "additionalProperties": {
+              "type": "object",
+              "title": "Audit thresholds",
+              "description": "PASS/WARN/FAIL bands for `luuna-atlas audit`. Below `_warn` is FAIL; between `_warn` and the primary threshold is WARN; meeting the primary threshold is PASS. Floater and stale knobs use a single PASS ceiling.",
+              "properties": {
+                "evidence_coverage": {
+                  "type": "number",
+                  "title": "Evidence coverage (PASS)",
+                  "description": "PASS when ≥ this fraction of records carry any tracker (missions/gh/linear/bead) or commit evidence. Range: [0, 1].",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.5
+                },
+                "evidence_coverage_warn": {
+                  "type": "number",
+                  "title": "Evidence coverage (WARN)",
+                  "description": "WARN when evidence coverage is between this value and `evidence_coverage`. Below this is FAIL. Range: [0, 1].",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.3
+                },
+                "floater_max": {
+                  "type": "number",
+                  "title": "Floater rate (PASS ceiling)",
+                  "description": "PASS when the fraction of records without any tracker, relates_to, or commit evidence is ≤ this value. Above is WARN/FAIL.",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.2
+                },
+                "rule_density_min": {
+                  "type": "number",
+                  "title": "Convention rule-density (PASS)",
+                  "description": "PASS when ≥ this fraction of convention records contain a rule-signal word (because, must not, avoid, always, never, …). Range: [0, 1].",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.25
+                },
+                "rule_density_warn": {
+                  "type": "number",
+                  "title": "Convention rule-density (WARN)",
+                  "description": "WARN when rule-density is between this value and `rule_density_min`. Below this is FAIL. Range: [0, 1].",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.15
+                },
+                "max_records_per_domain": {
+                  "type": "integer",
+                  "title": "Records per domain (PASS ceiling)",
+                  "description": "Informational ceiling on records per domain; auditors flag domains above this number. Distinct from `governance.hard_limit` which gates writes.",
+                  "minimum": 1,
+                  "default": 200
+                },
+                "max_stale": {
+                  "type": "integer",
+                  "title": "Stale records (PASS ceiling)",
+                  "description": "Informational ceiling on stale (past-shelf-life) records per domain. PASS when ≤ this value.",
+                  "minimum": 0,
+                  "default": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "quality": {
+        "type": "object",
+        "title": "Record quality gate",
+        "description": "Write-time checks on `luuna-atlas record`: near-duplicates, conventions/patterns with no anchor or evidence, conventions that restate code. `level`: `warn` (default) prints and writes, `error` blocks unless --force, `off` skips. Exact duplicates are always blocked.",
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "warn",
+              "error",
+              "off"
+            ],
+            "default": "warn"
+          }
+        },
+        "additionalProperties": false
+      },
+      "disabled_types": {
+        "type": "array",
+        "title": "Disabled types",
+        "description": "Names of registered types (built-in or custom) that emit a deprecation warning on write. Reads still succeed; the type stays in CLI choices.",
+        "items": {
+          "type": "string"
+        }
+      },
+      "hooks": {
+        "type": "object",
+        "title": "Lifecycle hooks",
+        "description": "Ordered shell scripts invoked at each lifecycle event. Scripts receive the payload as JSON on stdin (with LUUNA_ATLAS_HOOK=1; cwd at project root). `pre-*` hooks block on non-zero exit; `post-*` hooks emit a warning. `pre-record`, `pre-prime`, and `pre-compact` may mutate the payload via stdout JSON; `pre-prune` is block-or-allow only.",
+        "properties": {
+          "pre-record": {
+            "type": "array",
+            "description": "Ordered shell commands invoked for this lifecycle event.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "post-record": {
+            "type": "array",
+            "description": "Ordered shell commands invoked for this lifecycle event.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pre-prime": {
+            "type": "array",
+            "description": "Ordered shell commands invoked for this lifecycle event.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pre-prune": {
+            "type": "array",
+            "description": "Ordered shell commands invoked for this lifecycle event.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pre-compact": {
+            "type": "array",
+            "description": "Ordered shell commands invoked for this lifecycle event.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "hook_settings": {
+        "type": "object",
+        "title": "Hook execution settings",
+        "description": "Per-hook execution settings.",
+        "properties": {
+          "timeout_ms": {
+            "type": "integer",
+            "title": "Hook timeout (ms)",
+            "description": "Maximum runtime per hook script. SIGKILL on timeout. Default is 5000ms.",
+            "minimum": 1,
+            "default": 5000
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "recordSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Atlas Expertise Record",
+    "description": "A single expertise record in a Atlas domain file",
+    "type": "object",
+    "definitions": {
+      "classification": {
+        "type": "string",
+        "enum": [
+          "foundational",
+          "tactical",
+          "observational"
+        ]
+      },
+      "evidence": {
+        "type": "object",
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "issue": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "bead": {
+            "type": "string"
+          },
+          "missions": {
+            "type": "string"
+          },
+          "seeds": {
+            "type": "string"
+          },
+          "gh": {
+            "type": "string"
+          },
+          "linear": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outcome": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failure",
+              "partial"
+            ]
+          },
+          "duration": {
+            "type": "number"
+          },
+          "test_results": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "recorded_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^mx-[0-9a-f]{4,8}$"
+          },
+          "type": {
+            "type": "string",
+            "const": "convention"
+          },
+          "content": {
+            "type": "string"
+          },
+          "classification": {
+            "$ref": "#/definitions/classification"
+          },
+          "recorded_at": {
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/definitions/evidence"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "relates_to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "supersedes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/outcome"
+            }
+          },
+          "dir_anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersession_demoted_at": {
+            "type": "string"
+          },
+          "anchor_decay_demoted_at": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "content",
+          "classification",
+          "recorded_at"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^mx-[0-9a-f]{4,8}$"
+          },
+          "type": {
+            "type": "string",
+            "const": "pattern"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "classification": {
+            "$ref": "#/definitions/classification"
+          },
+          "recorded_at": {
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/definitions/evidence"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "relates_to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "supersedes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/outcome"
+            }
+          },
+          "dir_anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersession_demoted_at": {
+            "type": "string"
+          },
+          "anchor_decay_demoted_at": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "description",
+          "classification",
+          "recorded_at"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^mx-[0-9a-f]{4,8}$"
+          },
+          "type": {
+            "type": "string",
+            "const": "failure"
+          },
+          "description": {
+            "type": "string"
+          },
+          "resolution": {
+            "type": "string"
+          },
+          "classification": {
+            "$ref": "#/definitions/classification"
+          },
+          "recorded_at": {
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/definitions/evidence"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "relates_to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "supersedes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/outcome"
+            }
+          },
+          "dir_anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersession_demoted_at": {
+            "type": "string"
+          },
+          "anchor_decay_demoted_at": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "description",
+          "resolution",
+          "classification",
+          "recorded_at"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^mx-[0-9a-f]{4,8}$"
+          },
+          "type": {
+            "type": "string",
+            "const": "decision"
+          },
+          "title": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "classification": {
+            "$ref": "#/definitions/classification"
+          },
+          "recorded_at": {
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/definitions/evidence"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "relates_to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "supersedes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/outcome"
+            }
+          },
+          "dir_anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersession_demoted_at": {
+            "type": "string"
+          },
+          "anchor_decay_demoted_at": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "rationale",
+          "classification",
+          "recorded_at"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^mx-[0-9a-f]{4,8}$"
+          },
+          "type": {
+            "type": "string",
+            "const": "reference"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "classification": {
+            "$ref": "#/definitions/classification"
+          },
+          "recorded_at": {
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/definitions/evidence"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "relates_to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "supersedes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/outcome"
+            }
+          },
+          "dir_anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersession_demoted_at": {
+            "type": "string"
+          },
+          "anchor_decay_demoted_at": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "description",
+          "classification",
+          "recorded_at"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^mx-[0-9a-f]{4,8}$"
+          },
+          "type": {
+            "type": "string",
+            "const": "guide"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "classification": {
+            "$ref": "#/definitions/classification"
+          },
+          "recorded_at": {
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/definitions/evidence"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "relates_to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "supersedes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^([a-z0-9-]+:)?mx-[0-9a-f]{4,8}$"
+            }
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/outcome"
+            }
+          },
+          "dir_anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersession_demoted_at": {
+            "type": "string"
+          },
+          "anchor_decay_demoted_at": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "deprecated"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "description",
+          "classification",
+          "recorded_at"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  }
+}

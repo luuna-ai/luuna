@@ -77,12 +77,23 @@ export function bunExecutable(root = repositoryRoot) {
   }
   return bun;
 }
+export function nativeExecutable(root = repositoryRoot, rebuild = false) {
+  const target = process.env.CARGO_TARGET_DIR ? resolve(root, process.env.CARGO_TARGET_DIR) : join(root, 'target');
+  const binary = join(target, 'debug', process.platform === 'win32' ? 'luuna-tui.exe' : 'luuna-tui');
+  if (rebuild) {
+    execFileSync('cargo', ['build', '--locked', '-p', 'luuna-tui'], { cwd: root, stdio: 'inherit' });
+  }
+  if (!existsSync(binary)) throw new Error('Native component binary missing; run npm run components:setup first');
+  return binary;
+}
+function nativeName(name) {
+  const normalized = name?.replace(/^luuna-/, '');
+  if (!componentNames.includes(normalized)) throw new Error(`Unknown component: ${name}`);
+  return normalized;
+}
 export function runComponent(name, args, options = {}) {
-  const root = options.root ?? repositoryRoot;
-  const component = manifest(root).components.find(item => item.cli.primary === name || item.path === `components/${name}`);
-  if (!component) throw new Error(`Unknown component: ${name}`);
-  const directory = verifyComponent(root, component, true);
-  return execFileSync(bunExecutable(root), [join(directory, component.cli.entrypoint), ...args], {
+  const binary = nativeExecutable(options.root ?? repositoryRoot);
+  return execFileSync(binary, [nativeName(name), ...args], {
     cwd: options.cwd ?? process.cwd(), env: options.env ?? process.env,
     encoding: 'utf8', timeout: 30_000, maxBuffer: 4 * 1024 * 1024,
   });
@@ -107,21 +118,18 @@ export function setupComponents(root = repositoryRoot) {
 }
 function main() {
   const [action, name, ...args] = process.argv.slice(2);
-  const data = manifest();
-  if (action === 'setup') {
-    setupComponents();
-  } else if (action === 'verify') {
-    for (const component of data.components) {
-      verifyComponent(repositoryRoot, component, true);
-      console.log(`${component.brand}: ${component.commit}`);
+  if (action === 'setup' || action === 'verify') {
+    const binary = nativeExecutable(repositoryRoot, true);
+    for (const component of componentNames) {
+      execFileSync(binary, [component, '--help'], { encoding: 'utf8', timeout: 30_000 });
+      console.log(`${component}: native Rust`);
     }
+  } else if (action === 'audit-legacy') {
+    for (const component of manifest().components) verifyComponent(repositoryRoot, component, true);
+  } else if (action === 'setup-legacy') {
+    setupComponents();
   } else if (action === 'run') {
-    const component = data.components.find(item => item.cli.primary === name || item.path === `components/${name}`);
-    if (!component) throw new Error(`Unknown component: ${name}`);
-    const directory = verifyComponent(repositoryRoot, component, true);
-    // Developer CLI use preserves stdin, live output, stderr and the tool's exit
-    // status. Only the programmatic JSON helper above imposes a capture deadline.
-    const child = spawnSync(bunExecutable(), [join(directory, component.cli.entrypoint),
+    const child = spawnSync(nativeExecutable(), [nativeName(name),
       ...(args[0] === '--' ? args.slice(1) : args)], {
       cwd: process.env.INIT_CWD ?? process.cwd(), env: process.env, stdio: 'inherit',
     });

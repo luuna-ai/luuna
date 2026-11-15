@@ -85,18 +85,22 @@ fn real_pty_keyboard_resize_and_terminal_cleanup() {
         let mut last_catalog_key = Instant::now();
         loop {
             let text = String::from_utf8_lossy(&captured.lock().unwrap()).into_owned();
+            let visible = luuna_tui::protocol::safe_text(&text);
             // Ratatui updates only changed cells: the title's initial 0 is replaced by
             // a cursor-addressed 61, so raw output need not contain one contiguous title.
-            if token_present && text.contains("start-session") && text.contains("doctor")
-                || !token_present && text.contains("Service token (hidden)")
+            // Cursor-addressed updates can split a word with ANSI sequences, and the
+            // narrow layout need not show the complete start-session label. Doctor is
+            // a catalog entry in both layouts; it is absent from the disconnected Home.
+            if token_present && visible.contains("doctor")
+                || !token_present && visible.contains("Service token (hidden)")
             {
                 break;
             }
             // The workbench now lands on Home. The unreachable fixture service settles
             // its read before F2 is admitted; drive the real function key to the catalog.
-            if text.contains("workspace health")
-                && last_catalog_key.elapsed() > Duration::from_millis(150)
-            {
+            // Home's title can itself be split across diff frames. Retry the key
+            // after startup without waiting for a contiguous raw-output title.
+            if token_present && last_catalog_key.elapsed() > Duration::from_millis(150) {
                 writer.write_all(b"\x1bOQ").unwrap();
                 writer.flush().unwrap();
                 last_catalog_key = Instant::now();

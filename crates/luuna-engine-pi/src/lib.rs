@@ -100,6 +100,39 @@ pub const PROVIDER_KEY_VARIABLES: [&str; 8] = [
     "OPENROUTER_API_KEY",
 ];
 
+/// Explicit opt-in only: the OAuth launcher uses this one provider's grant,
+/// while settings, extensions and session history remain isolated.
+pub const OAUTH_AUTH_FILE_VARIABLE: &str = "LUUNA_PI_AUTH_FILE";
+
+fn openai_oauth_at(path: &Path) -> Option<Value> {
+    if !path.is_absolute() || std::fs::metadata(path).ok()?.len() > 1024 * 1024 {
+        return None;
+    }
+    let data: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    let credential = data.get("openai")?;
+    (credential.get("type")?.as_str()? == "oauth"
+        && ["access", "refresh", "clientId"].iter().all(|name| {
+            credential
+                .get(name)
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.is_empty())
+        })
+        && credential.get("expires")?.is_number()
+        && credential
+            .get("scopes")?
+            .as_array()?
+            .iter()
+            .any(|scope| scope.as_str() == Some("chatgpt.tokens.use.direct")))
+    .then(|| credential.clone())
+}
+
+/// Presence only, not a provider-access assertion. A real model run verifies access.
+pub fn openai_oauth_configured() -> bool {
+    std::env::var_os(OAUTH_AUTH_FILE_VARIABLE)
+        .and_then(|path| openai_oauth_at(Path::new(&path)))
+        .is_some()
+}
+
 /// Names (never values) of provider credentials the child would receive from
 /// the current process environment, after alias resolution.
 pub fn configured_provider_keys() -> Vec<&'static str> {
@@ -114,7 +147,7 @@ pub fn configured_provider_keys() -> Vec<&'static str> {
 
 /// Values of every provider credential the child can receive, for redaction.
 fn credential_values() -> Vec<String> {
-    PROVIDER_KEY_VARIABLES
+    let mut values: Vec<String> = PROVIDER_KEY_VARIABLES
         .iter()
         .flat_map(|name| {
             [
@@ -124,7 +157,17 @@ fn credential_values() -> Vec<String> {
         })
         .flatten()
         .filter(|value| !value.is_empty())
-        .collect()
+        .collect();
+    if let Some(credential) = std::env::var_os(OAUTH_AUTH_FILE_VARIABLE)
+        .and_then(|path| openai_oauth_at(Path::new(&path)))
+    {
+        for name in ["access", "refresh"] {
+            if let Some(value) = credential.get(name).and_then(Value::as_str) {
+                values.push(value.to_owned());
+            }
+        }
+    }
+    values
 }
 
 #[derive(Debug, Error)]
@@ -1387,6 +1430,30 @@ async fn probe_version(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_oauth_store_selects_only_the_openai_grant_and_redacts_both_tokens() {
+        let path = std::env::temp_dir().join(format!("luuna-oauth-{}.json", std::process::id()));
+        let grant = json!({"type":"oauth","access":"fixture-access-value","refresh":"fixture-refresh-value",
+            "expires":12345,"clientId":"fixture-client","scopes":["chatgpt.tokens.use.direct"]});
+        std::fs::write(
+            &path,
+            json!({"openai":grant,"anthropic":{"type":"api_key","key":"unrelated"}}).to_string(),
+        )
+        .unwrap();
+        let selected = openai_oauth_at(&path).unwrap();
+        assert_eq!(selected, grant);
+        let known = ["access", "refresh"].map(|name| selected[name].as_str().unwrap().to_owned());
+        let redacted = redact_diagnostics("fixture-access-value fixture-refresh-value", &known);
+        assert!(!redacted.contains("fixture-access-value"));
+        assert!(!redacted.contains("fixture-refresh-value"));
+        std::fs::write(&path, r#"{"openai":{"type":"api_key","key":"unrelated"}}"#).unwrap();
+        assert!(openai_oauth_at(&path).is_none());
+        std::fs::write(&path, "not JSON").unwrap();
+        assert!(openai_oauth_at(&path).is_none());
+        std::fs::remove_file(path).unwrap();
+        assert!(openai_oauth_at(Path::new("relative/auth.json")).is_none());
+    }
 
     #[test]
     fn writer_profile_declares_tools_guard_and_prompt_while_demo_stays_tool_free() {

@@ -115,3 +115,11 @@ the workbench's service, and `tests/terminal_lifecycle.rs` and `tests/guide_pty.
 in a real PTY (ConPTY on Windows). The end-to-end harnesses are `node scripts/tui-smoke.mjs` and
 `node scripts/tui-native-audit.mjs` against a disposable synthetic runtime. These are fixture and
 local-host checks, not genuine-provider or other-platform evidence.
+
+## First-run setup and settings
+
+Run `lu init` interactively to prepare Luuna-owned pinned tools, enter a missing provider key without echo, start or connect to the runtime, and continue project setup. The default new credential is an OpenRouter key; an existing supported provider environment binding or explicitly configured Pi OAuth auth file is reused. Existing global tools and Pi sessions are preserved. Private credentials live outside repositories in the user configuration directory's `luuna/private` folder (0700 directory / 0600 credential file on Unix). Publication credentials remain optional.
+
+`lu config` shows the user settings path. For example, `lu config set keyboard_enhancement false` persists a change; Help also offers theme and keyboard toggles. Reopen the workbench to apply it. Project `.luuna/tui.json` files overlay only their listed settings, stopping at the checkout root. Invalid edits leave the user file unchanged.
+
+Before a baseline, the guide offers to stash staged, unstaged and untracked changes, or leave them alone and skip the baseline. The default is to leave them alone. Stashed work stays in Git until you restore it with `git stash pop`; Luuna never discards or automatically restores it.

@@ -8,6 +8,7 @@
 mod artifacts;
 mod authoring;
 mod beacon;
+pub mod cli;
 mod config;
 mod error;
 mod gofmt;
@@ -16,6 +17,7 @@ mod gofmt;
 mod gojson;
 mod gotime;
 mod model;
+mod owned_json;
 // `artifacts_file` is kept for the artifact commands of a later plan.
 #[allow(dead_code)]
 mod paths;
@@ -32,6 +34,7 @@ pub use beacon::{Beacon, Init};
 pub use error::BeaconError;
 pub use gotime::{Clock, SystemClock};
 pub use model::{Atlas, AtlasPrime, Prompt, Rule, Schema, Section};
+pub use owned_json::JsonValue;
 pub use payload::{Rendered, Validation};
 pub use prompts::{CreatePrompt, ListFilter, UpdatePrompt};
 pub use schemas::CreateSchema;

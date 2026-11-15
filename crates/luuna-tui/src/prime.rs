@@ -1182,6 +1182,44 @@ async fn run(
             g.finish(4, "skipped");
         } else {
             for repository in &repositories {
+                let registration = view
+                    .get("repositories")
+                    .items()
+                    .iter()
+                    .find(|row| row.get("repository_id").as_str() == Some(repository.as_str()));
+                if let Some(root) = registration
+                    .and_then(|row| row.get("local_path").as_str())
+                    .filter(|root| Path::new(root).is_dir())
+                {
+                    let root = Path::new(root);
+                    let changes =
+                        crate::setup::git(root, &["status", "--short", "--untracked-files=normal"])
+                            .await
+                            .map_err(|error| g.left_or(Failure::error(error.to_string())))?;
+                    if !changes.trim().is_empty() {
+                        g.face.panel("Uncommitted changes", &changes);
+                        let stash = g.face.choose("The baseline needs a clean checkout. How would you like to continue?", &[
+                            ("Stash changes and continue".to_string(), "saves staged, unstaged and untracked files; restore them later with git stash pop".to_string(), true),
+                            ("Leave my changes and skip this baseline".to_string(), "clean up in your Git client, then run the baseline again".to_string(), false),
+                        ], 1).await.map_err(|failure| g.left_or(failure))?;
+                        if !stash {
+                            continue;
+                        }
+                        crate::setup::git(
+                            root,
+                            &[
+                                "stash",
+                                "push",
+                                "--include-untracked",
+                                "--message",
+                                "Luuna setup: saved before baseline",
+                            ],
+                        )
+                        .await
+                        .map_err(|error| g.left_or(Failure::error(error.to_string())))?;
+                        g.note("Your changes are saved in Git's stash. Luuna will not restore or discard them automatically. Restore them later with git stash pop.");
+                    }
+                }
                 let started = g
                     .attempt(
                         "Baseline",

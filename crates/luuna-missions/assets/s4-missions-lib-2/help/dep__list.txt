@@ -1,0 +1,7 @@
+Usage: luuna-missions dep list [options] <issue>
+
+Show dependencies for an issue
+
+Options:
+  --json      Output as JSON
+  -h, --help  display help for command

@@ -1,14 +1,7 @@
-//! The component CLIs (Missions, Atlas, Beacon) run in a developer's checkout for the agents that
-//! open it directly: `init`, `onboard`, `setup claude` and `prime`. They are found where the
-//! launcher finds them (scripts/start-terminal.ps1: the independently installed checkouts beside
-//! Luuna) or, in a development checkout, at the pinned submodules under components/. They run with
-//! Bun's own executable (never a shell shim), no shell, the repository as working directory, a
-//! bounded time and output, and an environment without the runtime's URL or token. These are
-//! repo-local stores, separate from the runtime's private managed stores (ADR 0014, ADR 0028).
+//! Native component commands for the terminal guide.
+//! Atlas, Beacon and Missions use compiled Rust libraries.
+//! All command environments exclude the runtime connection URL and token.
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::time::Duration;
-use tokio::io::AsyncReadExt;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Component {
@@ -55,9 +48,6 @@ pub const COMPONENTS: [Component; 3] = [
     },
 ];
 
-const LIMIT: usize = 256 * 1024;
-const TIMEOUT: Duration = Duration::from_secs(60);
-
 /// The Luuna root this binary belongs to: the checkout (a development build under target/) or the
 /// directory the packaged executable sits in.
 pub fn install_root() -> PathBuf {
@@ -87,6 +77,7 @@ pub fn install_root() -> PathBuf {
 
 /// The Bun executable itself, never a shell shim: `LUUNA_BUN`, a `bun`/`bun.exe` on PATH, the
 /// executable behind npm's `bun.cmd` shim (node_modules/bun/bin), or ~/.bun/bin.
+#[cfg(test)]
 pub fn resolve_bun(
     env: &dyn Fn(&str) -> Option<String>,
     exists: &dyn Fn(&Path) -> bool,
@@ -145,30 +136,10 @@ pub trait Runner: Send + Sync {
 }
 
 /// The real runner over the located CLIs.
-pub struct ComponentRunner {
-    bun: PathBuf,
-    entries: Vec<(String, PathBuf)>,
-}
-
+pub struct ComponentRunner;
 impl ComponentRunner {
-    pub fn locate(root: &Path) -> ComponentRunner {
-        let env = |name: &str| std::env::var(name).ok();
-        let bun = resolve_bun(&env, &|p: &Path| p.is_file());
-        let mut entries = Vec::new();
-        for component in &COMPONENTS {
-            let candidates = [
-                root.parent().map(|p| p.join(component.directory)),
-                Some(root.join("components").join(component.name)),
-            ];
-            for directory in candidates.into_iter().flatten() {
-                let entry = directory.join(component.entry);
-                if entry.is_file() && directory.join("node_modules").exists() {
-                    entries.push((component.name.to_string(), entry));
-                    break;
-                }
-            }
-        }
-        ComponentRunner { bun, entries }
+    pub fn locate(_root: &Path) -> ComponentRunner {
+        ComponentRunner
     }
 }
 
@@ -197,11 +168,7 @@ fn strip_ansi(text: &str) -> String {
 
 impl Runner for ComponentRunner {
     fn available(&self) -> Vec<Component> {
-        COMPONENTS
-            .iter()
-            .filter(|c| self.entries.iter().any(|(n, _)| n == c.name))
-            .cloned()
-            .collect()
+        COMPONENTS.to_vec()
     }
     fn run<'a>(
         &'a self,
@@ -210,74 +177,50 @@ impl Runner for ComponentRunner {
         cwd: &'a str,
     ) -> crate::commands::Fut<'a, Outcome> {
         Box::pin(async move {
-            let Some((_, entry)) = self.entries.iter().find(|(n, _)| n == name) else {
-                return Outcome {
-                    code: 127,
-                    stdout: String::new(),
-                    stderr: format!("Luuna {name} is not installed."),
-                };
-            };
-            let mut command = tokio::process::Command::new(&self.bun);
-            command
-                .arg(entry)
-                .args(&args)
-                .current_dir(cwd)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true);
-            // The component never receives the runtime's connection.
-            for name in ["LUUNA_API_TOKEN", "LUUNA_URL"] {
-                command.env_remove(name);
-            }
-            for (key, _) in std::env::vars() {
-                if key.eq_ignore_ascii_case("LUUNA_API_TOKEN")
-                    || key.eq_ignore_ascii_case("LUUNA_URL")
-                {
-                    command.env_remove(key);
+            let env = std::env::vars()
+                .filter(|(k, _)| {
+                    !k.eq_ignore_ascii_case("LUUNA_API_TOKEN")
+                        && !k.eq_ignore_ascii_case("LUUNA_URL")
+                })
+                .chain([
+                    ("NO_COLOR".into(), "1".into()),
+                    ("FORCE_COLOR".into(), "0".into()),
+                ])
+                .collect();
+            let result = match name {
+                "missions" => {
+                    luuna_components::run_missions_native(Path::new(cwd), &args, env, Vec::new())
+                        .await
+                        .map(|o| (o.exit_code, o.stdout, o.stderr))
                 }
-            }
-            command.env("NO_COLOR", "1").env("FORCE_COLOR", "0");
-            #[cfg(windows)]
-            command.creation_flags(0x08000000);
-            let mut child = match command.spawn() {
-                Ok(child) => child,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    return Outcome {
-                        code: 1,
-                        stdout: String::new(),
-                        stderr: "Bun is not on PATH; install Bun 1.4 or set LUUNA_BUN.".into(),
-                    };
+                "atlas" => {
+                    luuna_components::run_atlas_native(Path::new(cwd), &args, env, Vec::new())
+                        .await
+                        .map(|o| (o.exit_code, o.stdout.into_bytes(), o.stderr.into_bytes()))
                 }
-                Err(error) => {
+                "beacon" => {
+                    luuna_components::run_beacon_native(Path::new(cwd), &args, env, Vec::new())
+                        .await
+                        .map(|o| (o.exit_code, o.stdout, o.stderr))
+                }
+                _ => {
                     return Outcome {
-                        code: 1,
+                        code: 127,
                         stdout: String::new(),
-                        stderr: error.to_string(),
+                        stderr: format!("Unknown component: {name}"),
                     }
                 }
             };
-            let mut stdout = child.stdout.take().unwrap();
-            let mut stderr = child.stderr.take().unwrap();
-            let read = async {
-                let (mut out, mut err) = (Vec::new(), Vec::new());
-                let _ = tokio::join!(
-                    async { (&mut stdout).take(LIMIT as u64).read_to_end(&mut out).await },
-                    async { (&mut stderr).take(LIMIT as u64).read_to_end(&mut err).await }
-                );
-                let status = child.wait().await;
-                (out, err, status)
-            };
-            match tokio::time::timeout(TIMEOUT, read).await {
-                Ok((out, err, status)) => Outcome {
-                    code: status.ok().and_then(|s| s.code()).unwrap_or(1),
-                    stdout: strip_ansi(&String::from_utf8_lossy(&out)),
-                    stderr: strip_ansi(&String::from_utf8_lossy(&err)),
+            match result {
+                Ok((code, stdout, stderr)) => Outcome {
+                    code,
+                    stdout: strip_ansi(&String::from_utf8_lossy(&stdout)),
+                    stderr: strip_ansi(&String::from_utf8_lossy(&stderr)),
                 },
-                Err(_) => Outcome {
+                Err(error) => Outcome {
                     code: 1,
                     stdout: String::new(),
-                    stderr: "The component did not finish within 60 seconds.".into(),
+                    stderr: format!("{error}\n"),
                 },
             }
         })
@@ -321,5 +264,107 @@ mod tests {
         let none = resolve_bun(&|_: &str| None, &|_: &Path| false);
         assert_eq!(none, PathBuf::from(exe));
         assert_eq!(strip_ansi("\u{1b}[32mok\u{1b}[0m"), "ok");
+    }
+}
+
+#[cfg(test)]
+mod native_missions_tests {
+    use super::*;
+    #[tokio::test]
+    async fn missing_install_still_exposes_native_missions() {
+        let root = tempfile::tempdir().unwrap();
+        let runner = ComponentRunner::locate(root.path());
+        assert!(runner.available().iter().any(|c| c.name == "missions"));
+        let cwd = root.path().to_str().unwrap();
+        let init = runner.run("missions", vec!["init".into()], cwd).await;
+        assert_eq!(init.code, 0, "{}", init.stderr);
+        let prime = runner
+            .run("missions", vec!["prime".into(), "--compact".into()], cwd)
+            .await;
+        assert_eq!(prime.code, 0, "{}", prime.stderr);
+        assert!(!prime.stdout.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod native_all_tests {
+    use super::*;
+    #[tokio::test]
+    async fn empty_install_runs_every_native_component() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = ComponentRunner::locate(dir.path());
+        assert_eq!(runner.available().len(), 3);
+        for name in ["atlas", "beacon", "missions"] {
+            let result = runner
+                .run(name, vec!["init".into()], dir.path().to_str().unwrap())
+                .await;
+            assert_eq!(result.code, 0, "{name}: {}", result.stderr);
+            assert!(dir
+                .path()
+                .join(format!(".luuna/{name}/config.yaml"))
+                .is_file());
+        }
+    }
+}
+
+/// Historical names emitted by component hooks and completions.
+pub fn component_alias(name: &str) -> Option<&'static str> {
+    #[cfg(windows)]
+    let normalized = name.to_ascii_lowercase();
+    #[cfg(windows)]
+    let name = normalized.as_str();
+    match name {
+        "luuna-atlas" | "atlas" | "lat" | "la" | "mulch" => Some("atlas"),
+        "luuna-beacon" | "beacon" | "lbc" | "lb" | "canopy" => Some("beacon"),
+        "luuna-missions" | "missions" | "lms" | "lm" | "seeds" => Some("missions"),
+        _ => None,
+    }
+}
+
+/// Native CLI streams preserve bytes, stderr and exit status, including piped stdin.
+pub async fn dispatch(name: &str, args: &[String]) -> i32 {
+    use std::io::{IsTerminal, Read, Write};
+    let result = async {
+        let mut input = Vec::new();
+        if !std::io::stdin().is_terminal() {
+            std::io::stdin()
+                .take(4 * 1024 * 1024 + 1)
+                .read_to_end(&mut input)?;
+        }
+        let cwd = std::env::current_dir()?;
+        let env = std::env::vars()
+            .filter(|(k, _)| {
+                !k.eq_ignore_ascii_case("LUUNA_API_TOKEN") && !k.eq_ignore_ascii_case("LUUNA_URL")
+            })
+            .collect();
+        let args = if args.is_empty() {
+            vec!["--help".into()]
+        } else {
+            args.to_vec()
+        };
+        let out = match name {
+            "atlas" => luuna_components::run_atlas_native(&cwd, &args, env, input)
+                .await
+                .map(|o| (o.exit_code, o.stdout.into_bytes(), o.stderr.into_bytes())),
+            "beacon" => luuna_components::run_beacon_native(&cwd, &args, env, input)
+                .await
+                .map(|o| (o.exit_code, o.stdout, o.stderr)),
+            "missions" => luuna_components::run_missions_native(&cwd, &args, env, input)
+                .await
+                .map(|o| (o.exit_code, o.stdout, o.stderr)),
+            _ => return Err(std::io::Error::other("Unknown component")),
+        }
+        .map_err(std::io::Error::other)?;
+        std::io::stdout().write_all(&out.1)?;
+        std::io::stderr().write_all(&out.2)?;
+        Ok::<_, std::io::Error>(out.0)
+    }
+    .await;
+    match result {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("Luuna component: {error}");
+            1
+        }
     }
 }
