@@ -1,4 +1,4 @@
-# ADR 0049: Luuna intent
+# ADR 0054: Luuna intent
 
 Date: 2026-11-15. Status: accepted under the owner's signed migration charter (step 2).
 
