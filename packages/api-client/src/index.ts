@@ -1428,6 +1428,24 @@ export function awaitsValidation(state: RunState): boolean {
   return state === "validating";
 }
 
+/** Native Roots records keep their original wire names and additional fields. */
+export interface IntentNode { id: string; kind: string; slug: string; status: string; author: string; createdAt: string; decidedBy?: string; [key: string]: unknown }
+export interface IntentEdge { id: string; from: string; to: string; rel: string; by: string; createdAt: string; [key: string]: unknown }
+export interface IntentProposal { id: string; kind: string; from?: string; to?: string; rel?: string | null; reason?: string; cites: { node: string; quote: string }[]; by: string; status: string; createdAt: string; decidedBy?: string; [key: string]: unknown }
+export interface IntentQuestion { id: string; node: string; text: string; by: string; status: string; createdAt: string; [key: string]: unknown }
+export interface IntentSettings { project: string; version: string; tier: number; agent_timeout_seconds: number; proposal_limit: number; sprout_limit: number; questions_per_session: number; proposal_ttl_days: number; sprout_ttl_days: number; view_write: boolean; flow_heading: boolean }
+export interface IntentView { settings: IntentSettings; nodes: IntentNode[]; edges: IntentEdge[] }
+export interface IntentHumanRequest { by: string }
+export interface IntentRejectRequest extends IntentHumanRequest { reason?: string }
+export interface IntentAcceptRequest extends IntentRejectRequest { rel?: string; keep?: string }
+export interface IntentDecision { id: string; action: string; proposals: IntentProposal[]; edge: IntentEdge | null; statusChanges: { node: string; from: string; to: string }[]; think: { node: string; guidance: string } | null }
+
+function intentHuman<T extends IntentHumanRequest>(request: T): T {
+  const by = request.by.trim();
+  if (!by || new TextEncoder().encode(by).length > 200 || by.startsWith("agent:") || by.startsWith("roots:") || by === "roots") throw new Error("Supply your explicit human name, at most 200 UTF-8 bytes; agent and Roots identities are refused.");
+  return { ...request, by };
+}
+
 export class LuunaClient {
   readonly baseUrl: string;
   private readonly token: string;
@@ -1772,6 +1790,31 @@ export class LuunaClient {
   renderPrompt(projectId: string, name: string, version: number, signal?: AbortSignal): Promise<RenderedPrompt> {
     if (!Number.isSafeInteger(version) || version < 1) throw new Error("Invalid prompt version.");
     return this.request(`/projects/${encodeURIComponent(projectId)}/prompts/${encodeURIComponent(name)}/render?version=${version}`, { signal });
+  }
+
+  showIntent(projectId: string, signal?: AbortSignal): Promise<IntentView> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/intent`, { signal });
+  }
+  initIntent(projectId: string, request: IntentHumanRequest, signal?: AbortSignal): Promise<IntentView> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/intent`, { method: "POST", body: JSON.stringify(intentHuman(request)), signal });
+  }
+  listIntentProposals(projectId: string, signal?: AbortSignal): Promise<IntentProposal[]> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/intent/proposals`, { signal });
+  }
+  listIntentQuestions(projectId: string, signal?: AbortSignal): Promise<IntentQuestion[]> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/intent/questions`, { signal });
+  }
+  listIntentSprouts(projectId: string, signal?: AbortSignal): Promise<IntentNode[]> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/intent/sprouts`, { signal });
+  }
+  acceptIntentProposal(projectId: string, proposalId: string, request: IntentAcceptRequest, signal?: AbortSignal): Promise<IntentDecision> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/intent/proposals/${encodeURIComponent(proposalId)}/accept`, { method: "POST", body: JSON.stringify(intentHuman(request)), signal });
+  }
+  rejectIntentProposal(projectId: string, proposalId: string, request: IntentRejectRequest, signal?: AbortSignal): Promise<IntentDecision> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/intent/proposals/${encodeURIComponent(proposalId)}/reject`, { method: "POST", body: JSON.stringify(intentHuman(request)), signal });
+  }
+  rejectIntentSprout(projectId: string, sproutId: string, request: IntentRejectRequest, signal?: AbortSignal): Promise<IntentNode> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/intent/sprouts/${encodeURIComponent(sproutId)}/reject`, { method: "POST", body: JSON.stringify(intentHuman(request)), signal });
   }
 
   listPlans(ticketId: string, signal?: AbortSignal): Promise<PlanRevision[]> {

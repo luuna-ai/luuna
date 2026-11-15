@@ -651,6 +651,186 @@
       ]
     },
     {
+      "id": "intent.show",
+      "title": "Show accepted intent",
+      "method": "GET",
+      "route": "/api/v1/projects/{id}/intent",
+      "client_method": "showIntent",
+      "desktop": "intent.show",
+      "tui": "intent-show",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "not_found",
+        "refused",
+        "internal"
+      ],
+      "required_by": [
+        "R02",
+        "docs/CURRENT-ARCHITECTURE.md#pi-and-maintained-components"
+      ]
+    },
+    {
+      "id": "intent.init",
+      "title": "Initialize intent",
+      "method": "POST",
+      "route": "/api/v1/projects/{id}/intent",
+      "client_method": "initIntent",
+      "desktop": "intent.init",
+      "tui": "intent-init",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "denied",
+        "not_found",
+        "refused",
+        "shutting_down",
+        "internal",
+        "client"
+      ],
+      "required_by": [
+        "R02",
+        "docs/CURRENT-ARCHITECTURE.md#pi-and-maintained-components"
+      ]
+    },
+    {
+      "id": "intent.proposals",
+      "title": "List pending intent proposals",
+      "method": "GET",
+      "route": "/api/v1/projects/{id}/intent/proposals",
+      "client_method": "listIntentProposals",
+      "desktop": "intent.proposals",
+      "tui": "intent-proposals",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "not_found",
+        "refused",
+        "internal"
+      ],
+      "required_by": [
+        "R02",
+        "docs/CURRENT-ARCHITECTURE.md#pi-and-maintained-components"
+      ]
+    },
+    {
+      "id": "intent.questions",
+      "title": "List intent questions",
+      "method": "GET",
+      "route": "/api/v1/projects/{id}/intent/questions",
+      "client_method": "listIntentQuestions",
+      "desktop": "intent.questions",
+      "tui": "intent-questions",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "not_found",
+        "refused",
+        "internal"
+      ],
+      "required_by": [
+        "R02",
+        "docs/CURRENT-ARCHITECTURE.md#pi-and-maintained-components"
+      ]
+    },
+    {
+      "id": "intent.sprouts",
+      "title": "List open sprouts",
+      "method": "GET",
+      "route": "/api/v1/projects/{id}/intent/sprouts",
+      "client_method": "listIntentSprouts",
+      "desktop": "intent.sprouts",
+      "tui": "intent-sprouts",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "not_found",
+        "refused",
+        "internal"
+      ],
+      "required_by": [
+        "R02",
+        "docs/CURRENT-ARCHITECTURE.md#pi-and-maintained-components"
+      ]
+    },
+    {
+      "id": "intent.proposals.accept",
+      "title": "Accept an intent proposal",
+      "method": "POST",
+      "route": "/api/v1/projects/{id}/intent/proposals/{proposal_id}/accept",
+      "client_method": "acceptIntentProposal",
+      "desktop": "intent.proposals.accept",
+      "tui": "intent-accept",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "denied",
+        "not_found",
+        "refused",
+        "shutting_down",
+        "internal",
+        "client"
+      ],
+      "required_by": [
+        "R02",
+        "docs/CURRENT-ARCHITECTURE.md#pi-and-maintained-components"
+      ]
+    },
+    {
+      "id": "intent.proposals.reject",
+      "title": "Reject an intent proposal",
+      "method": "POST",
+      "route": "/api/v1/projects/{id}/intent/proposals/{proposal_id}/reject",
+      "client_method": "rejectIntentProposal",
+      "desktop": "intent.proposals.reject",
+      "tui": "intent-reject",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "denied",
+        "not_found",
+        "refused",
+        "shutting_down",
+        "internal",
+        "client"
+      ],
+      "required_by": [
+        "R02",
+        "docs/CURRENT-ARCHITECTURE.md#pi-and-maintained-components"
+      ]
+    },
+    {
+      "id": "intent.sprouts.reject",
+      "title": "Reject an intent sprout",
+      "method": "POST",
+      "route": "/api/v1/projects/{id}/intent/sprouts/{sprout_id}/reject",
+      "client_method": "rejectIntentSprout",
+      "desktop": "intent.sprouts.reject",
+      "tui": "intent-reject-sprout",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "denied",
+        "not_found",
+        "refused",
+        "shutting_down",
+        "internal",
+        "client"
+      ],
+      "required_by": [
+        "R02",
+        "docs/CURRENT-ARCHITECTURE.md#pi-and-maintained-components"
+      ]
+    },
+    {
       "id": "tickets.create",
       "title": "Create a ticket through the project's authoritative source",
       "method": "POST",

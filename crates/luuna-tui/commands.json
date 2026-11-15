@@ -857,6 +857,207 @@
       }
     },
     {
+      "id": "intent.show",
+      "name": "intent-show",
+      "action": "Show accepted intent",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        }
+      ],
+      "flags": {},
+      "example": {
+        "args": [
+          "walkthrough"
+        ],
+        "flags": {}
+      }
+    },
+    {
+      "id": "intent.init",
+      "name": "intent-init",
+      "action": "Initialize intent",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        }
+      ],
+      "flags": {
+        "by": {
+          "description": "your explicit human name (default: developer)"
+        }
+      },
+      "example": {
+        "args": [
+          "walkthrough"
+        ],
+        "flags": {}
+      }
+    },
+    {
+      "id": "intent.proposals",
+      "name": "intent-proposals",
+      "action": "List pending intent proposals",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        }
+      ],
+      "flags": {},
+      "example": {
+        "args": [
+          "walkthrough"
+        ],
+        "flags": {}
+      }
+    },
+    {
+      "id": "intent.questions",
+      "name": "intent-questions",
+      "action": "List intent questions",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        }
+      ],
+      "flags": {},
+      "example": {
+        "args": [
+          "walkthrough"
+        ],
+        "flags": {}
+      }
+    },
+    {
+      "id": "intent.sprouts",
+      "name": "intent-sprouts",
+      "action": "List open sprouts",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        }
+      ],
+      "flags": {},
+      "example": {
+        "args": [
+          "walkthrough"
+        ],
+        "flags": {}
+      }
+    },
+    {
+      "id": "intent.proposals.accept",
+      "name": "intent-accept",
+      "action": "Accept an intent proposal",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        },
+        {
+          "name": "proposal",
+          "description": "Roots record id",
+          "prompt": "Roots record id"
+        }
+      ],
+      "flags": {
+        "by": {
+          "description": "your explicit human name (default: developer)"
+        },
+        "reason": {
+          "description": "reason for the decision"
+        },
+        "rel": {
+          "description": "relation for an edge proposal"
+        },
+        "keep": {
+          "description": "idea id kept by a merge"
+        }
+      },
+      "example": {
+        "args": [
+          "walkthrough",
+          "p-1"
+        ],
+        "flags": {}
+      }
+    },
+    {
+      "id": "intent.proposals.reject",
+      "name": "intent-reject",
+      "action": "Reject an intent proposal",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        },
+        {
+          "name": "proposal",
+          "description": "Roots record id",
+          "prompt": "Roots record id"
+        }
+      ],
+      "flags": {
+        "by": {
+          "description": "your explicit human name (default: developer)"
+        },
+        "reason": {
+          "description": "reason for the decision"
+        }
+      },
+      "example": {
+        "args": [
+          "walkthrough",
+          "p-1"
+        ],
+        "flags": {}
+      }
+    },
+    {
+      "id": "intent.sprouts.reject",
+      "name": "intent-reject-sprout",
+      "action": "Reject an intent sprout",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        },
+        {
+          "name": "sprout",
+          "description": "Roots record id",
+          "prompt": "Roots record id"
+        }
+      ],
+      "flags": {
+        "by": {
+          "description": "your explicit human name (default: developer)"
+        },
+        "reason": {
+          "description": "reason for the decision"
+        }
+      },
+      "example": {
+        "args": [
+          "walkthrough",
+          "r-1"
+        ],
+        "flags": {}
+      }
+    },
+    {
       "id": "tickets.create",
       "name": "create-ticket",
       "action": "Ticket creation",

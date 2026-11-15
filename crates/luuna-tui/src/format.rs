@@ -1436,6 +1436,12 @@ pub fn format(id: &str, value: &J, colour: bool) -> R<String> {
             Ok(format!("{}  version {}{}", s(f(prompt, "name")?), s(f(prompt, "version")?), if hash.truthy() { format!("  {}", s(hash)) } else { String::new() }))
         })?,
         "prompts.create" | "prompts.render" => format!("{}  version {}  {}\n{}", s(f(v, "name")?), s(f(v, "version")?), s(f(v, "hash")?), s(f(v, "body")?)),
+        "intent.show" | "intent.init" => format!("{}  tier {}  {} nodes  {} edges", s(f(f(v, "settings")?, "project")?), s(f(f(v, "settings")?, "tier")?), count(f(v, "nodes")?), count(f(v, "edges")?)),
+        "intent.proposals" | "intent.questions" | "intent.sprouts" => listed(v, "No pending intent records.", |r| {
+            Ok(format!("{}  {}  {}  {}", s(f(r, "id")?), or(o(r, "kind"), &or(o(r, "node"), &or(o(r, "slug"), ""))), s(f(r, "status")?), or(o(r, "by"), &or(o(r, "author"), ""))))
+        })?,
+        "intent.proposals.accept" | "intent.proposals.reject" => listed(f(v, "proposals")?, "No proposals decided.", |r| Ok(format!("{}  {}  {}", s(f(r, "id")?), s(f(r, "status")?), s(f(r, "decidedBy")?))))?,
+        "intent.sprouts.reject" => format!("{}  {}  {}", s(f(v, "id")?), s(f(v, "status")?), s(f(v, "decidedBy")?)),
         "tickets.create" | "tickets.show" | "tickets.reconcile" | "tickets.update" => format_ticket(v)?,
         "memory.update" => format!("{}  {}  {}\n  {}\n  provenance: {}", s(f(v, "id")?), s(f(v, "scope")?), s(f(v, "hash")?), s(f(v, "content")?), s(f(v, "provenance")?)),
         "memory.user.export" => {

@@ -1,4 +1,5 @@
 import { Button, Disclosure, ErrorBanner, Grid, Hint, Id, Section, StatusLine, Surface } from "@luuna/ui";
+import { IntentPanel } from "./Intent";
 import { AtlasMemory } from "./AtlasMemory";
 import { BeaconPrompts } from "./Prompts";
 import { useComponents } from "./useComponents";
@@ -22,6 +23,7 @@ export function ProjectComponents(props: ComponentsProps) {
         <StatusLine className="component-status">{loading ? "Refreshing component state…" : status?.reason ?? "Project components are not enabled."}</StatusLine>
         <Button variant="primary" disabled={!client || busy || loading || status === null} data-capability="components.enable" onClick={enable}>Enable project components</Button>
       </Surface>}
+    <IntentPanel client={client} projectId={projectId} />
     {status?.enabled && <>
       {status.workspace_path && <Disclosure section={false} className="component-location" summary="Component data location">
         <Id>{status.workspace_path}</Id>
