@@ -28,7 +28,7 @@ fn require_project_id(project_id: &str) -> Result<()> {
     }
 }
 
-fn is_link(metadata: &fs::Metadata) -> bool {
+pub(crate) fn is_link(metadata: &fs::Metadata) -> bool {
     let link = metadata.file_type().is_symlink();
     #[cfg(windows)]
     let link = {
@@ -39,7 +39,7 @@ fn is_link(metadata: &fs::Metadata) -> bool {
 }
 
 /// `Ok(None)` when `path` is absent; a link or the wrong type is refused.
-fn existing(path: &Path, directory: bool) -> Result<Option<fs::Metadata>> {
+pub(crate) fn existing(path: &Path, directory: bool) -> Result<Option<fs::Metadata>> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => {
             if is_link(&metadata) {
