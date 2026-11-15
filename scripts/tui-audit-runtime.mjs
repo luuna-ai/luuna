@@ -13,9 +13,9 @@ export const waitUntil = async (read, { timeout = 15000, delay = 100, message = 
   throw new Error(message);
 };
 
-export function toolEnvironment() {
-  const names = new Set(["PATH", "Path", "HOME", "USERPROFILE", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP", "SystemRoot", "SYSTEMROOT", "PATHEXT", "COMSPEC", "PYTHONIOENCODING", "CARGO_TARGET_DIR"]);
-  return Object.fromEntries(Object.entries(process.env).filter(([name]) => names.has(name)));
+export function toolEnvironment(env = process.env) {
+  const names = new Set(["PATH", "Path", "HOME", "USERPROFILE", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP", "SystemRoot", "SYSTEMROOT", "PATHEXT", "COMSPEC", "PYTHONIOENCODING", "CARGO_TARGET_DIR", "CARGO_HOME", "RUSTUP_HOME", "LUUNA_CONFIG_DIR", "XDG_CONFIG_HOME"]);
+  return Object.fromEntries(Object.entries(env).filter(([name]) => names.has(name)));
 }
 
 export class AuditRuntime {
