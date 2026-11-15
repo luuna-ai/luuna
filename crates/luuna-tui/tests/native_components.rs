@@ -1,7 +1,13 @@
 //! Installed component aliases and named dispatch need no checkout or runtime setup.
 use std::process::{Command, Stdio};
 fn run(cwd: &std::path::Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_luuna-tui"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_luuna-tui"));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW for native test fixtures.
+    }
+    command
         .args(args)
         .current_dir(cwd)
         .env_clear()
@@ -78,4 +84,43 @@ fn installed_alias_preserves_piped_input_and_never_loads_runtime_settings() {
     );
     assert!(stored.status.success());
     assert!(String::from_utf8_lossy(&stored.stdout).contains("Piped native memory"));
+}
+
+#[cfg(windows)]
+#[test]
+fn installed_exe_alias_uses_native_frontend_before_private_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let alias = dir.path().join("lat.exe");
+    std::fs::copy(env!("CARGO_BIN_EXE_luuna-tui"), &alias).unwrap();
+    let private = dir.path().join("private");
+    std::fs::create_dir(&private).unwrap();
+    std::fs::write(
+        private.join("environment.json"),
+        b"invalid private settings must not load",
+    )
+    .unwrap();
+    use std::os::windows::process::CommandExt;
+    for name in ["lat.exe", "LAT.EXE"] {
+        let out = Command::new(dir.path().join(name))
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .args(["--version", "--json"])
+            .current_dir(dir.path())
+            .env_clear()
+            .env("LUUNA_TUI_CONFIG", dir.path().join("tui.json"))
+            .env("PATH", dir.path().join("no-tools"))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(json["name"], "@luuna/atlas-cli");
+    }
+    assert_eq!(
+        std::fs::read(private.join("environment.json")).unwrap(),
+        b"invalid private settings must not load"
+    );
 }

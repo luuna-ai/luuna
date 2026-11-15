@@ -16,7 +16,7 @@ try {
   const project = join(fixture, 'project');
   mkdirSync(home); mkdirSync(project);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-    /^(PATH|SystemRoot|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|TMPDIR|LUUNA_BUN)$/i.test(key)));
+    /^(PATH|SystemRoot|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|TMPDIR|LUUNA_BUN|CARGO_TARGET_DIR)$/i.test(key)));
   Object.assign(env, { HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: home,
     NO_COLOR: '1', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(home, 'gitconfig'),
     GIT_TERMINAL_PROMPT: '0' });

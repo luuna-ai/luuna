@@ -150,3 +150,23 @@ async fn managed_terminal_refuses_raw_ipc_before_file_access() {
     assert!(matches!(out, Err(ComponentError::Protocol)));
     assert!(!d.path().join(".luuna").exists());
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn windows_ipc_environment_case_cannot_bypass_managed_admission() {
+    let d = tempfile::tempdir().unwrap();
+    for key in ["luuna_atlas_api_bridge", "LuUnA_AtLaS_ApI_BrIdGe"] {
+        let result = run_atlas_native(
+            d.path(),
+            &args(&["init"]),
+            BTreeMap::from([(key.into(), "1".into())]),
+            br#"{"op":"readExpertiseFile","path":"unadmitted.jsonl"}"#.to_vec(),
+        )
+        .await;
+        assert!(
+            matches!(result, Err(ComponentError::Protocol)),
+            "{key}: {result:?}"
+        );
+        assert!(!d.path().join(".luuna").exists());
+    }
+}

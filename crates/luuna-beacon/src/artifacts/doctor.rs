@@ -12,7 +12,6 @@ use crate::store;
 use crate::{Beacon, BeaconError};
 use std::ffi::OsString;
 use std::fs;
-use std::os::unix::ffi::OsStrExt;
 use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,7 +223,7 @@ impl Beacon {
             let now = SystemTime::now();
             for entry in entries {
                 let name = entry.file_name();
-                if !name.as_bytes().ends_with(b".lock") {
+                if !name.as_encoded_bytes().ends_with(b".lock") {
                     continue;
                 }
                 // `DirEntry::metadata` does not follow a symbolic link, as

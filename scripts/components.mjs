@@ -78,10 +78,12 @@ export function bunExecutable(root = repositoryRoot) {
   return bun;
 }
 export function nativeExecutable(root = repositoryRoot, rebuild = false) {
-  const binary = join(root, 'target', 'debug', process.platform === 'win32' ? 'luuna-tui.exe' : 'luuna-tui');
-  if (rebuild || !existsSync(binary)) {
+  const target = process.env.CARGO_TARGET_DIR ? resolve(root, process.env.CARGO_TARGET_DIR) : join(root, 'target');
+  const binary = join(target, 'debug', process.platform === 'win32' ? 'luuna-tui.exe' : 'luuna-tui');
+  if (rebuild) {
     execFileSync('cargo', ['build', '--locked', '-p', 'luuna-tui'], { cwd: root, stdio: 'inherit' });
   }
+  if (!existsSync(binary)) throw new Error('Native component binary missing; run npm run components:setup first');
   return binary;
 }
 function nativeName(name) {

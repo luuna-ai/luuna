@@ -49,7 +49,11 @@ pub async fn run_atlas_native(
     arguments(args, &stdin)?;
     // The private raw IPC API accepts caller-selected file paths and bypasses
     // terminal command admission. It is available only through the raw library.
-    if env.get("LUUNA_ATLAS_API_BRIDGE").is_some_and(|v| v == "1") {
+    if env.iter().any(|(key, value)| {
+        value == "1"
+            && (key == "LUUNA_ATLAS_API_BRIDGE"
+                || (cfg!(windows) && key.eq_ignore_ascii_case("LUUNA_ATLAS_API_BRIDGE")))
+    }) {
         return Err(ComponentError::Protocol);
     }
     let cwd = cwd.to_path_buf();
