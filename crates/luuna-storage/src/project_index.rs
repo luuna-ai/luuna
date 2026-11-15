@@ -1,4 +1,4 @@
-//! The project file `<data_dir>/projects/<id>/project.json` and the database as
+//! The project file `<data_dir>/project-records/<id>/project.json` and the database as
 //! a rebuildable index of it.
 //!
 //! The file holds a project's registration, its repositories, every confirmed
@@ -20,6 +20,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub(crate) const PROJECT_RECORDS: &str = "project-records";
 const PROJECT_FILE: &str = "project.json";
 const TEMP_FILE: &str = "project.json.tmp";
 const SCHEMA_VERSION: u64 = 1;
@@ -93,7 +94,7 @@ struct DocumentRetention {
 }
 
 fn project_folder(data_dir: &Path, project_id: &str) -> PathBuf {
-    data_dir.join("projects").join(project_id)
+    data_dir.join(PROJECT_RECORDS).join(project_id)
 }
 
 fn refused(path: &Path, detail: impl Into<String>) -> StorageError {
@@ -359,7 +360,7 @@ pub(crate) fn project_document(
 /// stale temporary file is to be removed.
 fn writable(data_dir: &Path, project_id: &str) -> std::result::Result<bool, String> {
     let folder = project_folder(data_dir, project_id);
-    check(&data_dir.join("projects"), true)?;
+    check(&data_dir.join(PROJECT_RECORDS), true)?;
     check(&folder, true)?;
     check(&folder.join(PROJECT_FILE), false)?;
     Ok(check(&folder.join(TEMP_FILE), false)?.is_some())
@@ -547,11 +548,11 @@ enum Action {
     },
 }
 
-/// Phase 1: read and validate every `<data_dir>/projects/<id>/project.json`.
+/// Phase 1: read and validate every `<data_dir>/project-records/<id>/project.json`.
 /// Folders without one (a store.json-only folder) and plain files are left
 /// alone; a link where a project folder would be is refused.
 fn read_project_files(data_dir: &Path) -> Result<BTreeMap<String, (PathBuf, ProjectDocument)>> {
-    let projects = data_dir.join("projects");
+    let projects = data_dir.join(PROJECT_RECORDS);
     let mut files = BTreeMap::new();
     if check(&projects, true)
         .map_err(|detail| refused(&projects, detail))?
@@ -979,7 +980,7 @@ mod tests {
         let store = registered(&data);
         let elsewhere = dir.path().join("elsewhere");
         fs::create_dir_all(&elsewhere).unwrap();
-        fs::create_dir_all(data.join("projects")).unwrap();
+        fs::create_dir_all(data.join(PROJECT_RECORDS)).unwrap();
         std::os::unix::fs::symlink(&elsewhere, project_folder(&data, "alpha")).unwrap();
         assert!(write_project_file(&store.connection, Some(&data), "alpha").is_err());
         assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);

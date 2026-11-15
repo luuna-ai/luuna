@@ -149,7 +149,8 @@ pub fn backup_database(source: &Path, output: &Path) -> Result<BackupReport> {
 /// input is copied, checked and made self-contained before anything moves;
 /// then the current database and any `-wal`, `-shm` or `-journal` beside it
 /// are moved, never deleted, to `<directory>/backups/replaced-<timestamp>/`,
-/// so a stale log can never be replayed over the restored file.
+/// so a stale log can never be replayed over the restored file. Project record
+/// files are preserved there too and regenerated from the restored database.
 pub fn restore_database(input: &Path, database: &Path) -> Result<RestoreReport> {
     recover_pending_restore(database)?;
     if !input.is_file() {
@@ -248,6 +249,8 @@ pub(crate) fn recover_pending_restore(database: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Preserve project record files with the replaced database before installing
+/// the staged copy; interrupted moves resume without overwriting either side.
 fn finish_restore(database: &Path, intent: &RestoreIntent) -> Result<RestoreReport> {
     let safe_name =
         |name: &str| !name.is_empty() && !name.contains(['/', '\\']) && name != "." && name != "..";
@@ -285,9 +288,22 @@ fn finish_restore(database: &Path, intent: &RestoreIntent) -> Result<RestoreRepo
             sync_directory(&original);
             sync_directory(&target);
         }
+        let records = parent.join(crate::project_index::PROJECT_RECORDS);
+        let preserved_records = replaced.join(crate::project_index::PROJECT_RECORDS);
+        let original_exists = crate::project_files::existing(&records, true)?.is_some();
+        let preserved_exists = crate::project_files::existing(&preserved_records, true)?.is_some();
+        if original_exists && preserved_exists {
+            return Err(StorageError::Invalid("pending restore found both original and preserved project files; refusing to overwrite either".into()));
+        }
+        if original_exists {
+            fs::rename(&records, &preserved_records)?;
+            sync_directory(&records);
+            sync_directory(&preserved_records);
+        }
         // Every old sidecar is now preserved, so only the verified new main
         // file is installed. A crash after this rename is recognized below.
         if database.exists()
+            || crate::project_files::existing(&records, true)?.is_some()
             || SIDECARS
                 .iter()
                 .any(|suffix| sidecar(database, suffix).exists())
