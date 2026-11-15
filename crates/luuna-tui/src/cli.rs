@@ -382,11 +382,11 @@ pub async fn run_command(
 
 /// The command line's entry. Returns the exit code, or that the workbench (or its guide) must open.
 pub async fn main(argv: Vec<String>, process: &mut Process) -> Next {
-    let name = argv.first().cloned();
+    let mut name = argv.first().cloned();
     if name.is_none() && process.stdin_terminal && process.stdout_terminal {
         return Next::Workbench { guide: None };
     }
-    let rest: Vec<String> = argv.iter().skip(1).cloned().collect();
+    let mut rest: Vec<String> = argv.iter().skip(1).cloned().collect();
     let program = process
         .var("LUUNA_CLI_NAME")
         .map(crate::builders::js_trim)
@@ -417,6 +417,39 @@ pub async fn main(argv: Vec<String>, process: &mut Process) -> Next {
         ));
         Next::Exit(2)
     };
+    if name.as_deref() == Some("intent") {
+        match rest.first().map(String::as_str) {
+            None => {
+                process.out(&help::intent_group(&options));
+                return Next::Exit(2);
+            }
+            Some("--help" | "-h") => {
+                process.out(&help::intent_group(&options));
+                return Next::Exit(0);
+            }
+            Some(verb) => {
+                let flat = format!("intent-{verb}");
+                if by_name(&flat).is_none() {
+                    return unknown(process, &format!("intent {verb}"));
+                }
+                name = Some(flat);
+                rest.remove(0);
+            }
+        }
+    }
+    if name.as_deref() == Some("help") && rest.first().is_some_and(|topic| topic == "intent") {
+        if rest.len() == 1 {
+            process.out(&help::intent_group(&options));
+            return Next::Exit(0);
+        }
+        if rest.len() == 2 {
+            if let Some(command) = help_command(&format!("intent-{}", rest[1])) {
+                process.out(&command_help(command, &options));
+                return Next::Exit(0);
+            }
+        }
+        return unknown(process, &rest.join(" "));
+    }
     match name.as_deref() {
         None | Some("--help") | Some("-h") => {
             process.out(&overview(&options));

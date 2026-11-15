@@ -10,7 +10,7 @@ use crate::text::{visible_width, wrap};
 pub const DEFAULT_NAME: &str = "luuna-tui";
 
 /// Display groups, in workflow order. Each command is listed once.
-pub const HELP_GROUPS: [(&str, &str, &[&str]); 10] = [
+pub const HELP_GROUPS: [(&str, &str, &[&str]); 11] = [
     (
         "Start here",
         "Is the runtime up, and what needs attention?",
@@ -110,11 +110,30 @@ pub const HELP_GROUPS: [(&str, &str, &[&str]); 10] = [
         &["prompts", "save-prompt", "render-prompt"],
     ),
     (
+        "Intent (Roots)",
+        "Accepted intent is decided by a person. intent <verb> and intent-<verb> are the same command.",
+        &["intent-show", "intent-init", "intent-proposals", "intent-questions", "intent-sprouts", "intent-accept", "intent-reject", "intent-reject-sprout"],
+    ),
+    (
         "Runtime",
         "Isolated sessions and the service itself.",
         &["start-session", "shutdown"],
     ),
 ];
+
+/// The local intent group page; it needs no runtime or token.
+pub fn intent_group(options: &Options) -> String {
+    let (title, blurb, names) = HELP_GROUPS
+        .iter()
+        .find(|(title, _, _)| *title == "Intent (Roots)")
+        .expect("intent help group");
+    let lines = names
+        .iter()
+        .filter_map(|name| help_command(name))
+        .map(|command| format!("  {} {}", options.name, commands::usage(command)))
+        .collect::<Vec<_>>();
+    format!("{title}\n{blurb}\n\n{}\n", lines.join("\n"))
+}
 
 /// The component CLIs the launcher runs directly (scripts/start-terminal.ps1); their own help is authoritative.
 pub const COMPONENT_CLIS: [(&str, &str, &str, &str, &[&str]); 3] = [
