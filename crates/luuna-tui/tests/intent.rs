@@ -72,7 +72,7 @@ fn local_group_help_is_complete_and_unknown_verbs_are_usage_errors() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("Unknown command intent bogus"));
     let out = run(cwd.path(), &["help"], &mock.url(), &[]);
     let text = String::from_utf8_lossy(&out.stdout);
-    assert!(text.contains("Intent (Roots)"));
+    assert!(text.contains("INTENT (ROOTS)"));
     for name in NAMES {
         assert_eq!(
             text.split_whitespace()
@@ -253,4 +253,28 @@ fn checkout_and_environment_cannot_supply_the_human_name() {
     files(cwd.path(), cwd.path(), &mut after);
     after.sort();
     assert_eq!(before, after);
+}
+
+#[test]
+fn command_help_is_identical_for_flat_and_grouped_names_without_a_token() {
+    let cwd = tempfile::tempdir().unwrap();
+    let mock = support::serve(|_| support::json(json!({})));
+    for verb in NAMES {
+        let flat = format!("intent-{verb}");
+        let expected = run(
+            cwd.path(),
+            &[&flat, "--help"],
+            &mock.url(),
+            &[("LUUNA_API_TOKEN", "")],
+        );
+        assert!(expected.status.success());
+        for args in [vec!["help", "intent", verb], vec!["intent", verb, "--help"]] {
+            let out = run(cwd.path(), &args, &mock.url(), &[("LUUNA_API_TOKEN", "")]);
+            assert!(out.status.success());
+            assert_eq!(out.stdout, expected.stdout);
+            assert_eq!(out.stderr, expected.stderr);
+        }
+    }
+    assert!(mock.take().is_empty());
+    assert_eq!(std::fs::read_dir(cwd.path()).unwrap().count(), 0);
 }
