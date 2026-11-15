@@ -98,3 +98,26 @@ test("Windows ConPTY runs real Node terminal input, resize, screen rendering and
     assert.throws(() => process.kill(consoleResult.child_pid, 0), { code: "ESRCH" });
   } finally { await terminal.close(); }
 });
+
+test("POSIX terminal evidence preserves the actual restored cursor and detects a missing restore", { skip: process.platform === "win32", timeout: 20000 }, async (t) => {
+  const { spawnSync } = await import("node:child_process");
+  if (spawnSync("tmux", ["-V"], { stdio: "ignore" }).status !== 0) { t.skip("Requires tmux for native POSIX terminal evidence"); return; }
+  const { TmuxTerminal } = await import("./tui-tmux.mjs");
+  const dir = mkdtempSync(path.join(tmpdir(), "luuna-tmux-cursor-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const visible of [true, false]) {
+    const terminal = new TmuxTerminal();
+    const result = path.join(dir, `${visible}.json`);
+    const program = `process.stdin.setRawMode(true);process.stdout.write('\\x1b[?1049h\\x1b[?25lREADY');process.stdin.once('data',()=>{process.stdin.setRawMode(false);process.stdout.write('${visible ? "\\x1b[?25h" : ""}\\x1b[?1049l');process.exitCode=7;process.stdin.pause();});`;
+    try {
+      await terminal.open({ argv: [process.execPath, "-e", program], cwd: dir, result });
+      const wait = async (predicate) => { for (let i = 0; i < 100; i++) { const state = await terminal.capture(); if (predicate(state)) return state; await sleep(30); } assert.fail("Timed out waiting for POSIX terminal state"); };
+      const ready = await wait((state) => state.lines.join("\n").includes("READY"));
+      assert.equal(ready.alternate, true); assert.equal(ready.cursorVisible, false);
+      await terminal.send("q"); const closed = await wait((state) => state.exit !== null);
+      assert.equal(closed.exit, 7); assert.equal(closed.alternate, false); assert.equal(closed.cursorVisible, visible);
+      const evidence = JSON.parse(readFileSync(result, "utf8"));
+      assert.deepEqual(evidence.after, evidence.before);
+    } finally { await terminal.close(); }
+  }
+});
