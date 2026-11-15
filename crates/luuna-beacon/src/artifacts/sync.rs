@@ -129,15 +129,14 @@ fn run_git(
             .stdin(Stdio::null())
             .env_clear()
             .envs(list.iter().map(|(k, v)| (k, v)));
-        let out = luuna_process::capture(
+        let out = luuna_process::capture_combined(
             &mut command,
             None,
             std::time::Duration::from_secs(30),
             4 * 1024 * 1024,
         )
         .map_err(|e| failed(e.to_string().as_bytes()))?;
-        let mut combined = out.stdout;
-        combined.extend(out.stderr);
+        let combined = out.stdout;
         return if out.status.success() {
             Ok(combined)
         } else {

@@ -124,9 +124,29 @@ pub fn capture(
     timeout: Duration,
     limit: usize,
 ) -> io::Result<Output> {
+    capture_impl(command, input, timeout, limit, false)
+}
+
+/// Capture stdout and stderr in the same pipe, preserving their write order.
+pub fn capture_combined(
+    command: &mut Command,
+    input: Option<Vec<u8>>,
+    timeout: Duration,
+    limit: usize,
+) -> io::Result<Output> {
+    capture_impl(command, input, timeout, limit, true)
+}
+
+fn capture_impl(
+    command: &mut Command,
+    input: Option<Vec<u8>>,
+    timeout: Duration,
+    limit: usize,
+    combined: bool,
+) -> io::Result<Output> {
     #[cfg(not(unix))]
     {
-        let _ = (command, input, timeout, limit);
+        let _ = (command, input, timeout, limit, combined);
         Err(io::Error::other(
             "managed subprocess ownership is unavailable on this platform",
         ))
@@ -134,11 +154,21 @@ pub fn capture(
     #[cfg(unix)]
     {
         configure(command);
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let merged = if combined {
+            let (reader, writer) = io::pipe()?;
+            command.stdout(writer.try_clone()?).stderr(writer);
+            Some(reader)
+        } else {
+            command.stdout(Stdio::piped()).stderr(Stdio::piped());
+            None
+        };
         if input.is_some() {
             command.stdin(Stdio::piped());
         }
         let mut owner = Owner(command.spawn()?, false);
+        // Custom pipe handles otherwise remain held by the reusable Command,
+        // preventing the reader from ever observing EOF.
+        command.stdout(Stdio::null()).stderr(Stdio::null());
         let stop = Arc::new(AtomicBool::new(false));
         let writer_stop = stop.clone();
         let writer = input.and_then(|bytes| {
@@ -161,18 +191,21 @@ pub fn capture(
             })
         });
         let exceeded = Arc::new(AtomicBool::new(false));
-        let stdout = reader(
-            owner.0.stdout.take().expect("piped stdout"),
-            exceeded.clone(),
-            stop.clone(),
-            limit,
-        );
-        let stderr = reader(
-            owner.0.stderr.take().expect("piped stderr"),
-            exceeded.clone(),
-            stop.clone(),
-            limit,
-        );
+        let stdout = if let Some(pipe) = merged {
+            reader(pipe, exceeded.clone(), stop.clone(), limit)
+        } else {
+            reader(
+                owner.0.stdout.take().expect("piped stdout"),
+                exceeded.clone(),
+                stop.clone(),
+                limit,
+            )
+        };
+        let stderr = owner
+            .0
+            .stderr
+            .take()
+            .map(|pipe| reader(pipe, exceeded.clone(), stop.clone(), limit));
         let start = Instant::now();
         let failure = loop {
             if exceeded.load(Ordering::Acquire) {
@@ -202,9 +235,12 @@ pub fn capture(
         let stdout = stdout
             .join()
             .map_err(|_| io::Error::other("subprocess stdout reader panicked"))?;
-        let stderr = stderr
-            .join()
-            .map_err(|_| io::Error::other("subprocess stderr reader panicked"))?;
+        let stderr = match stderr {
+            Some(reader) => reader
+                .join()
+                .map_err(|_| io::Error::other("subprocess stderr reader panicked"))?,
+            None => Ok(Vec::new()),
+        };
         if let Some(error) = failure {
             return Err(error);
         }
@@ -248,5 +284,19 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("output limit"));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod combined_tests {
+    use super::*;
+    #[test]
+    fn combined_capture_preserves_stream_write_order_and_exit_status() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "printf A; printf B >&2; printf C; exit 7"]);
+        let out = capture_combined(&mut command, None, Duration::from_secs(2), 1024).unwrap();
+        assert_eq!(out.stdout, b"ABC");
+        assert!(out.stderr.is_empty());
+        assert_eq!(out.status.code(), Some(7));
     }
 }
