@@ -14,6 +14,7 @@ use thiserror::Error;
 
 mod backup;
 mod baselines;
+mod component_index;
 mod components;
 mod history;
 mod missions;

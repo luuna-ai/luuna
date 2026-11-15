@@ -91,19 +91,27 @@ impl Store {
     }
 
     pub fn begin_component_enable(&self, project_id: &str) -> Result<()> {
-        self.connection.execute(
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        tx.execute(
             "INSERT INTO component_projects(project_id,state,updated_at) VALUES (?1,'initializing',?2)
              ON CONFLICT(project_id) DO NOTHING", params![project_id, now()],
         )?;
-        Ok(())
+        crate::component_index::commit(tx, self.data_dir.as_deref(), Some(project_id))
     }
 
     pub fn finish_component_enable(&self, project_id: &str) -> Result<()> {
-        self.connection.execute(
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        tx.execute(
             "UPDATE component_projects SET state='enabled',updated_at=?2 WHERE project_id=?1",
             params![project_id, now()],
         )?;
-        Ok(())
+        crate::component_index::commit(tx, self.data_dir.as_deref(), Some(project_id))
     }
 
     pub fn begin_component_operation(
@@ -171,12 +179,16 @@ impl Store {
     }
 
     pub fn record_memory_binding(&self, binding: &MemoryBinding) -> Result<()> {
-        self.connection.execute(
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        tx.execute(
             "INSERT INTO component_memories(id,project_id,scope,source_id,domain,created_at) VALUES (?1,?2,?3,?4,?5,?6)
              ON CONFLICT(id) DO NOTHING",
             params![binding.id,binding.project_id,binding.scope,binding.source_id,binding.domain,binding.created_at],
         )?;
-        Ok(())
+        crate::component_index::commit(tx, self.data_dir.as_deref(), Some(&binding.project_id))
     }
 
     pub fn memory_bindings(
@@ -252,9 +264,19 @@ impl Store {
     }
 
     pub fn delete_memory_binding(&self, id: &str) -> Result<()> {
-        self.connection
-            .execute("UPDATE component_memories SET deleted=1 WHERE id=?1", [id])?;
-        Ok(())
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let project_id: Option<String> = tx
+            .query_row(
+                "SELECT project_id FROM component_memories WHERE id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        tx.execute("UPDATE component_memories SET deleted=1 WHERE id=?1", [id])?;
+        crate::component_index::commit(tx, self.data_dir.as_deref(), project_id.as_deref())
     }
 
     /// Every live user-scope memory binding, whichever project created it:
@@ -326,11 +348,22 @@ impl Store {
     /// be exercised without waiting. Not a product operation.
     #[doc(hidden)]
     pub fn set_memory_binding_created_at(&self, id: &str, created_at: &str) -> Result<()> {
-        self.connection.execute(
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let project_id: Option<String> = tx
+            .query_row(
+                "SELECT project_id FROM component_memories WHERE id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        tx.execute(
             "UPDATE component_memories SET created_at=?2 WHERE id=?1",
             params![id, created_at],
         )?;
-        Ok(())
+        crate::component_index::commit(tx, self.data_dir.as_deref(), project_id.as_deref())
     }
 
     pub fn memory_binding(&self, project_id: &str, id: &str) -> Result<Option<MemoryBinding>> {
