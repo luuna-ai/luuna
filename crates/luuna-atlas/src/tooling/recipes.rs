@@ -128,17 +128,19 @@ pub(super) fn listings(a: &Action<'_>) -> Vec<Provider> {
 }
 pub(super) fn external(a: &mut Action<'_>, r: &Provider, action: &str) -> Result<(bool, String)> {
     if r.source == "filesystem-sh" {
+        #[cfg(not(windows))]
         let mut c = Command::new(&r.path);
         #[cfg(windows)]
-        {
-            c = Command::new(
+        let mut c = {
+            let mut c = Command::new(
                 a.ctx
                     .env
                     .look_path("sh")
                     .unwrap_or_else(|| PathBuf::from("sh")),
             );
             c.arg(&r.path);
-        }
+            c
+        };
         c.arg(action)
             .current_dir(&a.ctx.cwd)
             .env_clear()

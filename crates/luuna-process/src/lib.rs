@@ -1,4 +1,6 @@
-//! Finite subprocess capture with ownership of the child process group.
+//! Finite subprocess capture with ownership of the child process tree.
+#[cfg(windows)]
+mod windows;
 use std::{
     io,
     process::{Command, Output},
@@ -144,7 +146,11 @@ fn capture_impl(
     limit: usize,
     combined: bool,
 ) -> io::Result<Output> {
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows::capture(command, input, timeout, limit, combined)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (command, input, timeout, limit, combined);
         Err(io::Error::other(

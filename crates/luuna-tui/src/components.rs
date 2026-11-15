@@ -309,6 +309,10 @@ mod native_all_tests {
 
 /// Historical names emitted by component hooks and completions.
 pub fn component_alias(name: &str) -> Option<&'static str> {
+    #[cfg(windows)]
+    let normalized = name.to_ascii_lowercase();
+    #[cfg(windows)]
+    let name = normalized.as_str();
     match name {
         "luuna-atlas" | "atlas" | "lat" | "la" | "mulch" => Some("atlas"),
         "luuna-beacon" | "beacon" | "lbc" | "lb" | "canopy" => Some("beacon"),

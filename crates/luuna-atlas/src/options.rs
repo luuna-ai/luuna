@@ -11,7 +11,9 @@
 //! passes it gets the Go tool's results; tests pass [`Env::fixed`] and never touch the
 //! test process's environment. Only [`Env::from_process`] reads the process environment.
 
-use std::ffi::{OsStr, OsString};
+#[cfg(not(windows))]
+use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -132,7 +134,16 @@ impl Env {
         // Go's environment map keeps the first occurrence of a name.
         self.vars
             .iter()
-            .find(|(k, _)| k.as_os_str() == OsStr::new(name))
+            .find(|(k, _)| {
+                #[cfg(windows)]
+                {
+                    k.to_string_lossy().eq_ignore_ascii_case(name)
+                }
+                #[cfg(not(windows))]
+                {
+                    k.as_os_str() == OsStr::new(name)
+                }
+            })
             .map(|(_, v)| v.to_string_lossy().into_owned())
     }
 
@@ -156,6 +167,7 @@ impl Env {
     /// wins. A result that is not absolute (found through `.`, an empty element or a
     /// relative element) is refused, as Go 1.19+ does with `ErrDot`; `GODEBUG` is not
     /// honoured (D4). `None` when nothing is found or the result is refused.
+    #[cfg(not(windows))]
     pub fn look_path(&self, name: &str) -> Option<PathBuf> {
         if name.contains('/') {
             // Go returns the name itself when it holds a slash, after the same check.
@@ -172,6 +184,54 @@ impl Env {
             if is_executable_file(&candidate) {
                 // Go stops at the first match; a relative one is ErrDot, not a result.
                 return candidate.is_absolute().then_some(candidate);
+            }
+        }
+        None
+    }
+
+    /// Windows uses native list separators and executable suffixes, while retaining
+    /// this embedder's explicit-PATH-only policy (no implicit current directory).
+    #[cfg(windows)]
+    pub fn look_path(&self, name: &str) -> Option<PathBuf> {
+        let pathext = self
+            .var("PATHEXT")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| ".com;.exe;.bat;.cmd".into());
+        let extensions: Vec<String> = pathext
+            .split(';')
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                if s.starts_with('.') {
+                    s.to_lowercase()
+                } else {
+                    format!(".{}", s.to_lowercase())
+                }
+            })
+            .collect();
+        let find = |path: PathBuf| {
+            let has_extension = path
+                .file_name()
+                .is_some_and(|s| s.to_string_lossy().contains('.'));
+            if (has_extension || extensions.is_empty()) && is_executable_file(&path) {
+                return Some(path);
+            }
+            extensions.iter().find_map(|extension| {
+                let mut name = path.as_os_str().to_os_string();
+                name.push(extension);
+                let candidate = PathBuf::from(name);
+                is_executable_file(&candidate).then_some(candidate)
+            })
+        };
+        if name.chars().any(|c| matches!(c, ':' | '/' | '\\')) {
+            return find(PathBuf::from(name));
+        }
+        let path = self.var("PATH")?;
+        for directory in std::env::split_paths(&OsString::from(path)) {
+            if directory.as_os_str().is_empty() {
+                continue;
+            }
+            if let Some(found) = find(directory.join(name)) {
+                return found.is_absolute().then_some(found);
             }
         }
         None
@@ -197,6 +257,7 @@ fn is_executable_file(path: &Path) -> bool {
 
 /// `filepath.Join(dir, name)` for two non-empty-or-empty elements: joined with `/` and
 /// lexically cleaned (`filepath.Clean`).
+#[cfg(not(windows))]
 fn go_join(dir: &str, name: &str) -> PathBuf {
     let joined = if name.is_empty() {
         dir.to_owned()
@@ -288,9 +349,11 @@ pub(crate) mod test_support {
 
     /// Writes an executable shell script `name` into `dir` and returns its path.
     pub(crate) fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
         let path = dir.join(name);
         fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("write script");
+        #[cfg(unix)]
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod script");
         path
     }
@@ -361,6 +424,7 @@ mod tests {
     use super::test_support::{relative_from_cwd, write_script};
     use super::*;
     use std::fs;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     fn strings(items: &[&str]) -> Vec<String> {
@@ -425,6 +489,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn look_path_uses_env_path_only() {
         let a = tempfile::tempdir().expect("tempdir");
         let b = tempfile::tempdir().expect("tempdir");
@@ -443,6 +508,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn look_path_refuses_relative_result() {
         let dir = tempfile::tempdir().expect("tempdir");
         let abs = tempfile::tempdir().expect("tempdir");
@@ -477,6 +543,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn look_path_skips_non_executable() {
         let plain = tempfile::tempdir().expect("tempdir");
         let dir_entry = tempfile::tempdir().expect("tempdir");
