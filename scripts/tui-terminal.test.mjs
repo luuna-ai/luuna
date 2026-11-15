@@ -98,3 +98,48 @@ test("Windows ConPTY runs real Node terminal input, resize, screen rendering and
     assert.throws(() => process.kill(consoleResult.child_pid, 0), { code: "ESRCH" });
   } finally { await terminal.close(); }
 });
+
+test("POSIX terminal evidence preserves the actual restored cursor and detects a missing restore", { skip: process.platform === "win32", timeout: 20000 }, async (t) => {
+  const { spawnSync } = await import("node:child_process");
+  if (spawnSync("tmux", ["-V"], { stdio: "ignore" }).status !== 0) { t.skip("Requires tmux for native POSIX terminal evidence"); return; }
+  const { TmuxTerminal } = await import("./tui-tmux.mjs");
+  const dir = mkdtempSync(path.join(tmpdir(), "luuna-tmux-cursor-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const [visible, leave] of [[true, true], [false, true], [true, false]]) {
+    const terminal = new TmuxTerminal();
+    const result = path.join(dir, `${visible}-${leave}.json`);
+    const program = `process.stdin.setRawMode(true);process.stdout.write('\\x1b[?1049h\\x1b[?25lREADY');process.stdin.once('data',()=>{process.stdin.setRawMode(false);process.stdout.write('${visible ? "\\x1b[?25h" : ""}${leave ? "\\x1b[?1049l" : ""}');process.exitCode=7;process.stdin.pause();});`;
+    try {
+      await terminal.open({ argv: [process.execPath, "-e", program], cwd: dir, result });
+      const wait = async (predicate) => { for (let i = 0; i < 100; i++) { const state = await terminal.capture(); if (predicate(state)) return state; await sleep(30); } assert.fail("Timed out waiting for POSIX terminal state"); };
+      const ready = await wait((state) => state.lines.join("\n").includes("READY") && state.alternate && !state.cursorVisible);
+      assert.equal(ready.alternate, true, JSON.stringify(ready)); assert.equal(ready.cursorVisible, false);
+      await terminal.send("q"); const closed = await wait((state) => state.exit !== null);
+      assert.equal(closed.exit, 7); assert.equal(closed.alternate, !leave); assert.equal(closed.cursorVisible, visible);
+      const evidence = JSON.parse(readFileSync(result, "utf8"));
+      assert.deepEqual(evidence.after, evidence.before);
+    } finally { await terminal.close(); }
+  }
+});
+
+test("native process evidence permits only the identified POSIX supervisor and rejects Node wrappers or descendants", async () => {
+  const { nativeProcessEvidence } = await import("./native-process-evidence.mjs");
+  const supervisor = { pid: 10, parent: 1, name: "node", executable: "/tools/node" };
+  const native = { pid: 11, parent: 10, name: "luuna-tui", executable: "/app/luuna-tui" };
+  const options = { platform: "linux", expectedClient: native.executable, supervisorPid: 10, expectedSupervisor: supervisor.executable };
+  assert.equal(nativeProcessEvidence([supervisor, native], options).ok, true);
+  assert.equal(nativeProcessEvidence([supervisor, { ...native, parent: 12 }, { pid: 12, parent: 10, name: "node", executable: "/tools/node" }], options).ok, false);
+  assert.equal(nativeProcessEvidence([supervisor, native, { pid: 12, parent: 11, name: "node", executable: "/tools/node" }], options).ok, false);
+  assert.equal(nativeProcessEvidence([{ ...supervisor, executable: "/other/node" }, native], options).ok, false);
+  assert.equal(nativeProcessEvidence([supervisor, { ...native, executable: "/other/luuna-tui" }], options).ok, false);
+  assert.equal(nativeProcessEvidence([native], options).ok, false);
+  const win = { pid: 11, parent: 1, name: "luuna-tui.exe", executable: "C:\\app\\luuna-tui.exe" };
+  const windows = { platform: "win32", expectedClient: win.executable.toUpperCase() };
+  assert.equal(nativeProcessEvidence([win], windows).ok, true);
+  assert.equal(nativeProcessEvidence([win, { pid: 12, parent: 11, name: "node.exe", executable: "C:\\tools\\node.exe" }], windows).ok, false);
+});
+
+test("audit isolation carries explicit private config and build-cache paths without provider credentials", async () => {
+  const { toolEnvironment } = await import("./tui-audit-runtime.mjs");
+  assert.deepEqual(toolEnvironment({ PATH: "/tools", HOME: "/private/home", CARGO_HOME: "/build/cargo", RUSTUP_HOME: "/build/rustup", LUUNA_CONFIG_DIR: "/private/config", XDG_CONFIG_HOME: "/private/xdg", OPENAI_API_KEY: "synthetic-secret", LUUNA_API_TOKEN: "synthetic-secret", UNREVIEWED_OPTION: "no" }), { PATH: "/tools", HOME: "/private/home", CARGO_HOME: "/build/cargo", RUSTUP_HOME: "/build/rustup", LUUNA_CONFIG_DIR: "/private/config", XDG_CONFIG_HOME: "/private/xdg" });
+});

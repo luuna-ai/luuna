@@ -1247,6 +1247,58 @@ pub async fn run(
                 )
                 .await
         }
+        "intent.show" => client.get(&format!("/projects/{}/intent", e(0)), s).await,
+        "intent.proposals" => {
+            client
+                .get(&format!("/projects/{}/intent/proposals", e(0)), s)
+                .await
+        }
+        "intent.questions" => {
+            client
+                .get(&format!("/projects/{}/intent/questions", e(0)), s)
+                .await
+        }
+        "intent.sprouts" => {
+            client
+                .get(&format!("/projects/{}/intent/sprouts", e(0)), s)
+                .await
+        }
+        "intent.init"
+        | "intent.proposals.accept"
+        | "intent.proposals.reject"
+        | "intent.sprouts.reject" => {
+            let by = js_trim(
+                &input
+                    .flag("by")
+                    .map(FlagValue::text)
+                    .unwrap_or_else(|| "developer".into()),
+            );
+            if by.is_empty()
+                || bytes(&by) > LIMIT_APPROVER
+                || by.starts_with("agent:")
+                || by.starts_with("roots:")
+                || by == "roots"
+            {
+                return Err(refusal("Supply your explicit human name, at most 200 UTF-8 bytes; agent and Roots identities are refused."));
+            }
+            let mut body = obj![("by", by)];
+            for name in ["reason", "rel", "keep"] {
+                if let Some(value) = input.flag(name) {
+                    body.set(name, J::from(value.text()));
+                }
+            }
+            let path = match command.id.as_str() {
+                "intent.init" => format!("/projects/{}/intent", e(0)),
+                "intent.proposals.accept" => {
+                    format!("/projects/{}/intent/proposals/{}/accept", e(0), e(1))
+                }
+                "intent.proposals.reject" => {
+                    format!("/projects/{}/intent/proposals/{}/reject", e(0), e(1))
+                }
+                _ => format!("/projects/{}/intent/sprouts/{}/reject", e(0), e(1)),
+            };
+            client.post(&path, Some(&body), s).await
+        }
         "tickets.create" => {
             let title = js_trim(&input.flag("title").map(FlagValue::text).unwrap_or_default());
             let intent = js_trim(
@@ -2131,7 +2183,7 @@ mod tests {
     #[test]
     fn the_table_matches_the_catalog_and_parses_specs_like_the_regular_expressions() {
         let table = table();
-        assert_eq!(table.commands.len(), 64);
+        assert_eq!(table.commands.len(), 72);
         assert_eq!(table.projections.len(), 2);
         for command in &table.commands {
             assert_eq!(

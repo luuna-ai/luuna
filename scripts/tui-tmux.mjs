@@ -39,7 +39,19 @@ const child = spawn(options.argv[0], options.argv.slice(1), {cwd:options.cwd, en
 child.once('spawn', () => { report.child_pid = child.pid; save(); });
 for (const signal of ['SIGINT','SIGTERM','SIGHUP']) process.on(signal, () => { if (child.exitCode === null && child.signalCode === null) child.kill(signal); });
 child.once('error', () => { report.exit = 127; report.error = 'Client spawn failed'; try { report.after = mode(); } catch { report.mode_error = 'Terminal mode unavailable'; } save(); process.exit(127); });
-child.once('exit', (code, signal) => { report.exit = code ?? 128 + (constants.signals[signal] ?? 0); if (signal) report.signal = signal; try { report.after = mode(); } catch { report.mode_error = 'Terminal mode unavailable'; } save(); process.exit(report.exit); });
+child.once('exit', async (code, signal) => {
+  report.exit = code ?? 128 + (constants.signals[signal] ?? 0); if (signal) report.signal = signal;
+  // tmux hides the cursor of a dead pane. Observe the real restored state
+  // while this supervisor still owns the live terminal, after pending VT output.
+  await new Promise(resolve => setTimeout(resolve, 50));
+  try {
+    report.after = mode();
+    const state = execFileSync(options.tmux, ['-L', options.socket, '-f', '/dev/null', 'display-message', '-p', '-t', 'audit:0.0', '#{cursor_flag}|#{alternate_on}'], {encoding:'utf8', timeout:5000}).trim().split('|');
+    if (state.length !== 2 || state.some(value => !/^[01]$/.test(value))) throw new Error('Invalid terminal metadata');
+    report.after_terminal = {cursorVisible:state[0] === '1', alternate:state[1] === '1'};
+  } catch { report.mode_error = 'Terminal state unavailable'; }
+  save(); process.exit(report.exit);
+});
 `;
 
 function dimensions(columns, rows) {
@@ -76,7 +88,7 @@ export class TmuxTerminal {
     if (typeof result !== "string" || !result) throw new Error("A console result path is required");
     this.resultPath = path.resolve(result);
     const executable = resolveExecutable(argv[0], this.env, cwd);
-    this.env.LUUNA_TMUX_SUPERVISOR = JSON.stringify({ argv: [executable, ...argv.slice(1)], cwd: path.resolve(cwd), result: this.resultPath, stty: this.stty, term: this.env.TERM });
+    this.env.LUUNA_TMUX_SUPERVISOR = JSON.stringify({ argv: [executable, ...argv.slice(1)], cwd: path.resolve(cwd), result: this.resultPath, stty: this.stty, tmux: this.tmux, socket: this.socket, term: this.env.TERM });
     const node = shellQuote(process.execPath);
     // Configure retention before launching the subject, even if it exits instantly.
     this.opened = true;
@@ -116,13 +128,15 @@ export class TmuxTerminal {
     // not scroll the reconstructed grid or inherit the previous row's rendition.
     const screen = new TerminalScreen(columns, rows);
     for (const [index, line] of data.split("\n").slice(0, rows).entries()) screen.feed(`\x1b[${index + 1};1H\x1b[0m${line}`);
-    if (Boolean(alternate) !== this.lastAlternate) this.events.push(alternate ? "alternate-enter" : "alternate-leave");
-    this.lastAlternate = Boolean(alternate);
     this.exit = dead && values[7] !== "" ? Number(values[7]) : null;
+    let restored;
     if (dead) {
-      try { this.exit = JSON.parse(readFileSync(this.resultPath, "utf8")).exit ?? this.exit; } catch { /* caller can report missing supervisor evidence */ }
+      try { const report = JSON.parse(readFileSync(this.resultPath, "utf8")); this.exit = report.exit ?? this.exit; restored = report.after_terminal; } catch { /* caller can report missing supervisor evidence */ }
     }
-    return { ...screen.snapshot(), cursor: [x, y], alternate: Boolean(alternate), cursorVisible: Boolean(cursorVisible), events: [...this.events], exit: this.exit, pid: this.pid };
+    const observedAlternate = dead ? restored?.alternate !== false : Boolean(alternate);
+    if (observedAlternate !== this.lastAlternate) this.events.push(observedAlternate ? "alternate-enter" : "alternate-leave");
+    this.lastAlternate = observedAlternate;
+    return { ...screen.snapshot(), cursor: [x, y], alternate: observedAlternate, cursorVisible: dead ? restored?.cursorVisible === true : Boolean(cursorVisible), deadPaneCursorVisible: dead ? Boolean(cursorVisible) : undefined, deadPaneAlternate: dead ? Boolean(alternate) : undefined, restoredTerminal: restored, events: [...this.events], exit: this.exit, pid: this.pid };
   }
 
   processTable() {
