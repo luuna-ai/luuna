@@ -49,6 +49,11 @@ describe("TopBar", () => {
     expect(markup).toContain('aria-expanded="false"');
     expect(markup).toContain('aria-label="Open navigation"');
   });
+  test("puts the lead slot between the menu button and the palette trigger", () => {
+    const markup = html(createElement(TopBar, { onMenu: noop, menuOpen: false, onSearch: noop, lead: createElement("span", { className: "lead-probe" }) }));
+    expect(markup.indexOf("topbar-menu")).toBeLessThan(markup.indexOf("lead-probe"));
+    expect(markup.indexOf("lead-probe")).toBeLessThan(markup.indexOf("topbar-search"));
+  });
   test("an open panel reads as expanded and offers to close", () => {
     const markup = html(createElement(TopBar, { onMenu: noop, menuOpen: true, onSearch: noop }));
     expect(markup).toContain('aria-expanded="true"');

@@ -30,3 +30,28 @@ it("allows retry after a failed startup", async () => {
   await ensureLocalRuntime();
   expect(core.invoke).toHaveBeenCalledTimes(2);
 });
+
+import { onFoldersDropped, pickFolder } from "./native-runtime";
+
+it("opens the folder dialog only in the native app", async () => {
+  core.isTauri.mockReturnValue(false);
+  await expect(pickFolder()).resolves.toBeNull();
+  expect(core.invoke).not.toHaveBeenCalled();
+  core.isTauri.mockReturnValue(true);
+  core.invoke.mockResolvedValue("/srv/app");
+  await expect(pickFolder()).resolves.toBe("/srv/app");
+  expect(core.invoke).toHaveBeenCalledWith("pick_folder");
+  core.invoke.mockResolvedValue(null);
+  await expect(pickFolder()).resolves.toBeNull();
+});
+
+it("passes on only the path strings of dropped folders, until unsubscribed", () => {
+  const seen: string[][] = [];
+  const window = new EventTarget();
+  const stop = onFoldersDropped((paths) => seen.push(paths), window);
+  window.dispatchEvent(new CustomEvent("luuna:folders-dropped", { detail: ["/srv/app", 3, "", "/srv/web"] }));
+  window.dispatchEvent(new CustomEvent("luuna:folders-dropped", { detail: "not a list" }));
+  stop();
+  window.dispatchEvent(new CustomEvent("luuna:folders-dropped", { detail: ["/srv/late"] }));
+  expect(seen).toEqual([["/srv/app", "/srv/web"]]);
+});

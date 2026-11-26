@@ -1,7 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Frontend uses the authenticated runtime API; no filesystem, shell or process plugin permissions.",
-  "windows": ["main"],
-  "permissions": ["allow-ensure-local-runtime"]
+  "description": "Frontend uses the authenticated runtime API and may open the native folder dialog (pick_folder); no filesystem, shell, process or dialog plugin permissions.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-ensure-local-runtime",
+    "allow-pick-folder"
+  ]
 }
