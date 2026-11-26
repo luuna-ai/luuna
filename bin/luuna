@@ -1,4 +1,13 @@
 #!/bin/sh
-# `luuna <command>` from Git Bash: the same fixed launcher as luuna.cmd beside it.
+# `luuna <command>` from a checkout.
+# Windows (Git Bash): the same fixed launcher as luuna.cmd beside it.
+# macOS and Linux: the terminal client built from this checkout with its pinned
+# toolchain and lockfile; luuna-tui finds luuna-runtime beside itself.
 here=$(cd "$(dirname "$0")" && pwd)
-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/../scripts/start-terminal.ps1")" "$@"
+if command -v cygpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>&1; then
+  exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/../scripts/start-terminal.ps1")" "$@"
+fi
+root=$(cd "$here/.." && pwd)
+cargo build --quiet --locked --manifest-path "$root/Cargo.toml" -p luuna-tui -p luuna-runtime -p luuna-sandbox >&2 || exit $?
+target=${CARGO_TARGET_DIR:-$root/target}
+exec "$target/debug/luuna-tui" "$@"

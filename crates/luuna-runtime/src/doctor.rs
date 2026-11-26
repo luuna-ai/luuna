@@ -101,6 +101,15 @@ pub enum PortStatus {
     Unrecorded,
 }
 
+/// Says how to recover from a Pi problem, which a bare version mismatch does not.
+fn pi_remedy(detail: String) -> String {
+    format!(
+        "{detail}. Run `lu init`: it installs Luuna's own Pi {} in its private tools folder and \
+         leaves any Pi you installed yourself untouched",
+        luuna_engine_pi::PI_VERSION
+    )
+}
+
 fn item(name: &'static str, required: bool, outcome: Result<String, String>) -> DoctorItem {
     match outcome {
         Ok(detail) => DoctorItem {
@@ -206,7 +215,7 @@ pub fn doctor_report(probes: &DoctorProbes) -> DoctorReport {
         item("git", true, (probes.git)()),
         item("python", false, (probes.python)()),
         item("node", false, (probes.node)()),
-        item("pi", true, (probes.pi)()),
+        item("pi", true, (probes.pi)().map_err(pi_remedy)),
         item("data_dir", true, (probes.data_dir)()),
         database,
         presence(
@@ -611,6 +620,11 @@ mod tests {
             failed.items.iter().find(|i| i.name == "pi").unwrap().status,
             "missing"
         );
+        let pi = failed.items.iter().find(|i| i.name == "pi").unwrap();
+        assert!(pi
+            .detail
+            .starts_with("unsupported Pi version. Run `lu init`"));
+        assert!(pi.detail.contains(luuna_engine_pi::PI_VERSION));
         let unwritable = doctor_report(&probes(Ok("pi".into()), Err("read-only".into())));
         assert!(!unwritable.ok);
     }

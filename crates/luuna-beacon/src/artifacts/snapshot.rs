@@ -350,6 +350,25 @@ mod tests {
         dir
     }
 
+    /// APFS (macOS) refuses to create a file whose name is not valid UTF-8, so
+    /// such a path can never reach the refusal under test there.
+    fn filesystem_allows_non_utf8_names() -> bool {
+        let dir = tempfile::tempdir().unwrap();
+        match fs::write(dir.path().join(OsStr::from_bytes(b"\xff")), b"") {
+            Ok(()) => true,
+            Err(error) if error.raw_os_error() == Some(libc_eilseq()) => false,
+            Err(error) => panic!("probe for non-UTF-8 names failed: {error}"),
+        }
+    }
+
+    fn libc_eilseq() -> i32 {
+        if cfg!(target_os = "macos") {
+            92
+        } else {
+            84
+        }
+    }
+
     fn paths(files: &[ArtifactFile]) -> Vec<&str> {
         files.iter().map(|file| file.path.as_str()).collect()
     }
@@ -539,6 +558,9 @@ mod tests {
 
     #[test]
     fn non_utf8_logical_path_is_refused() {
+        if !filesystem_allows_non_utf8_names() {
+            return;
+        }
         let dir = tree(&[(b"SKILL.md", b"s"), (b"caf\xe9.md", b"c")]);
         assert_eq!(
             error_text(snapshot("skill", "n", dir.path(), Path::new(""))),
