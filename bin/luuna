@@ -1,4 +1,19 @@
 #!/bin/sh
-# `luuna <command>` from Git Bash: the same fixed launcher as luuna.cmd beside it.
+# `luuna <command>` from a checkout.
+# Windows (Git Bash): the same fixed launcher as luuna.cmd beside it.
+# macOS and Linux: the terminal client built from this checkout with its pinned
+# toolchain and lockfile; luuna-tui finds luuna-runtime beside itself.
 here=$(cd "$(dirname "$0")" && pwd)
-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/../scripts/start-terminal.ps1")" "$@"
+if command -v cygpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>&1; then
+  exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/../scripts/start-terminal.ps1")" "$@"
+fi
+root=$(cd "$here/.." && pwd)
+# Build from the checkout so rustup selects its pinned toolchain (rust-toolchain.toml),
+# whatever folder the caller is in; the client still starts in the caller's folder.
+(cd "$root" && cargo build --quiet --locked -p luuna-tui -p luuna-runtime -p luuna-sandbox) >&2 || exit $?
+case ${CARGO_TARGET_DIR:-} in
+  "") target=$root/target ;;
+  /*) target=$CARGO_TARGET_DIR ;;
+  *) target=$root/$CARGO_TARGET_DIR ;;
+esac
+exec "$target/debug/luuna-tui" "$@"

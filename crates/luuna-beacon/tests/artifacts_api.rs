@@ -75,6 +75,25 @@ fn write_tree(base: &Path, entries: &[(&[u8], &[u8])]) {
     }
 }
 
+/// APFS (macOS) refuses to create a file whose name is not valid UTF-8, so
+/// such a path can never reach the refusal under test there.
+fn filesystem_allows_non_utf8_names() -> bool {
+    let dir = tempfile::tempdir().unwrap();
+    match fs::write(dir.path().join(OsStr::from_bytes(b"\xff")), b"") {
+        Ok(()) => true,
+        Err(error) if error.raw_os_error() == Some(libc_eilseq()) => false,
+        Err(error) => panic!("probe for non-UTF-8 names failed: {error}"),
+    }
+}
+
+fn libc_eilseq() -> i32 {
+    if cfg!(target_os = "macos") {
+        92
+    } else {
+        84
+    }
+}
+
 fn err<T>(result: Result<T, BeaconError>) -> String {
     match result {
         Ok(_) => panic!("expected an error"),
@@ -1024,6 +1043,9 @@ fn onboard_unreadable_target_is_refused_and_unchanged_without_go() {
 
 #[test]
 fn non_utf8_source_path_is_refused_and_the_store_is_unchanged_without_go() {
+    if !filesystem_allows_non_utf8_names() {
+        return;
+    }
     let (_dir, root, beacon) = store();
     write_tree(&root.join("src/ok"), &[(b"SKILL.md", b"ok\n")]);
     beacon

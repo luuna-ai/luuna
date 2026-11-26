@@ -92,6 +92,9 @@ fn private_directory(path: &FsPath, anchor: &FsPath) -> Result<(), ApiError> {
             continue;
         }
         if let Ok(metadata) = std::fs::symlink_metadata(ancestor) {
+            if luuna_components::is_system_alias(ancestor, &metadata) {
+                continue;
+            }
             let link = metadata.file_type().is_symlink();
             #[cfg(windows)]
             let link = {

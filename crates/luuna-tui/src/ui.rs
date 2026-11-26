@@ -38,6 +38,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState, theme: Theme) {
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(" LUUNA ", theme.selected()),
+            Span::styled(project_switcher(app), theme.accent()),
             Span::raw(" / WORKBENCH "),
             Span::styled(
                 safe_text(&app.connection),
@@ -346,6 +347,15 @@ pub fn wrapped_lines(text: &str, width: u16) -> Vec<String> {
         rows.push(row);
     }
     rows
+}
+
+/// The project the workbench is scoped to, and the key that switches it (owner feedback D1).
+pub fn project_switcher(app: &AppState) -> String {
+    let key = crate::keys::keymap().first("projects");
+    match app.context.get("project").filter(|id| !id.is_empty()) {
+        Some(id) => format!(" ▸ {} ({key} switch)", safe_text(id)),
+        None => format!(" ▸ no project ({key} pick one)"),
+    }
 }
 
 #[cfg(test)]

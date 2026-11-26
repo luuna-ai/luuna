@@ -132,6 +132,7 @@ impl Store {
         let file_state =
             crate::project_index::write_project_file(&tx, self.data_dir.as_deref(), id)?;
         crate::project_index::commit_or_restore(tx, file_state)?;
+        self.mirror_logs(&[id]);
         self.get_project(id)?
             .ok_or_else(|| StorageError::NotFound(id.into()))
     }
@@ -273,6 +274,7 @@ impl Store {
         let file_state =
             crate::project_index::write_project_file(&tx, self.data_dir.as_deref(), project_id)?;
         crate::project_index::commit_or_restore(tx, file_state)?;
+        self.mirror_logs(&[project_id]);
         Ok(Some(event))
     }
 
@@ -313,6 +315,7 @@ impl Store {
             }),
         )?;
         tx.commit()?;
+        self.mirror_logs(&[&discovery.project_id]);
         Ok(())
     }
 
@@ -330,6 +333,7 @@ impl Store {
         get_project(&tx, project_id)?.ok_or_else(|| StorageError::NotFound(project_id.into()))?;
         let event = append_project_event(&tx, project_id, event_type, payload)?;
         tx.commit()?;
+        self.mirror_logs(&[project_id]);
         Ok(event)
     }
 
@@ -518,6 +522,7 @@ impl Store {
         let file_state =
             crate::project_index::write_project_file(&tx, self.data_dir.as_deref(), project_id)?;
         crate::project_index::commit_or_restore(tx, file_state)?;
+        self.mirror_logs(&[project_id]);
         self.get_project(project_id)?
             .ok_or_else(|| StorageError::NotFound(project_id.into()))
     }
