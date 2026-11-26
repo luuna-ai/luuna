@@ -5,16 +5,21 @@
 //! resolution (no file means runtime). Runtime mode resolves to the managed
 //! workspace under the data directory, exactly as before. A repository or both
 //! file must name a repository registered for the project, otherwise it is
-//! refused. Repository and both modes are still refused in this version, and a
-//! store file that cannot be used is never treated as runtime: all of these
-//! refuse before any component data is read or written. User memory belongs to no project and
-//! always lives in the single runtime user store. This module does no file
-//! I/O itself; luuna_storage reads the mode file.
+//! refused. Repository mode resolves to that repository's registered checkout,
+//! whose `.luuna/<component>` stores are used as they are (ADR 0061); the
+//! checkout is re-checked on every resolution. Both mode is still refused, and
+//! a store file that cannot be used is never treated as runtime: all of these
+//! refuse before any component data is read or written. User memory belongs to
+//! no project and always lives in the single runtime user store. The only
+//! file I/O here is reading the checkout's metadata; luuna_storage reads the
+//! mode file.
 use crate::{internal, not_found, ApiError, AppState};
 use axum::http::StatusCode;
 use luuna_domain::{valid_project_id, StoreMode};
 use luuna_storage::StorageError;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+
+pub use luuna_components::StoreRoot;
 
 /// Why a project's component store cannot be resolved.
 #[derive(Debug, Clone, PartialEq)]
@@ -23,6 +28,11 @@ pub enum StoreRefusal {
     InvalidProject,
     /// The recorded mode is not available in this version.
     NotAvailable(StoreMode),
+    /// The registered checkout cannot hold a repository store: it is not an
+    /// absolute real directory, a path element is a link, it is not a main
+    /// checkout with its own `.git` directory, its `.luuna` is not a real
+    /// directory, or it overlaps the data directory.
+    UnusableCheckout,
 }
 
 impl std::fmt::Display for StoreRefusal {
@@ -34,31 +44,94 @@ impl std::fmt::Display for StoreRefusal {
                 "the {} store mode is not available in this version; only the runtime store is",
                 mode.name()
             ),
+            StoreRefusal::UnusableCheckout => {
+                f.write_str("the registered checkout cannot hold a repository store")
+            }
         }
     }
 }
 
 impl std::error::Error for StoreRefusal {}
 
-/// The component store for `project_id` in `mode`, under `data_dir`. Pure: it
-/// forms a path or refuses, and touches nothing.
+/// The component store for `project_id` in `mode`, under `data_dir`. Runtime
+/// mode forms a path and touches nothing. Repository mode needs the
+/// registered checkout of the repository the mode names, and checks it with
+/// [`check_checkout`]; without one it is refused.
 pub fn resolve_project_store(
     data_dir: &Path,
     project_id: &str,
     mode: &StoreMode,
-) -> Result<PathBuf, StoreRefusal> {
+    checkout: Option<&Path>,
+) -> Result<StoreRoot, StoreRefusal> {
     if !valid_project_id(project_id) {
         return Err(StoreRefusal::InvalidProject);
     }
     match mode {
-        StoreMode::Runtime => Ok(data_dir
-            .join("components")
-            .join("projects")
-            .join(project_id)),
-        StoreMode::Repository { .. } | StoreMode::Both { .. } => {
-            Err(StoreRefusal::NotAvailable(mode.clone()))
+        StoreMode::Runtime => Ok(StoreRoot::Managed(
+            data_dir
+                .join("components")
+                .join("projects")
+                .join(project_id),
+        )),
+        StoreMode::Repository { .. } => {
+            let checkout = checkout.ok_or(StoreRefusal::UnusableCheckout)?;
+            check_checkout(checkout, data_dir)?;
+            Ok(StoreRoot::Checkout(checkout.to_owned()))
+        }
+        StoreMode::Both { .. } => Err(StoreRefusal::NotAvailable(mode.clone())),
+    }
+}
+
+/// Synchronous checks of a registered checkout, repeated on every
+/// resolution: an absolute path with no `..`; every element a real directory
+/// (no link or reparse point); `<root>/.git` a directory, so a linked worktree
+/// or gitfile checkout is refused; `<root>/.luuna`, when present, a real
+/// directory; and neither the checkout nor the data directory inside the
+/// other. No git process runs and nothing is written.
+pub fn check_checkout(checkout: &Path, data_dir: &Path) -> Result<(), StoreRefusal> {
+    if !checkout.is_absolute() {
+        return Err(StoreRefusal::UnusableCheckout);
+    }
+    let mut current = PathBuf::new();
+    for part in checkout.components() {
+        if matches!(part, Component::ParentDir) {
+            return Err(StoreRefusal::UnusableCheckout);
+        }
+        current.push(part);
+        if !real_directory(&current) {
+            return Err(StoreRefusal::UnusableCheckout);
         }
     }
+    if !real_directory(&checkout.join(".git")) {
+        return Err(StoreRefusal::UnusableCheckout);
+    }
+    match std::fs::symlink_metadata(checkout.join(".luuna")) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        _ if real_directory(&checkout.join(".luuna")) => {}
+        _ => return Err(StoreRefusal::UnusableCheckout),
+    }
+    let canonical = |path: &Path| {
+        std::fs::canonicalize(path)
+            .map(|path| luuna_git::strip_verbatim_prefix(&path))
+            .map_err(|_| StoreRefusal::UnusableCheckout)
+    };
+    let (root, data) = (canonical(checkout)?, canonical(data_dir)?);
+    if root.starts_with(&data) || data.starts_with(&root) {
+        return Err(StoreRefusal::UnusableCheckout);
+    }
+    Ok(())
+}
+
+fn real_directory(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| {
+        let link = metadata.file_type().is_symlink();
+        #[cfg(windows)]
+        let link = {
+            use std::os::windows::fs::MetadataExt;
+            link || metadata.file_attributes() & 0x400 != 0
+        };
+        !link && metadata.is_dir()
+    })
 }
 
 /// The single user-scope memory store, whatever any project's mode is.
@@ -69,10 +142,11 @@ pub fn user_store_path(data_dir: &Path) -> PathBuf {
 /// The component store of a registered project, checked in this order: an
 /// invalid or unregistered id is not found; a store file that cannot be used
 /// is refused; a repository named by the file that is not registered for the
-/// project is refused; a recorded mode other than runtime is refused. A
-/// refusal never falls back to the runtime store. The registry check reads
-/// only the registrations, never a checkout or a path.
-pub(crate) fn project_store(state: &AppState, project_id: &str) -> Result<PathBuf, ApiError> {
+/// project is refused; both mode is refused; in repository mode, a registered
+/// checkout that fails [`check_checkout`] is refused. A refusal never falls
+/// back to the runtime store. The checkout path always comes from the
+/// registration, so a rebind moves the store with it.
+pub(crate) fn project_store(state: &AppState, project_id: &str) -> Result<StoreRoot, ApiError> {
     if !valid_project_id(project_id) {
         return Err(not_found());
     }
@@ -97,6 +171,7 @@ pub(crate) fn project_store(state: &AppState, project_id: &str) -> Result<PathBu
         }
         Err(error) => return Err(internal(error)),
     };
+    let mut checkout = None;
     if let Some(name) = mode.repository() {
         // The guard is a temporary of this statement and is dropped before
         // anything else is locked.
@@ -106,20 +181,30 @@ pub(crate) fn project_store(state: &AppState, project_id: &str) -> Result<PathBu
             .map_err(internal)?
             .repositories(project_id)
             .map_err(internal)?;
-        if !registrations.iter().any(|r| r.repository_id == name) {
+        let Some(registration) = registrations.into_iter().find(|r| r.repository_id == name) else {
             return Err(ApiError(
                 StatusCode::CONFLICT,
                 "This project's store mode file names a repository that is not registered for this project; fix or remove the file. No component data was read or written".into(),
             ));
-        }
+        };
+        checkout = Some(PathBuf::from(registration.local_path));
     }
-    match resolve_project_store(&state.config.data_dir, project_id, &mode) {
-        Ok(path) => Ok(path),
+    match resolve_project_store(
+        &state.config.data_dir,
+        project_id,
+        &mode,
+        checkout.as_deref(),
+    ) {
+        Ok(store) => Ok(store),
         Err(StoreRefusal::InvalidProject) => Err(not_found()),
+        Err(StoreRefusal::UnusableCheckout) => Err(ApiError(
+            StatusCode::CONFLICT,
+            "This project's store mode is 'repository', but that repository's registered checkout cannot hold its stores: it must be a main checkout with a .git directory, without links, outside the data directory. No component data was read or written".into(),
+        )),
         Err(StoreRefusal::NotAvailable(mode)) => Err(ApiError(
             StatusCode::CONFLICT,
             format!(
-                "This project's component store mode is '{}'; only the runtime store is available in this version. No component data was read or written",
+                "This project's component store mode is '{}'; only the runtime and repository stores are available in this version. No component data was read or written",
                 mode.name()
             ),
         )),
@@ -127,6 +212,6 @@ pub(crate) fn project_store(state: &AppState, project_id: &str) -> Result<PathBu
 }
 
 /// The user-scope memory store of this runtime.
-pub(crate) fn user_store(state: &AppState) -> PathBuf {
-    user_store_path(&state.config.data_dir)
+pub(crate) fn user_store(state: &AppState) -> StoreRoot {
+    StoreRoot::Managed(user_store_path(&state.config.data_dir))
 }

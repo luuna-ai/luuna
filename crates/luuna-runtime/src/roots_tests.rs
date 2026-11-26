@@ -83,7 +83,7 @@ fn idea(id: &str, slug: &str) -> NodeRecord {
 /// their prose.
 fn set_up_roots(state: &AppState, project: &str) -> RootsPaths {
     let store = crate::stores::project_store(state, project).unwrap();
-    let paths = roots_paths(&store);
+    let paths = roots_paths(store.path());
     write_config(&paths, &default_config(project)).unwrap();
     for folder in [&paths.human, &paths.sprouts, &paths.notes] {
         std::fs::create_dir_all(folder).unwrap();

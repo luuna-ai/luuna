@@ -90,7 +90,7 @@ async fn raw(state: &AppState, component: &str, project: &str, args: &[&str]) ->
         .components
         .as_ref()
         .unwrap()
-        .call(
+        .call_in(
             component,
             &workspace(state, project).unwrap(),
             &args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>(),

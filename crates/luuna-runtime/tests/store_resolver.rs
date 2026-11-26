@@ -1,8 +1,10 @@
 //! The project store resolver: which component store a project's requests
-//! reach. Runtime mode keeps the managed workspace under the data directory;
-//! every other mode, and every store file that cannot be trusted, is refused
-//! before any component data is touched. No test needs git, a component
-//! toolchain, Bun, the network or a model.
+//! reach. Runtime mode keeps the managed workspace under the data directory.
+//! Both mode, a repository whose checkout is not a usable main checkout, and
+//! every store file that cannot be trusted are refused before any component
+//! data is touched (repository mode with a real checkout is covered by
+//! `store_repository_git.rs`). No test needs git, a component toolchain, Bun,
+//! the network or a model.
 use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
@@ -11,7 +13,7 @@ use axum::{
 use luuna_domain::{DirtyState, RepositoryIdentity, RepositoryObservation, StoreMode, StoreSide};
 use luuna_runtime::{
     router,
-    stores::{resolve_project_store, user_store_path, StoreRefusal},
+    stores::{resolve_project_store, user_store_path, StoreRefusal, StoreRoot},
     AppState, RuntimeConfig,
 };
 use luuna_storage::{write_project_store_mode, Store};
@@ -121,8 +123,10 @@ fn is_empty(directory: &Path) -> bool {
 fn runtime_mode_resolves_to_the_managed_workspace_under_the_data_directory() {
     let data = tempfile::tempdir().unwrap();
     assert_eq!(
-        resolve_project_store(data.path(), "app", &StoreMode::Runtime),
-        Ok(data.path().join("components").join("projects").join("app"))
+        resolve_project_store(data.path(), "app", &StoreMode::Runtime, None),
+        Ok(StoreRoot::Managed(
+            data.path().join("components").join("projects").join("app")
+        ))
     );
 }
 
@@ -144,7 +148,7 @@ fn invalid_project_ids_never_form_a_store_path() {
     for id in ["", "../x", "A", "a/b", "a b", long.as_str()] {
         for mode in &modes {
             assert_eq!(
-                resolve_project_store(data.path(), id, mode),
+                resolve_project_store(data.path(), id, mode, Some(data.path())),
                 Err(StoreRefusal::InvalidProject),
                 "{id:?} in {mode:?}"
             );
@@ -153,16 +157,29 @@ fn invalid_project_ids_never_form_a_store_path() {
 }
 
 #[test]
-fn repository_and_both_modes_are_refused_without_touching_the_filesystem() {
+fn both_mode_and_a_repository_without_a_usable_checkout_are_refused_without_writing() {
     let data = tempfile::tempdir().unwrap();
+    let checkout = tempfile::tempdir().unwrap();
     for mode in non_runtime_modes() {
-        assert_eq!(
-            resolve_project_store(data.path(), "app", &mode),
-            Err(StoreRefusal::NotAvailable(mode.clone()))
-        );
+        let expected = match mode {
+            StoreMode::Both { .. } => StoreRefusal::NotAvailable(mode.clone()),
+            _ => StoreRefusal::UnusableCheckout,
+        };
+        // No checkout, and a checkout that is not a main git checkout.
+        for given in [None, Some(checkout.path())] {
+            assert_eq!(
+                resolve_project_store(data.path(), "app", &mode, given),
+                Err(expected.clone()),
+                "{mode:?} with {given:?}"
+            );
+        }
         assert!(
             is_empty(data.path()),
             "{mode:?} left something in the data directory"
+        );
+        assert!(
+            is_empty(checkout.path()),
+            "{mode:?} wrote into the checkout"
         );
     }
 }

@@ -85,6 +85,14 @@ fn create(path: &Path, bytes: &[u8]) -> Result<(), ApiError> {
 }
 pub(crate) async fn init(state: &AppState, id: &str, human: &HumanActor) -> Result<(), ApiError> {
     let workspace = crate::stores::project_store(state, id)?;
+    // A repository store is never set up by the runtime (ADR 0061).
+    if workspace.is_checkout() {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "This project's store mode is 'repository'; set up .luuna/roots in the checkout yourself, then retry. No component data was read or written".into(),
+        ));
+    }
+    let workspace = workspace.path().to_owned();
     let _guard = state.component_locks.lock().await;
     let data = state.config.data_dir.clone();
     let id = id.to_owned();

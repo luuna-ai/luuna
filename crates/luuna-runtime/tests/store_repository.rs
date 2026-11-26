@@ -1,9 +1,10 @@
 //! The project store resolver, second half: store files that cannot be
-//! trusted (repeated keys, a repository that is not registered) and modes
-//! that are not available yet are refused with a fixed message before any
-//! component data is touched, and a refused repository store leaves the
-//! checkout alone. No test needs git, a component toolchain, Bun, the network
-//! or a model.
+//! trusted (repeated keys, a repository that is not registered), both mode,
+//! and a registered repository whose checkout cannot hold a store are refused
+//! with a fixed message before any component data is touched, and a refused
+//! repository store leaves the checkout alone. Repository mode against real
+//! git checkouts is in `store_repository_git.rs`. No test here needs git, a
+//! component toolchain, Bun, the network or a model.
 use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
@@ -23,8 +24,10 @@ const REMOTE: &str = "https://example.invalid/app.git";
 const NOT_REGISTERED: &str = "This project's store mode file names a repository that is not registered for this project; fix or remove the file. No component data was read or written";
 const UNUSABLE: &str = "This project's store mode file in the data directory cannot be used; fix or remove it. No component data was read or written";
 
+const UNUSABLE_CHECKOUT: &str = "This project's store mode is 'repository', but that repository's registered checkout cannot hold its stores: it must be a main checkout with a .git directory, without links, outside the data directory. No component data was read or written";
+
 fn not_available(mode: &str) -> String {
-    format!("This project's component store mode is '{mode}'; only the runtime store is available in this version. No component data was read or written")
+    format!("This project's component store mode is '{mode}'; only the runtime and repository stores are available in this version. No component data was read or written")
 }
 
 fn configuration(data_dir: PathBuf) -> RuntimeConfig {
@@ -218,30 +221,31 @@ async fn a_store_file_naming_an_unregistered_repository_is_refused() {
 }
 
 #[tokio::test]
-async fn a_registered_repository_is_refused_with_the_mode_named() {
+async fn both_mode_is_refused_with_the_mode_named_and_a_plain_folder_as_unusable() {
     let cases = [
         (
             StoreMode::Repository {
                 repository: "api".into(),
             },
-            "repository",
+            UNUSABLE_CHECKOUT.to_owned(),
         ),
         (
             StoreMode::Both {
                 repository: "api".into(),
                 writable: StoreSide::Runtime,
             },
-            "both",
+            not_available("both"),
         ),
         (
             StoreMode::Both {
                 repository: "api".into(),
                 writable: StoreSide::Repository,
             },
-            "both",
+            not_available("both"),
         ),
     ];
-    for (mode, name) in cases {
+    // The checkout is a plain folder with no .git directory.
+    for (mode, expected) in cases {
         let data = tempfile::tempdir().unwrap();
         let checkout = tempfile::tempdir().unwrap();
         register(data.path(), "app", checkout.path());
@@ -249,7 +253,7 @@ async fn a_registered_repository_is_refused_with_the_mode_named() {
         let app = serve(data.path());
         let (status, body) = request(&app, "GET", "/api/v1/projects/app/components", None).await;
         assert_eq!(status, StatusCode::CONFLICT, "{mode:?}: {body}");
-        assert_eq!(error_text(&body), not_available(name), "{mode:?}");
+        assert_eq!(error_text(&body), expected, "{mode:?}");
     }
 }
 
@@ -340,6 +344,7 @@ fn snapshot(root: &Path) -> Vec<(String, String, Vec<u8>)> {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_refused_repository_store_leaves_the_checkout_untouched() {
+    // A plain folder with stores but no .git directory: refused as unusable.
     use std::os::unix::fs::PermissionsExt;
     let data = tempfile::tempdir().unwrap();
     let checkout = tempfile::tempdir().unwrap();
@@ -373,7 +378,7 @@ async fn a_refused_repository_store_leaves_the_checkout_untouched() {
     .unwrap();
     let before = snapshot(checkout.path());
     let app = serve(data.path());
-    let expected = not_available("repository");
+    let expected = UNUSABLE_CHECKOUT;
     for method in ["GET", "POST"] {
         let (status, body) = request(&app, method, "/api/v1/projects/app/components", None).await;
         assert_eq!(status, StatusCode::CONFLICT, "{method}: {body}");

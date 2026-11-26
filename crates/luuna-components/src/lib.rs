@@ -25,10 +25,64 @@ fn retain_component_env(env: &mut BTreeMap<String, String>) {
 }
 mod atlas;
 mod beacon;
-pub use atlas::{call_atlas_native, run_atlas_native};
+pub use atlas::{call_atlas_in, call_atlas_native, run_atlas_native};
 mod missions;
-pub use beacon::{call_beacon_native, run_beacon_native};
-pub use missions::{call_missions_native, run_missions_native};
+pub use beacon::{call_beacon_in, call_beacon_native, run_beacon_native};
+pub use missions::{call_missions_in, call_missions_native, run_missions_native};
+
+/// Where a component call finds its store (ADR 0061).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StoreRoot {
+    /// The private managed workspace under the data directory. It is created
+    /// with mode 0700 and a store from before ADR 0028 is moved into place.
+    Managed(PathBuf),
+    /// A registered checkout that the project's store mode file selects. It
+    /// is used as it is: nothing is created, moved or re-permissioned, a
+    /// store is never initialised there, and only `.luuna/<component>` is
+    /// read or written.
+    Checkout(PathBuf),
+}
+
+impl StoreRoot {
+    pub fn path(&self) -> &Path {
+        match self {
+            StoreRoot::Managed(path) | StoreRoot::Checkout(path) => path,
+        }
+    }
+    pub fn is_checkout(&self) -> bool {
+        matches!(self, StoreRoot::Checkout(_))
+    }
+}
+
+/// The canonical root a native call works in. A managed workspace is
+/// prepared as before; a checkout is only checked (absolute, no `..`, no
+/// linked element, a directory) and can never be initialised.
+fn open_store(store: &StoreRoot, initializing: bool) -> Result<PathBuf> {
+    match store {
+        StoreRoot::Managed(path) => {
+            let root = prepare_workspace(path)?;
+            adopt_legacy_layout(&root)?;
+            Ok(root)
+        }
+        StoreRoot::Checkout(path) => {
+            if initializing || !path.is_absolute() {
+                return Err(ComponentError::Workspace);
+            }
+            let mut current = PathBuf::new();
+            for part in path.components() {
+                if matches!(part, Component::ParentDir) {
+                    return Err(ComponentError::Workspace);
+                }
+                current.push(part);
+                match std::fs::symlink_metadata(&current) {
+                    Ok(metadata) if !linked(&metadata) && metadata.is_dir() => {}
+                    _ => return Err(ComponentError::Workspace),
+                }
+            }
+            path.canonicalize().map_err(|_| ComponentError::Workspace)
+        }
+    }
+}
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -188,10 +242,19 @@ impl Components {
         "native Atlas, Beacon and Missions libraries".into()
     }
     pub async fn call(&self, component: &str, workspace: &Path, args: &[String]) -> Result<Value> {
+        self.call_in(component, &StoreRoot::Managed(workspace.to_owned()), args)
+            .await
+    }
+    pub async fn call_in(
+        &self,
+        component: &str,
+        store: &StoreRoot,
+        args: &[String],
+    ) -> Result<Value> {
         match component.strip_prefix("luuna-").unwrap_or(component) {
-            "atlas" => call_atlas_native(workspace, args).await,
-            "beacon" => call_beacon_native(workspace, args).await,
-            "missions" => call_missions_native(workspace, args).await,
+            "atlas" => call_atlas_in(store, args).await,
+            "beacon" => call_beacon_in(store, args).await,
+            "missions" => call_missions_in(store, args).await,
             _ => Err(ComponentError::Identity),
         }
     }
@@ -1143,6 +1206,42 @@ compile_error!("component process ownership is implemented only for Unix and Win
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_checkout_store_is_only_checked_never_prepared_or_initialised() {
+        let dir = tempfile::tempdir().unwrap();
+        let checkout = dir.path().canonicalize().unwrap().join("checkout");
+        std::fs::create_dir_all(checkout.join(".seeds")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&checkout, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let store = StoreRoot::Checkout(checkout.clone());
+        assert_eq!(open_store(&store, false).unwrap(), checkout);
+        assert!(open_store(&store, true).is_err(), "init is refused");
+        assert!(checkout.join(".seeds").is_dir(), "no legacy rename");
+        assert!(!checkout.join(".luuna").exists());
+        assert!(!checkout.join(".luuna-component-home").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&checkout).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o755);
+        }
+        for refused in [
+            StoreRoot::Checkout("relative/checkout".into()),
+            StoreRoot::Checkout(checkout.join("../checkout")),
+            StoreRoot::Checkout(checkout.join("missing")),
+        ] {
+            assert!(open_store(&refused, false).is_err(), "{refused:?}");
+        }
+        #[cfg(unix)]
+        {
+            let link = dir.path().join("link");
+            std::os::unix::fs::symlink(&checkout, &link).unwrap();
+            assert!(open_store(&StoreRoot::Checkout(link), false).is_err());
+        }
+    }
     use super::*;
 
     #[test]

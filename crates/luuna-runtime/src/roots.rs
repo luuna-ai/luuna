@@ -315,17 +315,19 @@ pub struct FiledSprout {
 impl RootsStore {
     /// The Roots store of `project_id`: the resolver's component store for
     /// the project (refusals as the resolver gives them, so an invalid or
-    /// unregistered project is 404 and a repository or both store mode is
-    /// 409), then `.luuna/roots` in it. Refused with 409 when that store has
-    /// no `config.yaml`. Creates nothing.
+    /// unregistered project is 404 and a both store mode is 409), then
+    /// `.luuna/roots` in it, in the managed workspace or the selected
+    /// checkout. Refused with 409 when that store has no `config.yaml`.
+    /// Creates nothing.
     pub fn for_project(state: &AppState, project_id: &str) -> Result<Self, ApiError> {
         let store = crate::stores::project_store(state, project_id)?;
+        let store = store.path();
         // A relative path would be made absolute against the process working
         // directory; the resolver's path is absolute, and this keeps it so.
         if !store.is_absolute() {
             return Err(internal("the project store path is not absolute"));
         }
-        let paths = roots_paths(&store);
+        let paths = roots_paths(store);
         if !paths.config.is_file() {
             return Err(ApiError(StatusCode::CONFLICT, NOT_SET_UP.into()));
         }

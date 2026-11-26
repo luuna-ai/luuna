@@ -1,8 +1,5 @@
 //! Native Missions execution. No component executable or fallback is used.
-use super::{
-    adopt_legacy_layout, check_project_data_links, prepare_workspace, ComponentError, Result,
-    MAX_STDOUT,
-};
+use super::{check_project_data_links, open_store, ComponentError, Result, StoreRoot, MAX_STDOUT};
 use luuna_missions::command::{Invocation, Outcome};
 use serde_json::Value;
 use std::{collections::BTreeMap, fs, io::Read, path::Path, sync::Mutex};
@@ -55,6 +52,11 @@ pub async fn run_missions_native(
 
 /// Finite managed-runtime protocol; raw command semantics remain in Missions.
 pub async fn call_missions_native(workspace: &Path, args: &[String]) -> Result<Value> {
+    call_missions_in(&StoreRoot::Managed(workspace.to_owned()), args).await
+}
+
+/// The same call against a managed workspace or a selected checkout.
+pub async fn call_missions_in(store: &StoreRoot, args: &[String]) -> Result<Value> {
     arguments(args, &[])?;
     if !matches!(
         args[0].as_str(),
@@ -62,7 +64,7 @@ pub async fn call_missions_native(workspace: &Path, args: &[String]) -> Result<V
     ) {
         return Err(ComponentError::Protocol);
     }
-    let root = workspace.to_owned();
+    let store = store.clone();
     let mut args = args.to_vec();
     if !args.iter().any(|a| a == "--json") {
         args.push("--json".into());
@@ -71,8 +73,7 @@ pub async fn call_missions_native(workspace: &Path, args: &[String]) -> Result<V
         let _guard = NATIVE_GATE
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let root = prepare_workspace(&root)?;
-        adopt_legacy_layout(&root)?;
+        let root = open_store(&store, args[0] == "init")?;
         let initializing = args[0] == "init";
         if !initializing && !root.join(".luuna/missions/config.yaml").is_file() {
             return Err(ComponentError::Workspace);

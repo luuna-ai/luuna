@@ -1,8 +1,5 @@
 //! Bounded, in-process Beacon adapter. Unsupported operations never use a CLI.
-use super::{
-    adopt_legacy_layout, check_project_data_links, prepare_workspace, ComponentError, Result,
-    MAX_STDOUT,
-};
+use super::{check_project_data_links, open_store, ComponentError, Result, StoreRoot, MAX_STDOUT};
 use luuna_beacon::{Beacon, CreatePrompt, CreateSchema, ListFilter, Rule, Section, UpdatePrompt};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs, io::Read, path::Path, sync::Mutex};
@@ -18,16 +15,20 @@ static NATIVE_GATE: Mutex<()> = Mutex::new(());
 /// Work is awaited on a blocking thread, with no synthetic timeout that could
 /// falsely imply a running native writer was cancelled. No child is launched.
 pub async fn call_beacon_native(workspace: &Path, args: &[String]) -> Result<Value> {
+    call_beacon_in(&StoreRoot::Managed(workspace.to_owned()), args).await
+}
+
+/// The same call against a managed workspace or a selected checkout.
+pub async fn call_beacon_in(store: &StoreRoot, args: &[String]) -> Result<Value> {
     let request = Request::parse(args)?;
-    let root = workspace.to_owned();
+    let store = store.clone();
     tokio::task::spawn_blocking(move || {
         // The mutex protects admission, not mutable state. A caught library
         // panic must not permanently disable every unrelated prompt store.
         let _guard = NATIVE_GATE
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let root = prepare_workspace(&root)?;
-        adopt_legacy_layout(&root)?;
+        let root = open_store(&store, matches!(request, Request::Init))?;
         if !matches!(request, Request::Init) && !root.join(".luuna/beacon").is_dir() {
             return Err(ComponentError::Workspace);
         }

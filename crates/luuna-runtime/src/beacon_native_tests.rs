@@ -58,7 +58,7 @@ async fn enable_existing_store(state: &AppState, id: &str) {
         .begin_component_enable(id)
         .unwrap();
     let root = integrations::workspace(state, id).unwrap();
-    luuna_components::call_beacon_native(&root, &["init".into()])
+    luuna_components::call_beacon_in(&root, &["init".into()])
         .await
         .unwrap();
     state
@@ -206,7 +206,7 @@ async fn native_schema_and_parent_source_changes_stale_approved_prompt_context()
     let state = fixture(&root);
     enable_existing_store(&state, "app").await;
     create(&state).await;
-    let b = Beacon::open(&integrations::workspace(&state, "app").unwrap()).unwrap();
+    let b = Beacon::open(integrations::workspace(&state, "app").unwrap().path()).unwrap();
     b.schema_create(&CreateSchema {
         name: "approval".into(),
         required: vec!["guidance".into()],
@@ -368,6 +368,7 @@ async fn native_store_failures_do_not_expose_source_bytes_or_host_paths() {
     enable_existing_store(&state, "app").await;
     let path = integrations::workspace(&state, "app")
         .unwrap()
+        .path()
         .join(".luuna/beacon/prompts.jsonl");
     let source = b"synthetic-malformed-source-marker\n";
     std::fs::write(&path, source).unwrap();
@@ -402,6 +403,7 @@ async fn native_prompts_do_not_implicitly_enable_a_project() {
     assert_eq!(status, StatusCode::CONFLICT);
     assert!(!integrations::workspace(&state, "app")
         .unwrap()
+        .path()
         .join(".luuna/beacon")
         .exists())
 }
