@@ -833,6 +833,11 @@ pub(crate) fn reconcile_project_files(connection: &mut Connection, data_dir: &Pa
         apply(&tx, id, action)?;
     }
     crate::component_index::apply(&tx, &component_action)?;
+    // Event and discovery logs are planned once the projects they name are
+    // indexed; a refusal here still drops the whole uncommitted transaction
+    // before any file is written.
+    let log_plans = crate::project_log::plan(&tx, data_dir)?;
+    crate::project_log::apply(&tx, &log_plans)?;
     // Keep the SQLite writer lease through backfill file replacement too:
     // another Store must not race a newer writer against an old backfill.
     for (id, action) in &actions {
@@ -841,6 +846,7 @@ pub(crate) fn reconcile_project_files(connection: &mut Connection, data_dir: &Pa
         }
     }
     crate::component_index::backfill(data_dir, &component_action)?;
+    crate::project_log::backfill(data_dir, &log_plans)?;
     tx.commit()?;
     Ok(())
 }
