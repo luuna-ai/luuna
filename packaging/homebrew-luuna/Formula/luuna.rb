@@ -4,10 +4,11 @@ class Luuna < Formula
   version "0.1.0"
   license "MIT"
 
-  # One immutable revision of the one repository. Missions, Atlas and Beacon
-  # are native Rust libraries inside it (ADR 0066), so no component
-  # resources, Bun or Go are needed.
-  url "https://github.com/luuna-ai/luuna.git", revision: "aeaaf204a16d1c0073e87afab02422119ea56150"
+  # One immutable revision of the one repository, at or after the native
+  # component ports and executable-name dispatch (ADR 0053). Missions, Atlas
+  # and Beacon are native Rust inside it, so no component resources, Bun or
+  # Go are needed. Move this pin to the release commit when tagging.
+  url "https://github.com/luuna-ai/luuna.git", revision: "8f35562ebd728408207ee925d5ca5d4c39930682"
 
   depends_on "rust" => :build
   depends_on "git"
