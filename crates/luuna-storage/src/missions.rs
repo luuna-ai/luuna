@@ -125,6 +125,7 @@ impl Store {
             }),
         )?;
         tx.commit()?;
+        self.mirror_logs(&[&ticket.project_id]);
         Ok(ticket)
     }
 
@@ -209,6 +210,7 @@ impl Store {
             }),
         )?;
         tx.commit()?;
+        self.mirror_logs(&[&ticket.project_id]);
         Ok(ticket)
     }
 }
