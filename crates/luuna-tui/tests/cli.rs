@@ -61,9 +61,9 @@ fn records(request: &Request) -> Reply {
         }
         ["projects", _, "memory", "starter"] => {
             return json(json!({"memory_empty":true,"facts":[
-                {"key":"branch:app","repository_id":"app","content":"In app, base every change on `main`.","provenance":"Luuna's starter scan of the confirmed manifest (revision 1), repository app","evidence":["manifest"],"recorded":false},
-                {"key":"lockfile:app:Cargo.lock","repository_id":"app","content":"In app, build and test with `--locked`.","provenance":"Luuna's starter scan of repository app: Cargo.lock is present","evidence":["Cargo.lock"],"recorded":false},
-                {"key":"guide:app:README.md","repository_id":"app","content":"In app, read `README.md`.","provenance":"scan","evidence":["README.md"],"recorded":true}
+                {"key":"branch:app","repository_id":"app","content":"In app, base every change on `main`.","provenance":"Luuna's starter scan of the confirmed manifest (revision 1), repository app","evidence":["manifest"],"recorded":false,"idempotency_key":"starter-branch:app-0001"},
+                {"key":"lockfile:app:Cargo.lock","repository_id":"app","content":"In app, build and test with `--locked`.","provenance":"Luuna's starter scan of repository app: Cargo.lock is present","evidence":["Cargo.lock"],"recorded":false,"idempotency_key":"starter-lockfile:app:Cargo.lock-0002"},
+                {"key":"guide:app:README.md","repository_id":"app","content":"In app, read `README.md`.","provenance":"scan","evidence":["README.md"],"recorded":true,"idempotency_key":"starter-guide:app:README.md-0003"}
             ]}))
         }
         ["tickets", _] if request.method == "GET" => {
@@ -277,7 +277,7 @@ fn memory_starter_records_only_the_facts_named_to_keep() {
     assert_eq!(posted[0].path, "/api/v1/projects/walkthrough/memory");
     assert_eq!(
         posted[0].json(),
-        json!({"idempotency_key":"starter-lockfile:app:Cargo.lock","scope":"project","content":"In app, build and test with `--locked`.","provenance":"Luuna's starter scan of repository app: Cargo.lock is present"})
+        json!({"idempotency_key":"starter-lockfile:app:Cargo.lock-0002","scope":"project","content":"In app, build and test with `--locked`.","provenance":"Luuna's starter scan of repository app: Cargo.lock is present"})
     );
     assert!(out.contains("kept"), "{out}");
     // `all` keeps every fact not yet recorded; an unknown key sends nothing.

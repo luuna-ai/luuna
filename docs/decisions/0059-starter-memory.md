@@ -30,10 +30,10 @@ Luuna only checks whether these files exist. It never reads their text, never fo
 The developer decides about each fact on its own, and only facts they keep are recorded:
 
 - The desktop shows a "Build a starter set" control in an empty memory view, with Keep and Skip for each fact.
-- In the terminal, `lu memory-starter <project>` asks about each fact in an interactive terminal. A script only gets the list unless it passes `--keep <key>` (repeatable) or `--keep all`.
+- In the terminal, `lu memory-starter <project>` asks about each fact in an interactive terminal. A script only gets the list unless it passes `--keep <key>` (repeatable) or `--keep all`. Because `--keep` saves, the workbench admits and limits the command as a mutation and never replays it on reconnection.
 - In the workbench, `s` on the Atlas screen starts the same review.
 
-A kept fact goes through the ordinary `POST …/memory` route with scope `project`, the fact's own provenance and the idempotency key `starter-<key>`. So it is an ordinary Atlas convention record in the `luuna-project` domain, with Luuna's identity envelope, under the same intent ledger as any other memory. It can be corrected, promoted, deleted and selected for a plan like any other record.
+A kept fact goes through the ordinary `POST …/memory` route with scope `project`, the fact's own provenance and the idempotency key the starter set gives the fact: `starter-<key>-<content hash>`, with `-2`, `-3`… added once a memory kept under the previous key has been deleted. A retry replays the same request, while a fact deleted and kept again is recorded again rather than answered from the old delivery. So it is an ordinary Atlas convention record in the `luuna-project` domain, with Luuna's identity envelope, under the same intent ledger as any other memory. It can be corrected, promoted, deleted and selected for a plan like any other record.
 
 ## Consequences
 

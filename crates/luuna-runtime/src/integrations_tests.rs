@@ -1650,7 +1650,7 @@ async fn components_real_starter_memory_proposes_and_records_only_what_is_kept()
         State(state.clone()),
         Path("starter".into()),
         Json(CreateMemory {
-            idempotency_key: format!("starter-{}", kept.key),
+            idempotency_key: kept.idempotency_key.clone(),
             scope: "project".into(),
             content: kept.content.clone(),
             provenance: kept.provenance.clone(),
@@ -1669,4 +1669,50 @@ async fn components_real_starter_memory_proposes_and_records_only_what_is_kept()
     for fact in &again.facts {
         assert_eq!(fact.recorded, fact.key == kept.key, "{}", fact.key);
     }
+    // While the kept memory exists its key stays, so a retry replays it.
+    let same = again.facts.iter().find(|f| f.key == kept.key).unwrap();
+    assert_eq!(same.idempotency_key, kept.idempotency_key);
+    // Once it is deleted, the fact is offered under a fresh key and keeping it
+    // records a new memory instead of replaying the deleted one.
+    let _ = delete_memory(
+        State(state.clone()),
+        Path(("starter".into(), recorded.id.clone())),
+        Query(DeleteMemoryQuery {
+            expected_hash: recorded.hash.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    let after = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    let offered = after.facts.iter().find(|f| f.key == kept.key).unwrap();
+    assert!(!offered.recorded);
+    assert_ne!(offered.idempotency_key, kept.idempotency_key);
+    let renewed = create_memory(
+        State(state.clone()),
+        Path("starter".into()),
+        Json(CreateMemory {
+            idempotency_key: offered.idempotency_key.clone(),
+            scope: "project".into(),
+            content: offered.content.clone(),
+            provenance: offered.provenance.clone(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_ne!(renewed.id, recorded.id);
+    let last = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    assert!(
+        last.facts
+            .iter()
+            .find(|f| f.key == kept.key)
+            .unwrap()
+            .recorded
+    );
 }

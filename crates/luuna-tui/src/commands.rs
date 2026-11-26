@@ -193,8 +193,15 @@ pub fn capability(id: &str) -> &'static J {
 
 /// A read: a projection, or an action whose route is a GET.
 pub fn read_only(command: &Command) -> bool {
-    command.is_projection() || capability(&command.id).get("method").as_str() == Some("GET")
+    // memory-starter lists with GET but `--keep` saves facts with POST, so it
+    // is admitted, limited and never replayed as a mutation.
+    command.is_projection()
+        || (capability(&command.id).get("method").as_str() == Some("GET")
+            && !COMPOSITE_WRITES.contains(&command.id.as_str()))
 }
+
+/// Commands whose catalog capability reads but that can also write.
+const COMPOSITE_WRITES: [&str; 1] = ["memory.starter"];
 
 /// The positional usage line of a command.
 pub fn usage(command: &Command) -> String {
@@ -1206,7 +1213,7 @@ pub async fn run(
                     continue;
                 }
                 let body = obj![
-                    ("idempotency_key", format!("starter-{key}")),
+                    ("idempotency_key", fact.get("idempotency_key").clone()),
                     ("scope", "project"),
                     ("content", fact.get("content").clone()),
                     ("provenance", fact.get("provenance").clone())
@@ -2191,6 +2198,12 @@ fn parse_task_spec(text: &str) -> Option<(String, String, Option<String>, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn starter_memory_can_save_so_it_is_never_a_replayed_read() {
+        assert!(!read_only(by_name("memory-starter").unwrap()));
+        assert!(read_only(by_name("memory").unwrap()));
+    }
 
     #[test]
     fn orbit_command_lines_split_like_the_regular_expression() {

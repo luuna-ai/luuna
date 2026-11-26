@@ -366,7 +366,7 @@ export interface MemoryRecord {
 
 /** One proposed starter fact (ADR 0059); recording it is the developer's choice. */
 export interface StarterFact {
-  /** Stable for the same fact of the same repository: `starter-<key>` is a natural idempotency key. */
+  /** Stable for the same fact of the same repository. */
   key: string;
   repository_id: string;
   content: string;
@@ -375,6 +375,8 @@ export interface StarterFact {
   evidence: string[];
   /** An existing memory already holds exactly this content. */
   recorded: boolean;
+  /** The key to keep this fact with now: a retry replays the same request, and a fact kept and later deleted gets a fresh key. */
+  idempotency_key: string;
 }
 
 export interface StarterMemorySet {
@@ -1704,7 +1706,7 @@ export class LuunaClient {
 
   /** Records one starter fact the developer kept, as an ordinary project memory with the fact's provenance. */
   keepStarterFact(projectId: string, fact: StarterFact, signal?: AbortSignal): Promise<MemoryRecord> {
-    return this.createMemory(projectId, { idempotency_key: `starter-${fact.key}`, scope: "project", content: fact.content, provenance: fact.provenance }, signal);
+    return this.createMemory(projectId, { idempotency_key: fact.idempotency_key, scope: "project", content: fact.content, provenance: fact.provenance }, signal);
   }
 
   createMemory(projectId: string, request: CreateMemoryRequest, signal?: AbortSignal): Promise<MemoryRecord> {

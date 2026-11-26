@@ -29,6 +29,10 @@ pub struct StarterFact {
     pub evidence: Vec<String>,
     /// An existing memory already holds exactly this content.
     pub recorded: bool,
+    /// The idempotency key to keep this fact with now. It names the fact and
+    /// its exact content, so a retry replays the same request; once a memory
+    /// kept under it is deleted, the next delivery gets a fresh key.
+    pub idempotency_key: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -88,11 +92,62 @@ fn short(commit: &str) -> &str {
     commit.get(..12).unwrap_or(commit)
 }
 
+/// The check as one POSIX shell command line: a word with only plain
+/// characters stays as it is, any other is single-quoted, so an argument with
+/// spaces or shell syntax (a `python -c` program) keeps its boundaries.
 fn command_line(executable: &str, args: &[String]) -> String {
+    fn word(text: &str) -> String {
+        let plain = !text.is_empty()
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_-./:=@%+,".contains(&b));
+        if plain {
+            text.to_string()
+        } else {
+            format!("'{}'", text.replace('\'', r"'\''"))
+        }
+    }
     std::iter::once(executable)
         .chain(args.iter().map(String::as_str))
+        .map(word)
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Most deliveries of one fact looked through before its key stops advancing.
+const MAX_DELIVERIES: usize = 1000;
+
+/// The key for the next delivery of `fact`: `starter-<key>-<content hash>`,
+/// then `-2`, `-3`… past each delivery whose memory was kept and later
+/// deleted. A delivery that has not finished, or whose memory still exists,
+/// keeps its key, so a retry resumes or replays it.
+fn delivery_key(
+    store: &luuna_storage::Store,
+    project_id: &str,
+    fact: &StarterFact,
+) -> luuna_storage::Result<String> {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(fact.content.as_bytes());
+    let hash: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let base = format!("starter-{}-{hash}", fact.key);
+    for delivery in 1..=MAX_DELIVERIES {
+        let key = if delivery == 1 {
+            base.clone()
+        } else {
+            format!("{base}-{delivery}")
+        };
+        let Some(operation) = store.component_operation(project_id, &key)? else {
+            return Ok(key);
+        };
+        let deleted = operation.response.is_some()
+            && store
+                .memory_binding(project_id, &operation.record_id)?
+                .is_none_or(|binding| binding.deleted);
+        if !deleted {
+            return Ok(key);
+        }
+    }
+    Ok(format!("{base}-{}", MAX_DELIVERIES + 1))
 }
 
 /// The proposals for one project, in a stable order: per repository, its
@@ -119,6 +174,7 @@ pub fn propose(
                 provenance,
                 evidence,
                 recorded: false,
+                idempotency_key: String::new(),
             });
         };
         for check in repository.checks.iter().filter(|c| c.required) {
@@ -204,6 +260,7 @@ pub fn propose(
             ),
             evidence: vec!["manifest".into()],
             recorded: false,
+                idempotency_key: String::new(),
         });
     }
     facts.truncate(MAX_FACTS);
@@ -241,8 +298,12 @@ pub async fn starter_memory(
     };
     let existing = integrations::project_memory_contents(&state, &id).await?;
     let mut facts = propose(&manifest, &registrations);
-    for fact in &mut facts {
-        fact.recorded = existing.iter().any(|content| content == &fact.content);
+    {
+        let store = state.store.lock().map_err(internal)?;
+        for fact in &mut facts {
+            fact.recorded = existing.iter().any(|content| content == &fact.content);
+            fact.idempotency_key = delivery_key(&store, &id, fact).map_err(internal)?;
+        }
     }
     Ok(Json(StarterSet {
         memory_empty: existing.is_empty(),
@@ -336,6 +397,23 @@ mod tests {
             },
             registered_at: "2026-11-26T00:00:00Z".into(),
         }
+    }
+
+    #[test]
+    fn check_commands_keep_their_argument_boundaries() {
+        let args = |list: &[&str]| list.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            command_line("cargo", &args(&["test", "--workspace"])),
+            "cargo test --workspace"
+        );
+        assert_eq!(
+            command_line("python3", &args(&["-c", "import sys; sys.exit(0)"])),
+            "python3 -c 'import sys; sys.exit(0)'"
+        );
+        assert_eq!(
+            command_line("sh", &args(&["-c", "echo 'hi'", ""])),
+            r"sh -c 'echo '\''hi'\''' ''"
+        );
     }
 
     #[test]
