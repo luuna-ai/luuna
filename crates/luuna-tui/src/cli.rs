@@ -437,6 +437,46 @@ pub async fn main(argv: Vec<String>, process: &mut Process) -> Next {
             }
         }
     }
+    if let Some(group) = name.as_deref().and_then(help::command_group).map(|g| g.0) {
+        // `plan`, `run` and `memory` are flat commands too: only a known verb regroups them.
+        let flat_too = by_name(group).is_some();
+        match rest.first().map(String::as_str) {
+            Some(verb) if help::grouped_command(group, verb).is_some() => {
+                name = help::grouped_command(group, verb).map(str::to_owned);
+                rest.remove(0);
+            }
+            _ if flat_too => {}
+            None => {
+                process.out(&help::group_page(group, &options).unwrap_or_default());
+                return Next::Exit(2);
+            }
+            Some("--help" | "-h") => {
+                process.out(&help::group_page(group, &options).unwrap_or_default());
+                return Next::Exit(0);
+            }
+            Some(verb) => return unknown(process, &format!("{group} {verb}")),
+        }
+    }
+    if name.as_deref() == Some("help") {
+        if let Some(group) = rest
+            .first()
+            .and_then(|topic| help::command_group(topic))
+            .map(|g| g.0)
+        {
+            if rest.len() == 2 {
+                if let Some(command) = help::grouped_command(group, &rest[1]).and_then(help_command)
+                {
+                    process.out(&command_help(command, &options));
+                    return Next::Exit(0);
+                }
+                return unknown(process, &rest.join(" "));
+            }
+            if rest.len() == 1 && by_name(group).is_none() {
+                process.out(&help::group_page(group, &options).unwrap_or_default());
+                return Next::Exit(0);
+            }
+        }
+    }
     if name.as_deref() == Some("help") && rest.first().is_some_and(|topic| topic == "intent") {
         if rest.len() == 1 {
             process.out(&help::intent_group(&options));
