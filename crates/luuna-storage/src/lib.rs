@@ -259,14 +259,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         // A removed project admits no run (ADR 0063), checked in the same
         // transaction as the insert so removal and admission never both win.
-        let removed: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND removed_at IS NOT NULL)",
-            [project_id],
-            |row| row.get(0),
-        )?;
-        if removed {
-            return Err(StorageError::NotFound(project_id.into()));
-        }
+        refuse_removed_project(&tx, project_id)?;
         tx.execute("INSERT INTO runs(id,project_id,state,revision,metadata,created_at,updated_at) VALUES (?1,?2,?3,1,?4,?5,?5)",
             params![id, project_id, state_json(state)?, serde_json::to_string(&metadata)?, now])?;
         append(&tx, id, "run.created", serde_json::json!({"state":state}))?;
@@ -999,6 +992,20 @@ COMMIT;
 /// task records its role, who assigned it (the approval of the exact plan),
 /// the advisory task it was derived from, the dependency overrides that
 /// name it and, for an advisory role, its structured result.
+/// A removed project admits no new work (ADR 0063). Callers run this inside
+/// the transaction that admits the work, so removal and admission never both win.
+pub(crate) fn refuse_removed_project(connection: &Connection, project_id: &str) -> Result<()> {
+    let removed: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND removed_at IS NOT NULL)",
+        [project_id],
+        |row| row.get(0),
+    )?;
+    if removed {
+        return Err(StorageError::NotFound(project_id.into()));
+    }
+    Ok(())
+}
+
 /// A removed project stays on disk with its history; `removed_at` takes it off
 /// every list and frees its checkouts (ADR 0063).
 const MIGRATION_13: &str = "

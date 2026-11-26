@@ -448,3 +448,18 @@ fn running_baselines_are_interrupted_on_restart_and_results_are_immutable() {
     assert_eq!(events.last().unwrap().event_type, "baseline.finished");
     assert_eq!(events.last().unwrap().payload["status"], "interrupted");
 }
+
+#[test]
+fn a_removed_project_admits_no_implementation_of_an_approved_workflow() {
+    let Fixture { mut store, run, .. } = approved_workflow();
+    // An approved workflow is not yet in a checkout, so it does not hold removal back.
+    store.remove_project("project").unwrap();
+    assert!(matches!(
+        store.begin_implementation(&run.id, run.revision, HOST),
+        Err(StorageError::NotFound(id)) if id == "project"
+    ));
+    assert_eq!(
+        store.get_run(&run.id).unwrap().unwrap().state,
+        RunState::Approved
+    );
+}

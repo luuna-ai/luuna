@@ -844,6 +844,9 @@ impl Store {
 /// The plan must bind to the project's current confirmed manifest and that
 /// manifest's recorded base commits for every repository in scope.
 pub(crate) fn check_manifest_binding(tx: &Transaction<'_>, plan: &PlanRevision) -> Result<()> {
+    // A removed project's plans admit nothing: approving, implementing,
+    // repairing and validating all pass through here (ADR 0063).
+    crate::refuse_removed_project(tx, &plan.project_id)?;
     let current: Option<String> = tx
         .query_row(
             "SELECT manifest_hash FROM projects WHERE id=?1",
