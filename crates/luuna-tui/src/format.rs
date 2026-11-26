@@ -1274,8 +1274,27 @@ fn format_ticket(ticket: &J) -> R<String> {
     } else {
         String::new()
     };
+    // Type, priority and labels only when they differ from task, P2 and none.
+    let mut triage = Vec::new();
+    let priority = f(ticket, "priority")?;
+    if !priority.nullish() {
+        triage.push(format!("P{}", s(priority)));
+    }
+    let kind = f(ticket, "type")?;
+    if !kind.nullish() {
+        triage.push(s(kind));
+    }
+    let labels = f(ticket, "labels")?;
+    if !labels.nullish() {
+        triage.push(join(labels, ", ")?);
+    }
+    let triage = if triage.is_empty() {
+        String::new()
+    } else {
+        format!("  [{}]", triage.join(" · "))
+    };
     Ok(format!(
-        "{}  r{}  {}  {}{usage_text}\n  {}\n  criteria: {}",
+        "{}  r{}  {}  {}{triage}{usage_text}\n  {}\n  criteria: {}",
         sid(f(ticket, "id")?),
         s(f(ticket, "revision")?),
         s(f(ticket, "source")?),

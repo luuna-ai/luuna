@@ -1090,6 +1090,19 @@
           "description": "feature (default) or testing_setup: the prerequisite ticket a repository without a usable testing setup is offered (ADR 0022)",
           "prompt": "Purpose (feature or testing_setup; empty is feature)"
         },
+        "type": {
+          "description": "task (default), bug, feature or epic, as Missions names them",
+          "prompt": "Type (task, bug, feature or epic; empty is task)"
+        },
+        "priority": {
+          "description": "P0 (critical) to P4 (backlog); P2 when omitted",
+          "prompt": "Priority (P0 to P4; empty is P2)"
+        },
+        "label": {
+          "repeat": true,
+          "description": "a label (repeatable, or comma-separated)",
+          "prompt": "Labels (comma-separated; empty for none)"
+        },
         "key": {
           "description": "idempotency key (generated when omitted)"
         }
@@ -1220,6 +1233,20 @@
         "repository": {
           "repeat": true,
           "description": "a repository id (repeatable; given together they replace the list)"
+        },
+        "type": {
+          "description": "the new type: task, bug, feature or epic"
+        },
+        "priority": {
+          "description": "the new priority, P0 (critical) to P4 (backlog)"
+        },
+        "label": {
+          "repeat": true,
+          "description": "a label (repeatable, or comma-separated; given together they replace the list)"
+        },
+        "clear-labels": {
+          "boolean": true,
+          "description": "remove every label"
         },
         "revision": {
           "description": "the ticket revision this client read (read from the ticket when omitted)"

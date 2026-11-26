@@ -733,6 +733,15 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
                         ("intent", text(&v, "intent")),
                         ("criterion", joined(&v, "acceptance_criteria")),
                         ("repository", joined(&v, "repository_ids")),
+                        ("type", text(&v, "type")),
+                        (
+                            "priority",
+                            match text(&v, "priority") {
+                                p if p.is_empty() => String::new(),
+                                p => format!("P{p}"),
+                            },
+                        ),
+                        ("label", joined(&v, "labels").replace('\n', ",")),
                     ],
                 ),
                 Screen::MemoryDetail => prefill(

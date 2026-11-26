@@ -4,7 +4,9 @@
 //! project's private component workspace exclusively.
 use crate::{integrations, internal, projects::storage_error, ApiError, AppState};
 use axum::http::StatusCode;
-use luuna_domain::{Ticket, TicketSource};
+use luuna_domain::{
+    Ticket, TicketSource, TicketType, DEFAULT_TICKET_PRIORITY, RESERVED_LABEL_PREFIX,
+};
 use luuna_storage::{MissionsBinding, TicketRevision};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -182,12 +184,70 @@ fn projection(ticket: &Ticket, issue: &Value) -> Result<Ticket, ApiError> {
     result.intent = intent.intent;
     result.acceptance_criteria = intent.acceptance_criteria;
     result.repository_ids = intent.repository_ids;
+    // Type, priority and labels are ordinary Missions fields (ADR 0058), read
+    // as Missions writes them. Luuna's own delivery marker is not a label.
+    result.ticket_type = match issue["type"].as_str() {
+        None | Some("") => TicketType::Task,
+        Some(kind) => TicketType::parse(kind).ok_or_else(malformed)?,
+    };
+    result.priority = match issue.get("priority") {
+        None | Some(Value::Null) => DEFAULT_TICKET_PRIORITY,
+        Some(value) => value
+            .as_u64()
+            .and_then(|p| u8::try_from(p).ok())
+            .ok_or_else(malformed)?,
+    };
+    result.labels = issue["labels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|label| label.as_str().map(str::to_owned).ok_or_else(malformed))
+        .filter(|label| {
+            !label
+                .as_ref()
+                .is_ok_and(|label| label.starts_with(RESERVED_LABEL_PREFIX))
+        })
+        .collect::<Result<_, _>>()?;
     result.validate().map_err(|_| malformed())?;
     Ok(result)
 }
 
 fn marker(ticket: &Ticket) -> String {
-    format!("luuna-ticket-{}", ticket.id)
+    format!("{RESERVED_LABEL_PREFIX}{}", ticket.id)
+}
+
+/// The component-ledger request of an edit. Type, priority and labels are
+/// named only when they differ from the defaults, so an edit recorded before
+/// they existed (ADR 0058) still matches its retry.
+fn ledger_request(desired: &Ticket, description: &str) -> Value {
+    let mut request = json!({"title": desired.title, "description": description});
+    if !desired.ticket_type.is_task() {
+        request["type"] = json!(desired.ticket_type);
+    }
+    if desired.priority != DEFAULT_TICKET_PRIORITY {
+        request["priority"] = json!(desired.priority);
+    }
+    if !desired.labels.is_empty() {
+        request["labels"] = json!(desired.labels);
+    }
+    request
+}
+
+/// Luuna's delivery marker first, then the ticket's own labels.
+fn label_list(ticket: &Ticket) -> String {
+    std::iter::once(marker(ticket))
+        .chain(ticket.labels.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn source_labels(issue: &Value) -> Vec<&str> {
+    issue["labels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect()
 }
 
 fn matches_delivery(issue: &Value, ticket: &Ticket) -> bool {
@@ -235,7 +295,6 @@ async fn deliver(state: &AppState, ticket: &Ticket) -> Result<Ticket, ApiError> 
         return Ok(ticket.clone());
     }
     let expected = &binding.original;
-    let tag = marker(expected);
     let mut found = delivery_records(state, expected).await?;
     if found.len() > 1 {
         return Err(conflict("Missions contains duplicate Luuna delivery markers; reconcile the duplicate source records before retrying"));
@@ -261,7 +320,9 @@ async fn deliver(state: &AppState, ticket: &Ticket) -> Result<Ticket, ApiError> 
                 "create".into(),
                 format!("--title={}", expected.title),
                 format!("--description={description}"),
-                format!("--labels={tag}"),
+                format!("--type={}", expected.ticket_type.as_str()),
+                format!("--priority={}", expected.priority),
+                format!("--labels={}", label_list(expected)),
             ],
         )
         .await?;
@@ -276,11 +337,7 @@ async fn deliver(state: &AppState, ticket: &Ticket) -> Result<Ticket, ApiError> 
     let id = found[0]["id"].as_str().ok_or_else(malformed)?;
     let (issue, dependencies) = source_snapshot(state, &ticket.project_id, id).await?;
     let projected = projection(expected, &issue)?;
-    if projected.title != expected.title
-        || projected.intent != expected.intent
-        || projected.acceptance_criteria != expected.acceptance_criteria
-        || projected.repository_ids != expected.repository_ids
-    {
+    if !projected.same_content(expected) {
         return Err(conflict("Missions delivery changed before acknowledgement; restore the reserved content before retrying"));
     }
     let hash = source_hash(&issue, &dependencies)?;
@@ -454,11 +511,7 @@ pub(crate) async fn update(
     desired
         .validate()
         .map_err(|error| ApiError(StatusCode::UNPROCESSABLE_ENTITY, error.to_string()))?;
-    if desired.title == before.title
-        && desired.intent == before.intent
-        && desired.acceptance_criteria == before.acceptance_criteria
-        && desired.repository_ids == before.repository_ids
-    {
+    if desired.same_content(&before) {
         return Err(ApiError(
             StatusCode::UNPROCESSABLE_ENTITY,
             "the edit changes nothing; name a field with a new value".into(),
@@ -496,15 +549,21 @@ pub(crate) async fn update(
             &ticket.project_id,
             &key,
             "ticket.update",
-            &json!({"title": desired.title, "description": description}),
+            &ledger_request(&desired, &description),
             &ticket.id,
         )
         .map_err(|_| conflict("A different edit of this ticket revision was already recorded; refresh and edit the current revision"))?;
     if let Some(response) = operation.response {
         return serde_json::from_value(response).map_err(internal);
     }
+    let mut wanted_labels = vec![marker(&desired)];
+    wanted_labels.extend(desired.labels.iter().cloned());
     let written = issue["title"].as_str() == Some(desired.title.as_str())
-        && issue["description"].as_str() == Some(description.as_str());
+        && issue["description"].as_str() == Some(description.as_str())
+        && projection(ticket, &issue).is_ok_and(|now| {
+            now.ticket_type == desired.ticket_type && now.priority == desired.priority
+        })
+        && source_labels(&issue) == wanted_labels;
     if !written {
         // A changed fingerprint with the requested content absent is an edit
         // made outside Luuna. (A changed fingerprint with the content present
@@ -532,6 +591,9 @@ pub(crate) async fn update(
                 source_id,
                 format!("--title={}", desired.title),
                 format!("--description={description}"),
+                format!("--type={}", desired.ticket_type.as_str()),
+                format!("--priority={}", desired.priority),
+                format!("--set-labels={}", label_list(&desired)),
             ],
         )
         .await?;
@@ -539,11 +601,7 @@ pub(crate) async fn update(
     // The source fingerprint changed, so the projection revision advances;
     // a plan bound to the previous revision is stale from here on.
     let reconciled = reconcile(state, ticket, expected_revision).await?;
-    if reconciled.title != desired.title
-        || reconciled.intent != desired.intent
-        || reconciled.acceptance_criteria != desired.acceptance_criteria
-        || reconciled.repository_ids != desired.repository_ids
-    {
+    if !reconciled.same_content(&desired) {
         return Err(conflict(
             "Missions ticket changed during the edit; reconcile the source before continuing",
         ));
@@ -592,6 +650,9 @@ mod tests {
             acceptance_criteria: vec!["The isolated check passes".into()],
             repository_ids: vec!["app".into()],
             purpose: luuna_domain::TicketPurpose::Feature,
+            ticket_type: Default::default(),
+            priority: luuna_domain::DEFAULT_TICKET_PRIORITY,
+            labels: vec![],
             created_at: "2026-10-21T00:00:00.000Z".into(),
             updated_at: "2026-10-21T00:00:00.000Z".into(),
         }
@@ -884,6 +945,87 @@ mod tests {
         let ready = reconcile(&state, &blocked, 3).await.unwrap();
         ensure_current(&state, &ready).await.unwrap();
         assert!(!state.config.data_dir.join("unused-developer-root").exists());
+    }
+
+    #[tokio::test]
+    async fn missions_real_type_priority_and_labels_are_missions_fields() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = new_state(config(directory.path()));
+        register(&state);
+        let mut original = legacy();
+        original.ticket_type = TicketType::Bug;
+        original.priority = 1;
+        original.labels = vec!["ui".into()];
+        state
+            .store
+            .lock()
+            .unwrap()
+            .create_ticket(&original, "legacy-request")
+            .unwrap();
+        let _ = integrations::enable(State(state.clone()), Path(original.project_id.clone()))
+            .await
+            .unwrap();
+        let migrated = state
+            .store
+            .lock()
+            .unwrap()
+            .get_ticket(&original.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(migrated.ticket_type, TicketType::Bug);
+        assert_eq!(migrated.priority, 1);
+        assert_eq!(migrated.labels, vec!["ui".to_owned()]);
+        let source_id = source(&state, &migrated).await.unwrap()["source_id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let shown = call(
+            &state,
+            &migrated.project_id,
+            &["show".into(), source_id.clone()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(shown["issue"]["type"], "bug");
+        assert_eq!(shown["issue"]["priority"], 1);
+        assert_eq!(shown["issue"]["labels"], json!([marker(&migrated), "ui"]));
+        // An edit of the triage fields goes through Missions and keeps the marker.
+        let changes = TicketRevision {
+            ticket_type: Some(TicketType::Feature),
+            priority: Some(3),
+            labels: Some(vec!["docs".into(), "later".into()]),
+            ..Default::default()
+        };
+        let edited = update(&state, &migrated, 1, &changes).await.unwrap();
+        assert_eq!(edited.revision, 2);
+        assert_eq!(edited.ticket_type, TicketType::Feature);
+        assert_eq!(edited.priority, 3);
+        assert_eq!(edited.labels, vec!["docs".to_owned(), "later".to_owned()]);
+        let shown = call(&state, &migrated.project_id, &["show".into(), source_id])
+            .await
+            .unwrap();
+        assert_eq!(
+            shown["issue"]["labels"],
+            json!([marker(&migrated), "docs", "later"])
+        );
+        ensure_current(&state, &edited).await.unwrap();
+        // Clearing them returns every field to its default.
+        let cleared = TicketRevision {
+            ticket_type: Some(TicketType::Task),
+            priority: Some(DEFAULT_TICKET_PRIORITY),
+            labels: Some(vec![]),
+            ..Default::default()
+        };
+        let plain = update(&state, &edited, 2, &cleared).await.unwrap();
+        assert_eq!(plain.revision, 3);
+        assert!(plain.labels.is_empty());
+        assert!(plain.ticket_type.is_task());
+        assert_eq!(plain.priority, DEFAULT_TICKET_PRIORITY);
+        // An edit that names only the current values changes nothing.
+        assert_eq!(
+            update(&state, &plain, 3, &cleared).await.unwrap_err().0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 
     #[tokio::test]

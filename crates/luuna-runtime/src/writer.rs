@@ -21,7 +21,7 @@ use luuna_domain::{
     check_scope, valid_project_id, AdvisoryResult, Approval, AttemptState, BudgetUsage, Budgets,
     CandidateSet, CheckRecipe, CheckStatus, DependencyOverride, ExecutionProfile, LeaseState,
     ManifestCheck, Operation, Permissions, PlanRevision, PlanTask, RunState, TaskRole, Ticket,
-    TicketPurpose, TicketSource, WorktreeLease, CANONICALIZATION, SCHEMA_VERSION,
+    TicketPurpose, TicketSource, TicketType, WorktreeLease, CANONICALIZATION, SCHEMA_VERSION,
 };
 use luuna_engine_pi::{
     install_scope_guard, PiConfig, PiProcess, SessionProfile, WriterProfile, PI_VERSION,
@@ -79,6 +79,17 @@ pub struct CreateTicket {
     /// repository without a usable testing setup is offered (ADR 0022).
     #[serde(default)]
     pub purpose: TicketPurpose,
+    /// `task` (default), `bug`, `feature` or `epic`, as Missions names them.
+    #[serde(rename = "type", default)]
+    pub ticket_type: TicketType,
+    /// 0 (critical) to 4 (backlog); 2 when absent.
+    #[serde(default = "default_priority")]
+    pub priority: u8,
+    #[serde(default)]
+    pub labels: Vec<String>,
+}
+fn default_priority() -> u8 {
+    luuna_domain::DEFAULT_TICKET_PRIORITY
 }
 
 /// A check recipe a testing-setup plan proposes as the repository's baseline;
@@ -348,6 +359,9 @@ pub async fn create_ticket(
         acceptance_criteria: request.acceptance_criteria,
         repository_ids: request.repository_ids,
         purpose: request.purpose,
+        ticket_type: request.ticket_type,
+        priority: request.priority,
+        labels: request.labels,
         created_at: timestamp.clone(),
         updated_at: timestamp,
     };
@@ -433,6 +447,13 @@ pub struct UpdateTicket {
     pub acceptance_criteria: Option<Vec<String>>,
     #[serde(default)]
     pub repository_ids: Option<Vec<String>>,
+    #[serde(rename = "type", default)]
+    pub ticket_type: Option<TicketType>,
+    #[serde(default)]
+    pub priority: Option<u8>,
+    /// The whole new label list; `[]` removes every label.
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 /// `PUT /api/v1/tickets/{id}`: edit a ticket's intent at its expected
@@ -454,10 +475,13 @@ pub async fn update_ticket(
         intent: request.intent,
         acceptance_criteria: request.acceptance_criteria,
         repository_ids: request.repository_ids,
+        ticket_type: request.ticket_type,
+        priority: request.priority,
+        labels: request.labels,
     };
     if changes.is_empty() {
         return Err(unprocessable(
-            "name at least one field to change: title, intent, acceptance_criteria or repository_ids",
+            "name at least one field to change: title, intent, acceptance_criteria, repository_ids, type, priority or labels",
         ));
     }
     let _components = state.component_locks.lock().await;

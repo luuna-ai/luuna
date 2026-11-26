@@ -1,6 +1,6 @@
-import type { TestingPrerequisite, TicketPurpose } from "@luuna/api-client";
+import type { TestingPrerequisite, TicketPurpose, TicketType } from "@luuna/api-client";
 import { Button, Form, FormFooter, Hint, Id, Inline, ListGroup, ListRow, ReasonNote, SelectField, Stack, StatusBadge, submitted, TextArea, TextField } from "@luuna/ui";
-import { TEXT_LIMITS } from "./model";
+import { TEXT_LIMITS, TICKET_PRIORITIES, TICKET_TYPES } from "./model";
 import type { ticketTextSizes } from "./model";
 import { ByteCount } from "./PlanReview";
 import { RepositoryScope } from "./RepositoryScope";
@@ -62,6 +62,11 @@ export function TicketForm({ form, update, sizes, tooLong, disabled, manifestCon
       <ByteCount id="ticket-criteria-bytes" prefix="Longest criterion: " bytes={sizes.criterion} limit={TEXT_LIMITS.criterion} />
     </Stack>
     <SelectField label="Purpose" aria-label="Ticket purpose" value={form.purpose} onChange={(event) => update({ purpose: event.target.value as TicketPurpose })} options={PURPOSES} />
+    <Inline wrap gap={2}>
+      <SelectField label="Type" aria-label="Ticket type" value={form.ticketType} onChange={(event) => update({ ticketType: event.target.value as TicketType })} options={TICKET_TYPES} />
+      <SelectField label="Priority" aria-label="Ticket priority" value={String(form.priority)} onChange={(event) => update({ priority: Number(event.target.value) })} options={TICKET_PRIORITIES} />
+      <TextField label="Labels (comma-separated)" aria-label="Ticket labels" value={form.labels} onChange={(event) => update({ labels: event.target.value })} placeholder="ui, docs" />
+    </Inline>
     {repositoryIds.length > 1 && <RepositoryScope choices={repositoryIds} selected={scoped} onChange={(repositories) => update({ repositories })} />}
     <FormFooter hint={ticketHint(manifestConfirmed, tooLong, repositoryIds.length > 1)}>
       <Button variant="primary" submit disabled={empty || tooLong} data-capability="tickets.create">Create ticket</Button>
