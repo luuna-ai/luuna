@@ -1040,6 +1040,9 @@ pub async fn import_project(
             acceptance_criteria: exported.acceptance_criteria.clone(),
             repository_ids: exported.repository_ids.clone(),
             purpose: exported.purpose,
+            ticket_type: exported.ticket_type,
+            priority: exported.priority,
+            labels: exported.labels.clone(),
             created_at: exported.created_at.clone(),
             updated_at: exported.updated_at.clone(),
         };

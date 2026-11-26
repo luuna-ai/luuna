@@ -19,6 +19,9 @@ export function TicketList({ rows, selected, onSelect }: { rows: readonly Ticket
       <span>ticket r{ticket.revision}</span>
       {planRevision !== undefined && <span>plan r{planRevision}</span>}
       {ticket.purpose === "testing_setup" && <span>testing setup</span>}
+      {ticket.priority !== undefined && <span>P{ticket.priority}</span>}
+      {ticket.type && <span>{ticket.type}</span>}
+      {ticket.labels?.length ? <span>{ticket.labels.join(", ")}</span> : null}
     </>}
     menuLabel={`Actions for ${ticket.title}`} commands={() => [
       { label: "Open ticket", onSelect: () => onSelect(ticket.id) },

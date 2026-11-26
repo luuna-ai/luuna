@@ -1,4 +1,4 @@
-import type { ComponentContext, CreatePlanRequest, DependencyOverride, PlanBudgetRequest, RunRecord, SetupCheckRequest, TaskRecord, TaskRole, TaskState, TestingPrerequisite, Ticket, TicketPurpose, UpdateTicketRequest } from "@luuna/api-client";
+import type { ComponentContext, CreatePlanRequest, DependencyOverride, PlanBudgetRequest, RunRecord, SetupCheckRequest, TaskRecord, TaskRole, TaskState, TestingPrerequisite, Ticket, TicketPurpose, TicketType, UpdateTicketRequest } from "@luuna/api-client";
 import { TASK_ROLES, advisoryRole, planRequestForTasks } from "@luuna/api-client";
 import { retryIdentity } from "../ProjectComponents";
 import { utf8Bytes } from "../failures";
@@ -93,8 +93,28 @@ export function taskResumable(run: Pick<RunRecord, "state">, task: Pick<TaskReco
   return (run.state === "failed" || run.state === "interrupted") && RESUMABLE_TASK_STATES.includes(task.state);
 }
 
-/** The draft of a ticket edit as the form holds it. */
-export interface TicketDraft { title: string; intent: string; criteria: string; repositoryIds: string[] }
+/** The Missions issue types and priorities a ticket takes (ADR 0058). */
+export const TICKET_TYPES: { value: TicketType; label: string }[] = [
+  { value: "task", label: "task" },
+  { value: "bug", label: "bug" },
+  { value: "feature", label: "feature" },
+  { value: "epic", label: "epic" },
+];
+export const TICKET_PRIORITIES = [0, 1, 2, 3, 4].map((p) => ({ value: String(p), label: `P${p} ${["critical", "high", "medium", "low", "backlog"][p]}` }));
+
+/** Comma-separated labels as the runtime takes them: trimmed, lowercased (as Missions stores them) and without repeats. */
+export function parseLabels(text: string): string[] {
+  return [...new Set(text.split(",").map((label) => label.trim().toLowerCase()).filter(Boolean))];
+}
+
+/** The type, priority and labels of a new ticket, leaving out the defaults the runtime omits. */
+export function triageFields(type: TicketType, priority: number, labels: string): { type?: TicketType; priority?: number; labels?: string[] } {
+  const list = parseLabels(labels);
+  return { ...(type !== "task" && { type }), ...(priority !== 2 && { priority }), ...(list.length && { labels: list }) };
+}
+
+/** The draft of a ticket edit as the form holds it. Absent triage fields are left as they are. */
+export interface TicketDraft { title: string; intent: string; criteria: string; repositoryIds: string[]; type?: TicketType; priority?: number; labels?: string }
 
 /**
  * The edit request for a ticket: only the fields whose value differs from the ticket, at the
@@ -112,6 +132,9 @@ export function ticketEditRequest(ticket: Ticket, draft: TicketDraft): UpdateTic
     ...(intent && intent !== ticket.intent && { intent }),
     ...(criteria.length && !same(criteria, ticket.acceptance_criteria) && { acceptance_criteria: criteria }),
     ...(repositories.length && !same(repositories, ticket.repository_ids) && { repository_ids: repositories }),
+    ...(draft.type !== undefined && draft.type !== (ticket.type ?? "task") && { type: draft.type }),
+    ...(draft.priority !== undefined && draft.priority !== (ticket.priority ?? 2) && { priority: draft.priority }),
+    ...(draft.labels !== undefined && !same(parseLabels(draft.labels), ticket.labels ?? []) && { labels: parseLabels(draft.labels) }),
   };
   return Object.keys(request).length > 1 ? request : null;
 }

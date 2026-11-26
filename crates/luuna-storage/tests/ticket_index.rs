@@ -49,6 +49,9 @@ fn ticket(id: &str, title: &str) -> Ticket {
         acceptance_criteria: vec!["The fixture test passes.".into()],
         repository_ids: vec!["api".into()],
         purpose: TicketPurpose::Feature,
+        ticket_type: Default::default(),
+        priority: luuna_domain::DEFAULT_TICKET_PRIORITY,
+        labels: vec![],
         created_at: format!("2026-11-26T00:00:0{}.000Z", id.len() % 10),
         updated_at: format!("2026-11-26T00:00:0{}.000Z", id.len() % 10),
     }

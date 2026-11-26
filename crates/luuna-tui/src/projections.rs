@@ -169,6 +169,14 @@ pub fn board_projection(projects: &[J], tickets: &[J], runs: &[J]) -> Result<J, 
         if purpose.truthy() && purpose.as_str() != Some("feature") {
             card.set("purpose", purpose.clone());
         }
+        // Type, priority and labels appear only when they differ from the
+        // defaults (task, P2, none), as the ticket record itself omits them.
+        for key in ["type", "priority", "labels"] {
+            let value = ticket.get(key);
+            if !value.nullish() {
+                card.set(key, value.clone());
+            }
+        }
         if let Some(run) = run {
             card.set("run_id", field(run, "id")?.clone())
                 .set("state", field(run, "state")?.clone())

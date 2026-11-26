@@ -85,6 +85,81 @@ impl Command {
     }
 }
 
+/// The ticket types Missions accepts, and so the runtime (ADR 0058).
+const TICKET_TYPES: [&str; 4] = ["task", "bug", "feature", "epic"];
+
+/// `0`..`4` or `P0`..`P4`.
+pub(crate) fn ticket_priority(value: &str) -> Option<u8> {
+    let value = js_trim(value);
+    let digits = value.strip_prefix(['P', 'p']).unwrap_or(&value);
+    (digits.len() == 1)
+        .then(|| digits.parse::<u8>().ok())
+        .flatten()
+        .filter(|p| *p <= 4)
+}
+
+/// `--type`, `--priority` and `--label` (and `--clear-labels` on an edit) as
+/// the runtime's `type`, `priority` and `labels` (ADR 0058). Empty values keep
+/// the default on a create and the current value on an edit. Labels are
+/// lowercased, as Missions stores them.
+fn ticket_triage(input: &Input, create: bool) -> Result<Vec<(&'static str, J)>, Failure> {
+    let mut fields = Vec::new();
+    if let Some(kind) = input.text_if("type").filter(|k| !js_trim(k).is_empty()) {
+        let kind = js_trim(&kind).to_lowercase();
+        if !TICKET_TYPES.contains(&kind.as_str()) {
+            return Err(usage_error("--type is task, bug, feature or epic."));
+        }
+        if !(create && kind == "task") {
+            fields.push(("type", J::str(kind)));
+        }
+    }
+    if let Some(priority) = input.text_if("priority").filter(|p| !js_trim(p).is_empty()) {
+        let Some(priority) = ticket_priority(&priority) else {
+            return Err(usage_error(
+                "--priority is P0 (critical) to P4 (backlog), or 0 to 4.",
+            ));
+        };
+        if !(create && priority == 2) {
+            fields.push(("priority", J::Num(f64::from(priority))));
+        }
+    }
+    let labels: Vec<String> = input
+        .list("label")
+        .iter()
+        .flat_map(|item| item.split(','))
+        .map(|label| js_trim(label).to_lowercase())
+        .filter(|label| !label.is_empty())
+        .fold(Vec::new(), |mut seen, label| {
+            if !seen.contains(&label) {
+                seen.push(label);
+            }
+            seen
+        });
+    if let Some(bad) = labels.iter().find(|l| {
+        l.len() > 64
+            || l.chars().any(|c| c.is_whitespace() || c.is_control())
+            || l.starts_with("luuna-ticket-")
+    }) {
+        return Err(usage_error(format!(
+            "The label {bad:?} is not allowed: use at most 64 bytes without spaces, and not the luuna-ticket- prefix."
+        )));
+    }
+    if labels.len() > 16 {
+        return Err(usage_error("A ticket takes at most 16 labels."));
+    }
+    if !create && input.truthy("clear-labels") {
+        if !labels.is_empty() {
+            return Err(usage_error(
+                "--clear-labels and --label cannot be combined.",
+            ));
+        }
+        fields.push(("labels", J::Arr(vec![])));
+    } else if !labels.is_empty() {
+        fields.push(("labels", J::Arr(labels.into_iter().map(J::Str).collect())));
+    }
+    Ok(fields)
+}
+
 fn strings(value: &J) -> Vec<String> {
     value.items().iter().map(J::js).collect()
 }
@@ -1378,6 +1453,9 @@ pub async fn run(
             if purpose != "feature" {
                 body.set("purpose", J::str(purpose));
             }
+            for (key, value) in ticket_triage(input, true)? {
+                body.set(key, value);
+            }
             if js_trim(&key).is_empty() {
                 return Err(Failure::error("An idempotency key is required."));
             }
@@ -1482,6 +1560,9 @@ pub async fn run(
                     "repository_ids",
                     J::Arr(repositories.into_iter().map(J::Str).collect()),
                 );
+            }
+            for (key, value) in ticket_triage(input, false)? {
+                body.set(key, value);
             }
             client
                 .request("PUT", &format!("/tickets/{}", e(0)), Some(&body), s)
@@ -2134,6 +2215,62 @@ fn parse_task_spec(text: &str) -> Option<(String, String, Option<String>, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn input(flags: &[(&str, FlagValue)]) -> Input {
+        Input {
+            args: vec![],
+            flags: flags
+                .iter()
+                .map(|(n, v)| ((*n).to_owned(), v.clone()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn ticket_triage_flags_become_missions_shaped_fields() {
+        let s = |v: &str| FlagValue::Str(v.into());
+        let fields = ticket_triage(
+            &input(&[
+                ("type", s("Bug")),
+                ("priority", s("P1")),
+                (
+                    "label",
+                    FlagValue::List(vec!["UI, docs".into(), "ui".into()]),
+                ),
+            ]),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            fields,
+            vec![
+                ("type", J::str("bug")),
+                ("priority", J::Num(1.0)),
+                ("labels", J::Arr(vec![J::str("ui"), J::str("docs")])),
+            ]
+        );
+        // Defaults stay out of a create, but an edit sends them.
+        let defaults = input(&[("type", s("task")), ("priority", s("2"))]);
+        assert!(ticket_triage(&defaults, true).unwrap().is_empty());
+        assert_eq!(ticket_triage(&defaults, false).unwrap().len(), 2);
+        let clear = input(&[("clear-labels", FlagValue::Bool(true))]);
+        assert_eq!(
+            ticket_triage(&clear, false).unwrap(),
+            vec![("labels", J::Arr(vec![]))]
+        );
+        for bad in [
+            input(&[("type", s("story"))]),
+            input(&[("priority", s("P5"))]),
+            input(&[("priority", s("urgent"))]),
+            input(&[("label", s("luuna-ticket-x"))]),
+            input(&[("label", s("two words"))]),
+        ] {
+            assert!(ticket_triage(&bad, true).is_err(), "{bad:?}");
+        }
+        assert_eq!(ticket_priority("p0"), Some(0));
+        assert_eq!(ticket_priority("4"), Some(4));
+        assert_eq!(ticket_priority("P10"), None);
+    }
 
     #[test]
     fn orbit_command_lines_split_like_the_regular_expression() {

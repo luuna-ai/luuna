@@ -52,6 +52,81 @@ impl TicketPurpose {
     }
 }
 
+/// The kind of work a ticket names, as the Missions `type` field names it.
+/// `Task` is the default and is omitted from serialization, so records
+/// written before the field existed keep their bytes (ADR 0058).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TicketType {
+    #[default]
+    Task,
+    Bug,
+    Feature,
+    Epic,
+}
+
+impl TicketType {
+    pub const ALL: [TicketType; 4] = [Self::Task, Self::Bug, Self::Feature, Self::Epic];
+    pub fn is_task(&self) -> bool {
+        *self == Self::Task
+    }
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Task => "task",
+            Self::Bug => "bug",
+            Self::Feature => "feature",
+            Self::Epic => "epic",
+        }
+    }
+    /// `task`, `bug`, `feature` or `epic`, ignoring case.
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str().eq_ignore_ascii_case(value.trim()))
+    }
+}
+
+/// Missions priorities run from 0 (critical) to 4 (backlog); 2 is the default.
+pub const DEFAULT_TICKET_PRIORITY: u8 = 2;
+pub const MAX_TICKET_PRIORITY: u8 = 4;
+pub const MAX_TICKET_LABELS: usize = 16;
+pub const MAX_TICKET_LABEL_BYTES: usize = 64;
+/// Luuna marks the Missions record it delivers with `luuna-ticket-<id>`;
+/// a user label never takes that form.
+pub const RESERVED_LABEL_PREFIX: &str = "luuna-ticket-";
+
+fn default_priority() -> u8 {
+    DEFAULT_TICKET_PRIORITY
+}
+fn is_default_priority(priority: &u8) -> bool {
+    *priority == DEFAULT_TICKET_PRIORITY
+}
+
+/// `0`..`4` or `P0`..`P4`, as Missions writes them.
+pub fn parse_ticket_priority(value: &str) -> Option<u8> {
+    let value = value.trim();
+    let digits = value
+        .strip_prefix('P')
+        .or_else(|| value.strip_prefix('p'))
+        .unwrap_or(value);
+    digits
+        .parse::<u8>()
+        .ok()
+        .filter(|p| *p <= MAX_TICKET_PRIORITY && digits.len() == 1)
+}
+
+/// One label: 1..64 bytes, lowercase (Missions lowercases every label it
+/// stores), no whitespace or comma, and not Luuna's own marker.
+pub fn valid_ticket_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.to_lowercase() == label
+        && label.len() <= MAX_TICKET_LABEL_BYTES
+        && !label
+            .chars()
+            .any(|c| c.is_whitespace() || c == ',' || c.is_control())
+        && !label.starts_with(RESERVED_LABEL_PREFIX)
+}
+
 pub const MAX_TICKET_TITLE_BYTES: usize = 200;
 pub const MAX_TICKET_INTENT_BYTES: usize = 16_000;
 pub const MAX_ACCEPTANCE_CRITERIA: usize = 32;
@@ -73,11 +148,36 @@ pub struct Ticket {
     /// Absent (feature) preserves the bytes of earlier records.
     #[serde(default, skip_serializing_if = "TicketPurpose::is_feature")]
     pub purpose: TicketPurpose,
+    /// Missions `type`; absent (task) preserves the bytes of earlier records.
+    #[serde(rename = "type", default, skip_serializing_if = "TicketType::is_task")]
+    pub ticket_type: TicketType,
+    /// 0 (critical) to 4 (backlog); absent means 2.
+    #[serde(
+        default = "default_priority",
+        skip_serializing_if = "is_default_priority"
+    )]
+    pub priority: u8,
+    /// Free labels for sorting and filtering; never Luuna's delivery marker.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
 
 impl Ticket {
+    /// Whether two tickets carry the same developer-written content: every
+    /// field a create or an edit can set, ignoring identity, revision,
+    /// source and timestamps.
+    pub fn same_content(&self, other: &Ticket) -> bool {
+        self.title == other.title
+            && self.intent == other.intent
+            && self.acceptance_criteria == other.acceptance_criteria
+            && self.repository_ids == other.repository_ids
+            && self.ticket_type == other.ticket_type
+            && self.priority == other.priority
+            && self.labels == other.labels
+    }
+
     pub fn validate(&self) -> Result<(), DomainError> {
         if self.schema_version != SCHEMA_VERSION {
             return invalid("unsupported ticket schema version");
@@ -106,6 +206,15 @@ impl Ticket {
             || self.repository_ids.iter().any(|id| id.trim().is_empty())
         {
             return invalid("ticket needs unique nonempty repository IDs");
+        }
+        if self.priority > MAX_TICKET_PRIORITY {
+            return invalid("ticket priority must be 0 (critical) to 4 (backlog)");
+        }
+        if self.labels.len() > MAX_TICKET_LABELS
+            || !unique(&self.labels)
+            || !self.labels.iter().all(|label| valid_ticket_label(label))
+        {
+            return invalid("ticket labels must be at most 16 unique lowercase 1..64-byte names without spaces or commas, and none may start with luuna-ticket-");
         }
         if self.created_at.is_empty() || self.updated_at.is_empty() {
             return invalid("ticket timestamps are required");
@@ -360,6 +469,9 @@ mod tests {
             acceptance_criteria: vec!["main prints hello".into()],
             repository_ids: vec!["app".into()],
             purpose: TicketPurpose::Feature,
+            ticket_type: Default::default(),
+            priority: DEFAULT_TICKET_PRIORITY,
+            labels: vec![],
             created_at: "2026-10-17T00:00:00.000Z".into(),
             updated_at: "2026-10-17T00:00:00.000Z".into(),
         }
@@ -395,6 +507,61 @@ mod tests {
             status: "M".into(),
             original_path: None,
         }
+    }
+
+    #[test]
+    fn type_priority_and_labels_default_to_absent_and_are_bounded() {
+        // Defaults are omitted, so records written before ADR 0058 keep their bytes.
+        let plain = serde_json::to_value(ticket()).unwrap();
+        for key in ["type", "priority", "labels"] {
+            assert!(plain.get(key).is_none(), "{key}");
+        }
+        let old: Ticket = serde_json::from_value(plain).unwrap();
+        assert_eq!(old.ticket_type, TicketType::Task);
+        assert_eq!(old.priority, DEFAULT_TICKET_PRIORITY);
+        assert!(old.labels.is_empty());
+        let mut triaged = ticket();
+        triaged.ticket_type = TicketType::Bug;
+        triaged.priority = 0;
+        triaged.labels = vec!["ui".into(), "needs-review".into()];
+        triaged.validate().unwrap();
+        let value = serde_json::to_value(&triaged).unwrap();
+        assert_eq!(value["type"], "bug");
+        assert_eq!(value["priority"], 0);
+        assert_eq!(value["labels"], serde_json::json!(["ui", "needs-review"]));
+        assert!(!triaged.same_content(&ticket()));
+        for labels in [
+            vec!["has space"],
+            vec!["UPPER"],
+            vec!["a,b"],
+            vec![""],
+            vec!["dup", "dup"],
+            vec!["luuna-ticket-ticket-1"],
+        ] {
+            let mut bad = ticket();
+            bad.labels = labels.iter().map(|l| (*l).to_owned()).collect();
+            assert!(bad.validate().is_err(), "{labels:?}");
+        }
+        let mut many = ticket();
+        many.labels = (0..17).map(|i| format!("l{i}")).collect();
+        assert!(many.validate().is_err());
+        let mut urgent = ticket();
+        urgent.priority = 5;
+        assert!(urgent.validate().is_err());
+        assert_eq!(parse_ticket_priority("P0"), Some(0));
+        assert_eq!(parse_ticket_priority("p4"), Some(4));
+        assert_eq!(parse_ticket_priority("3"), Some(3));
+        assert_eq!(parse_ticket_priority("P5"), None);
+        assert_eq!(parse_ticket_priority("P10"), None);
+        assert_eq!(TicketType::parse("Epic"), Some(TicketType::Epic));
+        assert_eq!(TicketType::parse("story"), None);
+        assert!(serde_json::from_value::<Ticket>(serde_json::json!({
+            "schema_version": SCHEMA_VERSION, "id": "t", "project_id": "p", "revision": 1,
+            "source": "luuna_sqlite_temporary", "title": "T", "intent": "I",
+            "acceptance_criteria": ["c"], "repository_ids": ["app"], "type": "story",
+            "created_at": "x", "updated_at": "x"
+        }))
+        .is_err());
     }
 
     #[test]

@@ -2330,6 +2330,87 @@ async fn explicit_shutdown_interrupts_the_writer_and_preserves_its_worktree() {
 }
 
 #[tokio::test]
+async fn legacy_tickets_carry_missions_type_priority_and_labels() {
+    let harness = Harness::new();
+    let repo = tempfile::tempdir().unwrap();
+    ready(&harness, repo.path()).await;
+    // A plain ticket keeps the defaults and serializes none of them.
+    let plain = harness.ticket("write_in_scope").await;
+    for key in ["type", "priority", "labels"] {
+        assert!(plain.get(key).is_none(), "{plain}");
+    }
+    let create = |extra: Value| {
+        let mut body = json!({
+            "idempotency_key": format!("key-{}", uuid::Uuid::new_v4()),
+            "title": "Fix the greeting",
+            "intent": "Make src/main.py print the greeting.",
+            "acceptance_criteria": ["main prints the greeting"],
+            "repository_ids": ["app"],
+        });
+        body.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        body
+    };
+    for bad in [
+        json!({"type": "story"}),
+        json!({"priority": 5}),
+        json!({"labels": ["Has Space"]}),
+        json!({"labels": ["luuna-ticket-x"]}),
+    ] {
+        let (status, body) = harness
+            .request(
+                "POST",
+                "/api/v1/projects/fixture/tickets",
+                Some(create(bad.clone())),
+            )
+            .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad} {body}");
+    }
+    let (status, ticket) = harness
+        .request(
+            "POST",
+            "/api/v1/projects/fixture/tickets",
+            Some(create(
+                json!({"type": "bug", "priority": 0, "labels": ["greeting", "ui"]}),
+            )),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{ticket}");
+    assert_eq!(ticket["type"], "bug");
+    assert_eq!(ticket["priority"], 0);
+    assert_eq!(ticket["labels"], json!(["greeting", "ui"]));
+    let id = ticket["id"].as_str().unwrap();
+    // Editing only the triage fields is an edit like any other: the revision advances.
+    let (status, edited) = harness
+        .request(
+            "PUT",
+            &format!("/api/v1/tickets/{id}"),
+            Some(json!({"expected_revision": 1, "priority": 2, "type": "task", "labels": []})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{edited}");
+    assert_eq!(edited["revision"], 2);
+    for key in ["type", "priority", "labels"] {
+        assert!(edited.get(key).is_none(), "{edited}");
+    }
+    assert_eq!(edited["title"], "Fix the greeting");
+    let (_, events) = harness
+        .request("GET", "/api/v1/projects/fixture/events", None)
+        .await;
+    let updated = events
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["type"] == "ticket.updated" && e["payload"]["ticket_id"] == id)
+        .expect("ticket.updated is durable");
+    assert_eq!(
+        updated["payload"]["fields"],
+        json!(["type", "priority", "labels"])
+    );
+}
+
+#[tokio::test]
 async fn editing_a_legacy_ticket_advances_its_revision_and_stales_the_earlier_plan() {
     let harness = Harness::new();
     let repo = tempfile::tempdir().unwrap();
