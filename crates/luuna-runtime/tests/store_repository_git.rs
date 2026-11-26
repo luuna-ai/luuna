@@ -421,6 +421,34 @@ async fn a_store_folder_that_exists_but_is_not_usable_is_refused_and_left_alone(
     assert_eq!(store.component_state("app").unwrap(), None);
 }
 
+#[tokio::test]
+async fn an_upstream_tool_store_is_never_moved_by_an_init() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    fs::create_dir_all(checkout.join(".canopy")).unwrap();
+    fs::write(
+        checkout.join(".canopy/prompts.jsonl"),
+        "{\"id\":\"kept\"}\n",
+    )
+    .unwrap();
+    fs::write(checkout.join(".gitignore"), ".canopy/*.lock\n").unwrap();
+    select(data.path(), &checkout);
+    let before = outside_stores(&checkout);
+    let app = serve(data.path());
+    let (status, body) = request(&app, "POST", "/api/v1/projects/app/components", None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains(".canopy store"),
+        "{body}"
+    );
+    drop(app);
+    assert_eq!(outside_stores(&checkout), before);
+    assert!(!checkout.join(".luuna").exists());
+    let store = Store::open(data.path().join("luuna.sqlite3")).unwrap();
+    assert_eq!(store.component_state("app").unwrap(), None);
+}
+
 fn serve_with_default(data_dir: &Path, default_store: DefaultStore) -> Router {
     router(
         AppState::open(configuration(data_dir.to_path_buf()))
@@ -477,6 +505,18 @@ async fn the_default_keeps_the_runtime_store_when_the_checkout_already_holds_rec
     assert_eq!(status, StatusCode::CREATED, "{body}");
     assert_eq!(store_file(data.path()), None);
     assert_eq!(mode_changes(&app).await, 0);
+}
+
+#[tokio::test]
+async fn the_default_keeps_the_runtime_store_when_the_checkout_has_an_upstream_store() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    fs::create_dir_all(checkout.join(".seeds")).unwrap();
+    let app = serve_with_default(data.path(), DefaultStore::Repository);
+    let (status, body) = register_over_api(&app, &checkout).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(store_file(data.path()), None);
 }
 
 #[tokio::test]

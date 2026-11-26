@@ -221,9 +221,10 @@ pub async fn set(
 /// checks of ADR 0061 and none of its `.luuna` stores holds records yet, so
 /// no record is ever adopted, moved or merged; otherwise the project stays in
 /// the runtime store and can still be moved by choosing a mode. Returns the
-/// mode it recorded. Called once, right after registration, before anything
-/// else can reach the new project.
-pub(crate) async fn apply_default(
+/// mode it recorded. The caller holds the component lock from before the
+/// registration is stored until this returns, so no component operation can
+/// see the new project in the runtime store first.
+pub(crate) fn apply_default(
     state: &AppState,
     id: &str,
     first_repository: &str,
@@ -231,7 +232,6 @@ pub(crate) async fn apply_default(
     if state.default_store != crate::DefaultStore::Repository {
         return Ok(None);
     }
-    let _guard = state.component_locks.lock().await;
     // A mode file already there (even one that cannot be read) is kept.
     let file = luuna_storage::project_store_file_path(&state.config.data_dir, id)
         .map_err(|_| not_found())?;
@@ -259,6 +259,10 @@ pub(crate) async fn apply_default(
         .find(|component| holds_records(&checkout.join(".luuna").join(component)))
     {
         eprintln!("luuna-runtime: project {id} keeps the runtime store: the checkout's {component} store already holds records");
+        return Ok(None);
+    }
+    if let Some((_, folder)) = crate::stores::legacy_store(&checkout) {
+        eprintln!("luuna-runtime: project {id} keeps the runtime store: the checkout still has a {folder} store");
         return Ok(None);
     }
     let target = StoreMode::Repository {

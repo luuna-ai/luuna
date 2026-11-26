@@ -227,6 +227,15 @@ pub(crate) async fn enable_project(state: &AppState, id: &str) -> Result<(), Api
     // ADR 0067: a checkout store that does not exist yet is initialised
     // below, inside `.luuna/<component>`; one that exists must be usable as it
     // is. Refuse before the project is frozen.
+    // A checkout still holding an upstream tool's store is refused: that
+    // component's init would move it and rewrite ignore files.
+    if directory.is_checkout() {
+        if let Some((component, folder)) = crate::stores::legacy_store(directory.path()) {
+            return Err(conflict(format!(
+                "This project's store mode is 'repository' and the repository still has a {folder} store; move it to .luuna/{component} with that component's own command, then retry. No component data was read or written"
+            )));
+        }
+    }
     for component in ["missions", "atlas", "beacon"] {
         if directory.is_checkout() && checkout_store_absent(directory.path(), component) {
             continue;

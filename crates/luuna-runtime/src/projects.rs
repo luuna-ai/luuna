@@ -372,6 +372,9 @@ pub async fn register_project(
         }
         observations.push((repository.id.clone(), observation));
     }
+    // ADR 0067: held until the default store is recorded, so a component
+    // request for the new project cannot run against the runtime store first.
+    let components = state.component_locks.lock().await;
     {
         let mut store = state.store.lock().map_err(internal)?;
         if store.get_project(&id).map_err(internal)?.is_some() {
@@ -437,7 +440,8 @@ pub async fn register_project(
             .map_err(storage_error)?;
     }
     // ADR 0067: a new project's stores default to its first checkout.
-    crate::store_mode::apply_default(&state, &id, &observations[0].0).await?;
+    crate::store_mode::apply_default(&state, &id, &observations[0].0)?;
+    drop(components);
     Ok((StatusCode::CREATED, Json(view(&state, &id)?)))
 }
 
