@@ -271,6 +271,8 @@ impl Store {
             json!({"ticket_id": ticket.id, "revision": ticket.revision, "source": ticket.source, "title": ticket.title, "repository_ids": ticket.repository_ids}),
         )?;
         tx.commit()?;
+        self.mirror_logs(&[&ticket.project_id]);
+        self.mirror_tickets(&[&ticket.project_id]);
         Ok((ticket.clone(), true))
     }
 
@@ -359,6 +361,8 @@ impl Store {
             json!({"ticket_id": ticket.id, "revision": ticket.revision, "previous_revision": expected_revision, "source": ticket.source, "fields": changes.named()}),
         )?;
         tx.commit()?;
+        self.mirror_logs(&[&ticket.project_id]);
+        self.mirror_tickets(&[&ticket.project_id]);
         Ok(ticket)
     }
 
@@ -557,6 +561,7 @@ impl Store {
             )?;
         }
         tx.commit()?;
+        self.mirror_logs(&[&plan.project_id]);
         Ok(PlanOpening {
             plan: plan.clone(),
             run: self

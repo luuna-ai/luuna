@@ -53,6 +53,7 @@ impl Store {
             "INSERT OR IGNORE INTO ticket_sources(ticket_id,project_id,original_payload) VALUES (?1,?2,?3)",
             params![id, ticket.project_id, serde_json::to_string(&ticket)?],
         )?;
+        self.mirror_tickets(&[&ticket.project_id]);
         binding_in(&self.connection, id)?
             .ok_or_else(|| StorageError::Invalid("Missions delivery reservation missing".into()))
     }
@@ -64,6 +65,17 @@ impl Store {
             "INSERT INTO ticket_delivery_attempts(ticket_id) VALUES (?1)",
             [id],
         )?;
+        let project: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT project_id FROM ticket_sources WHERE ticket_id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(project) = project {
+            self.mirror_tickets(&[&project]);
+        }
         Ok(())
     }
 
@@ -125,6 +137,8 @@ impl Store {
             }),
         )?;
         tx.commit()?;
+        self.mirror_logs(&[&ticket.project_id]);
+        self.mirror_tickets(&[&ticket.project_id]);
         Ok(ticket)
     }
 
@@ -209,6 +223,8 @@ impl Store {
             }),
         )?;
         tx.commit()?;
+        self.mirror_logs(&[&ticket.project_id]);
+        self.mirror_tickets(&[&ticket.project_id]);
         Ok(ticket)
     }
 }
