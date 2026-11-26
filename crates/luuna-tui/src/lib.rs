@@ -28,3 +28,4 @@ pub mod text;
 pub mod theme;
 pub mod ui;
 pub mod views;
+pub mod workbench;
