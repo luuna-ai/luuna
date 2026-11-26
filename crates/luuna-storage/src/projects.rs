@@ -89,7 +89,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if get_project(&tx, id)?.is_some() {
+        if get_project(&tx, id)?.is_some() || removed_project(&tx, id)?.is_some() {
             return Err(StorageError::AlreadyExists(id.into()));
         }
         for (_, observation) in repositories {
@@ -143,7 +143,7 @@ impl Store {
 
     pub fn projects(&self) -> Result<Vec<ProjectRecord>> {
         let mut query = self.connection.prepare(
-            "SELECT id,name,revision,manifest_hash,created_at,updated_at FROM projects ORDER BY created_at DESC,id",
+            "SELECT id,name,revision,manifest_hash,created_at,updated_at FROM projects WHERE removed_at IS NULL ORDER BY created_at DESC,id",
         )?;
         let rows = query.query_map([], project_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -162,23 +162,89 @@ impl Store {
     /// Runs of the project whose work may be executing in a registered checkout
     /// (a queued or running baseline, an exploring or implementing workflow).
     pub fn active_checkout_runs(&self, project_id: &str) -> Result<Vec<String>> {
-        let states = [
-            RunState::Queued,
-            RunState::Running,
-            RunState::Exploring,
-            RunState::Implementing,
-        ]
-        .into_iter()
-        .map(state_json)
-        .collect::<Result<Vec<_>>>()?;
+        active_checkout_runs(&self.connection, project_id)
+    }
+
+    /// The removed project with this id and its registrations, if any.
+    pub fn removed_project(
+        &self,
+        id: &str,
+    ) -> Result<Option<(ProjectRecord, Vec<RepositoryRegistration>)>> {
+        let Some(project) = removed_project(&self.connection, id)? else {
+            return Ok(None);
+        };
+        Ok(Some((project, repositories(&self.connection, id)?)))
+    }
+
+    /// The removed projects that registered exactly this local path.
+    pub fn removed_projects_at_path(&self, local_path: &str) -> Result<Vec<String>> {
         let mut statement = self.connection.prepare(
-            "SELECT id FROM runs WHERE project_id=?1 AND state IN (?2,?3,?4,?5) ORDER BY created_at,id",
+            "SELECT DISTINCT r.project_id FROM repositories r JOIN projects p ON p.id=r.project_id WHERE r.local_path=?1 AND p.removed_at IS NOT NULL ORDER BY r.project_id",
         )?;
-        let rows = statement.query_map(
-            params![project_id, states[0], states[1], states[2], states[3]],
-            |row| row.get::<_, String>(0),
-        )?;
+        let rows = statement.query_map([local_path], |row| row.get::<_, String>(0))?;
         rows.map(|row| row.map_err(Into::into)).collect()
+    }
+
+    /// Remove a project (ADR 0063): it leaves every list and its checkouts are
+    /// free, while its records, events and file stay where they are. Refused
+    /// while a run of the project may be executing in a checkout.
+    pub fn remove_project(&mut self, id: &str) -> Result<EventEnvelope> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if get_project(&tx, id)?.is_none() {
+            return Err(StorageError::NotFound(id.into()));
+        }
+        let active = active_checkout_runs(&tx, id)?;
+        if !active.is_empty() {
+            return Err(StorageError::Invalid(format!(
+                "project {id} has runs that may be working in its checkouts ({}); cancel them or let them finish, then remove the project",
+                active.join(", ")
+            )));
+        }
+        let now = now();
+        tx.execute(
+            "UPDATE projects SET removed_at=?1,updated_at=?1 WHERE id=?2",
+            params![now, id],
+        )?;
+        let event = append_project_event(&tx, id, "project.removed", json!({}))?;
+        let file_state =
+            crate::project_index::write_project_file(&tx, self.data_dir.as_deref(), id)?;
+        crate::project_index::commit_or_restore(tx, file_state)?;
+        self.mirror_logs(&[id]);
+        Ok(event)
+    }
+
+    /// Bring a removed project back with its records. Each of its checkouts
+    /// must still be free: a checkout registered since by another project
+    /// keeps it removed.
+    pub fn restore_project(&mut self, id: &str) -> Result<ProjectRecord> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if removed_project(&tx, id)?.is_none() {
+            return Err(StorageError::NotFound(id.into()));
+        }
+        for registration in repositories(&tx, id)? {
+            if let Some((project, repository)) = registration_at(&tx, &registration.local_path)? {
+                return Err(StorageError::Invalid(already_registered(
+                    &registration.local_path,
+                    &project,
+                    &repository,
+                )));
+            }
+        }
+        tx.execute(
+            "UPDATE projects SET removed_at=NULL,updated_at=?1 WHERE id=?2",
+            params![now(), id],
+        )?;
+        append_project_event(&tx, id, "project.restored", json!({}))?;
+        let file_state =
+            crate::project_index::write_project_file(&tx, self.data_dir.as_deref(), id)?;
+        crate::project_index::commit_or_restore(tx, file_state)?;
+        self.mirror_logs(&[id]);
+        self.get_project(id)?
+            .ok_or_else(|| StorageError::NotFound(id.into()))
     }
 
     /// Explicitly re-point a registered repository at a checkout and identity
@@ -606,7 +672,7 @@ fn already_registered(local_path: &str, project_id: &str, repository_id: &str) -
 fn registration_at(connection: &Connection, local_path: &str) -> Result<Option<(String, String)>> {
     connection
         .query_row(
-            "SELECT project_id,id FROM repositories WHERE local_path=?1 ORDER BY project_id,id LIMIT 1",
+            "SELECT r.project_id,r.id FROM repositories r JOIN projects p ON p.id=r.project_id WHERE r.local_path=?1 AND p.removed_at IS NULL ORDER BY r.project_id,r.id LIMIT 1",
             [local_path],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -631,10 +697,23 @@ pub(crate) fn get_project_in(connection: &Connection, id: &str) -> Result<Option
     get_project(connection, id)
 }
 
+/// A listed project: a removed one is not found (ADR 0063).
 fn get_project(connection: &Connection, id: &str) -> Result<Option<ProjectRecord>> {
     connection
         .query_row(
-            "SELECT id,name,revision,manifest_hash,created_at,updated_at FROM projects WHERE id=?1",
+            "SELECT id,name,revision,manifest_hash,created_at,updated_at FROM projects WHERE id=?1 AND removed_at IS NULL",
+            [id],
+            project_row,
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+/// A removed project with this id.
+fn removed_project(connection: &Connection, id: &str) -> Result<Option<ProjectRecord>> {
+    connection
+        .query_row(
+            "SELECT id,name,revision,manifest_hash,created_at,updated_at FROM projects WHERE id=?1 AND removed_at IS NOT NULL",
             [id],
             project_row,
         )
@@ -708,6 +787,26 @@ pub(crate) fn append_project_event(
         ],
     )?;
     Ok(event)
+}
+
+fn active_checkout_runs(connection: &Connection, project_id: &str) -> Result<Vec<String>> {
+    let states = [
+        RunState::Queued,
+        RunState::Running,
+        RunState::Exploring,
+        RunState::Implementing,
+    ]
+    .into_iter()
+    .map(state_json)
+    .collect::<Result<Vec<_>>>()?;
+    let mut statement = connection.prepare(
+        "SELECT id FROM runs WHERE project_id=?1 AND state IN (?2,?3,?4,?5) ORDER BY created_at,id",
+    )?;
+    let rows = statement.query_map(
+        params![project_id, states[0], states[1], states[2], states[3]],
+        |row| row.get::<_, String>(0),
+    )?;
+    rows.map(|row| row.map_err(Into::into)).collect()
 }
 
 #[cfg(test)]

@@ -756,7 +756,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/projects",
             get(projects::list_projects).post(projects::register_project),
         )
-        .route("/api/v1/projects/{id}", get(projects::get_project))
+        .route(
+            "/api/v1/projects/{id}",
+            get(projects::get_project).delete(projects::remove_project),
+        )
         .route(
             "/api/v1/projects/import",
             post(projects::import_project)

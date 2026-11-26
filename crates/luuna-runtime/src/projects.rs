@@ -328,6 +328,10 @@ pub async fn register_project(
     if name.is_empty() || name.len() > 200 {
         return Err(bad_request("project name must be 1..200 bytes"));
     }
+    let explicit_id = request
+        .id
+        .as_deref()
+        .is_some_and(|id| !id.trim().is_empty());
     let id = request
         .id
         .map(|id| id.trim().to_owned())
@@ -387,11 +391,82 @@ pub async fn register_project(
                 ));
             }
         }
+        // ADR 0063: registering a removed project's repositories at the same
+        // folders again brings it back with its records. Under its own ID any
+        // other registration is refused; under a name-derived ID a removed
+        // project that registered exactly these folders comes back.
+        let same = |registrations: &[RepositoryRegistration]| {
+            registrations.len() == observations.len()
+                && registrations.iter().all(|r| {
+                    observations
+                        .iter()
+                        .any(|(id, o)| id == &r.repository_id && o.local_path == r.local_path)
+                })
+        };
+        let mut restore = None;
+        if let Some((_, registrations)) = store.removed_project(&id).map_err(internal)? {
+            if !same(&registrations) {
+                return Err(ApiError(
+                    StatusCode::CONFLICT,
+                    format!("project {id} was removed; register the same repositories at the same folders to bring it back, or choose another project ID"),
+                ));
+            }
+            restore = Some(id.clone());
+        } else if !explicit_id {
+            for candidate in store
+                .removed_projects_at_path(&observations[0].1.local_path)
+                .map_err(internal)?
+            {
+                if let Some((_, registrations)) =
+                    store.removed_project(&candidate).map_err(internal)?
+                {
+                    if same(&registrations) {
+                        restore = Some(candidate);
+                        break;
+                    }
+                }
+            }
+        }
+        if let Some(restored) = restore {
+            store.restore_project(&restored).map_err(storage_error)?;
+            drop(store);
+            return Ok((StatusCode::OK, Json(view(&state, &restored)?)));
+        }
         store
             .register_project(&id, &name, &observations)
             .map_err(storage_error)?;
     }
     Ok((StatusCode::CREATED, Json(view(&state, &id)?)))
+}
+
+/// `DELETE /api/v1/projects/{id}` (ADR 0063): take the project off every list
+/// and free its checkouts. Its tickets, runs, evidence, events and project file
+/// stay on disk, and registering the same repositories at the same folders
+/// brings it back. Refused while a run may be working in one of its checkouts.
+pub async fn remove_project(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    if !valid_project_id(&id) {
+        return Err(ApiError(StatusCode::NOT_FOUND, "project not found".into()));
+    }
+    let mut store = state.store.lock().map_err(internal)?;
+    if store.get_project(&id).map_err(internal)?.is_none() {
+        return Err(ApiError(StatusCode::NOT_FOUND, "project not found".into()));
+    }
+    if let Some(run) = store
+        .active_checkout_runs(&id)
+        .map_err(internal)?
+        .into_iter()
+        .next()
+    {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            format!("run {run} of project {id} may be executing in a registered checkout; wait for it to finish or cancel it before removing the project"),
+        ));
+    }
+    store.remove_project(&id).map_err(storage_error)?;
+    Ok(Json(json!({"removed": id})))
 }
 
 /// `POST /api/v1/projects/{id}/repositories/{repository_id}/rebind`: re-observe

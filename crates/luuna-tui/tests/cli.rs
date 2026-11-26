@@ -54,6 +54,9 @@ fn records(request: &Request) -> Reply {
                 json!({"evidence":{"candidate":{"revision":1,"hash":HASH,"plan_hash":HASH,"repository_commits":{}},"status":"pending","results":[]},"active":false,"repair_allowed":false,"revalidate_allowed":false}),
             )
         }
+        ["projects", _] if request.method == "DELETE" => {
+            return json(json!({"removed":"walkthrough"}))
+        }
         ["projects", _] if request.method == "GET" => {
             return json(
                 json!({"project":{"id":"walkthrough","name":"Walkthrough","revision":0},"repositories":[{"repository_id":"app","local_path":"/srv/app","observation":{"identity":{},"dirty":{}}}],"manifest":null,"discovery":null}),
@@ -238,6 +241,39 @@ fn bodies_match_the_shared_builders() {
     );
     // Key order is part of the body: it is the order the original builder wrote.
     assert!(posted.body.starts_with(r#"{"tasks":[{"id":"api","repository_id":"api","paths":["src"],"operations":["read","write"],"depends_on":["lib"]}"#), "{}", posted.body);
+}
+
+#[test]
+fn remove_project_needs_confirm_and_says_the_records_stay() {
+    let directory = tempfile::tempdir().unwrap();
+    let mock = serve(records);
+    let (code, _, err) = run_client(
+        &["remove-project", "walkthrough"],
+        &mock.url(),
+        Some(TOKEN),
+        "",
+        directory.path(),
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("--confirm"), "{err}");
+    assert!(mock.take().iter().all(|r| r.method != "DELETE"));
+    let (code, out, err) = run_client(
+        &["remove-project", "walkthrough", "--confirm"],
+        &mock.url(),
+        Some(TOKEN),
+        "",
+        directory.path(),
+    );
+    assert_eq!(code, 0, "{err}");
+    let deleted: Vec<_> = mock
+        .take()
+        .into_iter()
+        .filter(|r| r.method == "DELETE")
+        .collect();
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(deleted[0].path, "/api/v1/projects/walkthrough");
+    assert!(out.contains("Removed project walkthrough"), "{out}");
+    assert!(out.contains("bring it back"), "{out}");
 }
 
 #[test]

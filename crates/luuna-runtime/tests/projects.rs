@@ -949,6 +949,137 @@ async fn a_checkout_is_registered_once_and_never_overlaps_the_data_directory() {
     );
 }
 
+/// ADR 0063: removing hides a project and frees its checkout; its records stay,
+/// and registering the same folder again brings it back.
+#[tokio::test]
+async fn removing_a_project_hides_it_frees_its_checkout_and_the_same_folder_brings_it_back() {
+    let harness = Harness::new();
+    let repo = tempfile::tempdir().unwrap();
+    synthetic_repository(repo.path());
+    let (status, _) = harness
+        .request(
+            "POST",
+            "/api/v1/projects",
+            Some(register_body("fixture", repo.path())),
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        harness
+            .request("DELETE", "/api/v1/projects/fixture", None, false)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (status, body) = harness
+        .request("DELETE", "/api/v1/projects/fixture", None, true)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({"removed":"fixture"}));
+    assert_eq!(
+        harness
+            .request("GET", "/api/v1/projects/fixture", None, true)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    let (_, list) = harness.request("GET", "/api/v1/projects", None, true).await;
+    assert_eq!(list, json!([]));
+    assert_eq!(
+        harness
+            .request("DELETE", "/api/v1/projects/fixture", None, true)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    // Its ID stays its own: another folder under that ID is refused.
+    let other = tempfile::tempdir().unwrap();
+    synthetic_repository(other.path());
+    let (status, body) = harness
+        .request(
+            "POST",
+            "/api/v1/projects",
+            Some(register_body("fixture", other.path())),
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("was removed"),
+        "{body}"
+    );
+    // The same folder under its ID brings it back, with its event record.
+    let (status, body) = harness
+        .request(
+            "POST",
+            "/api/v1/projects",
+            Some(register_body("fixture", repo.path())),
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["project"]["id"], "fixture");
+    let (_, replay) = harness
+        .request("GET", "/api/v1/projects/fixture/events", None, true)
+        .await;
+    let types: Vec<_> = events(&replay)
+        .iter()
+        .map(|e| e["type"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert!(
+        types.contains(&"project.registered".to_owned()),
+        "{types:?}"
+    );
+    assert!(types.contains(&"project.removed".to_owned()), "{types:?}");
+    assert!(types.contains(&"project.restored".to_owned()), "{types:?}");
+    // Without an ID, the same folder brings back the project that held it.
+    assert_eq!(
+        harness
+            .request("DELETE", "/api/v1/projects/fixture", None, true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let unnamed = json!({"name":"Renamed","repositories":[{"id":"app","path":repo.path().to_string_lossy()}]});
+    let (status, body) = harness
+        .request("POST", "/api/v1/projects", Some(unnamed), true)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["project"]["id"], "fixture");
+    // A removed project's folder is free for a new project.
+    assert_eq!(
+        harness
+            .request("DELETE", "/api/v1/projects/fixture", None, true)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let (status, body) = harness
+        .request(
+            "POST",
+            "/api/v1/projects",
+            Some(register_body("fresh", repo.path())),
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    // ...and while it holds the folder the removed one stays removed.
+    let (status, body) = harness
+        .request(
+            "POST",
+            "/api/v1/projects",
+            Some(register_body("fixture", repo.path())),
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("of project fresh"),
+        "{body}"
+    );
+}
+
 #[tokio::test]
 async fn project_event_pages_are_bounded_and_huge_cursors_are_client_errors() {
     let harness = Harness::new();

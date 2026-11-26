@@ -54,6 +54,17 @@ export function projectActions(state: ProjectsState) {
     });
   }
 
+  /** ADR 0063: the project leaves every list; its records stay and its folders bring it back. */
+  function remove() {
+    if (!selected) return Promise.resolve(false);
+    return guarded("Project removal", async (signal) => {
+      if (!client) return;
+      await client.removeProject(selected, signal);
+      if (signal.aborted) return;
+      await state.afterRemoval(signal);
+    });
+  }
+
   function register(name: string, projectId: string, rows: RepositoryRow[]) {
     return guarded("Registration", async (signal) => {
       if (!client) return;
@@ -150,7 +161,7 @@ export function projectActions(state: ProjectsState) {
     state.setSelected(id);
   }
 
-  return { runBaseline, cancelBaseline, viewBaselineLog, rebind, register, exportProject, importProject, scaffold, discover, confirm, selectProject };
+  return { runBaseline, cancelBaseline, viewBaselineLog, rebind, remove, register, exportProject, importProject, scaffold, discover, confirm, selectProject };
 }
 
 export type ProjectActions = ReturnType<typeof projectActions>;

@@ -770,6 +770,7 @@ const MIGRATIONS: &[(u32, &str)] = &[
     (10, MIGRATION_10),
     (11, MIGRATION_11),
     (12, MIGRATION_12),
+    (13, MIGRATION_13),
 ];
 
 /// The highest schema version this build creates and understands. A database
@@ -987,6 +988,14 @@ COMMIT;
 /// task records its role, who assigned it (the approval of the exact plan),
 /// the advisory task it was derived from, the dependency overrides that
 /// name it and, for an advisory role, its structured result.
+/// A removed project stays on disk with its history; `removed_at` takes it off
+/// every list and frees its checkouts (ADR 0063).
+const MIGRATION_13: &str = "
+BEGIN IMMEDIATE;
+ALTER TABLE projects ADD COLUMN removed_at TEXT;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (13);
+COMMIT;
+";
 const MIGRATION_12: &str = "
 BEGIN IMMEDIATE;
 ALTER TABLE run_tasks ADD COLUMN role TEXT NOT NULL DEFAULT 'implementer';

@@ -1463,6 +1463,7 @@ pub fn format(id: &str, value: &J, colour: bool) -> R<String> {
             Ok(format!("{}  {}  {}\n  {}\n  provenance: {}", sid(f(r, "id")?), s(f(r, "scope")?), shash(f(r, "hash")?), s(f(r, "content")?), s(f(r, "provenance")?)))
         })?,
         "memory.create" => format!("{}  {}  {}", s(f(v, "id")?), s(f(v, "scope")?), s(f(v, "hash")?)),
+        "projects.remove" => format!("Removed project {}. Its records stay on disk; register the same folders again to bring it back.", s(f(v, "removed")?)),
         "memory.delete" => if f(v, "deleted")?.truthy() { "Memory deleted." } else { "Memory not deleted." }.into(),
         "prompts.list" => listed(v, "No prompts.", |prompt| {
             let hash = f(prompt, "hash")?;
