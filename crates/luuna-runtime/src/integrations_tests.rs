@@ -1672,6 +1672,37 @@ async fn components_real_starter_memory_proposes_and_records_only_what_is_kept()
     // While the kept memory exists its key stays, so a retry replays it.
     let same = again.facts.iter().find(|f| f.key == kept.key).unwrap();
     assert_eq!(same.idempotency_key, kept.idempotency_key);
+    // A new manifest revision changes no unchanged fact's request, so its key
+    // and provenance stay and a pending delivery is retried, not duplicated.
+    let _ = confirm_manifest(
+        State(state.clone()),
+        Path("starter".into()),
+        Json(ConfirmManifest {
+            expected_revision: 1,
+            manifest: luuna_domain::ProjectManifest {
+                revision: 2,
+                ..discovery.proposed_manifest.clone()
+            },
+        }),
+    )
+    .await
+    .map_err(|e| e.1)
+    .unwrap();
+    let revised = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    for fact in &set.facts {
+        let now = revised.facts.iter().find(|f| f.key == fact.key).unwrap();
+        assert_eq!(now.provenance, fact.provenance, "{}", fact.key);
+        assert_eq!(now.idempotency_key, fact.idempotency_key, "{}", fact.key);
+    }
+    let branch = revised
+        .facts
+        .iter()
+        .find(|f| f.key == "branch:app")
+        .unwrap();
+    assert_eq!(branch.evidence, ["manifest revision 2"]);
     // Once it is deleted, the fact is offered under a fresh key and keeping it
     // records a new memory instead of replaying the deleted one.
     let _ = delete_memory(

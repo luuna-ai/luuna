@@ -61,7 +61,7 @@ fn records(request: &Request) -> Reply {
         }
         ["projects", _, "memory", "starter"] => {
             return json(json!({"memory_empty":true,"facts":[
-                {"key":"branch:app","repository_id":"app","content":"In app, base every change on `main`.","provenance":"Luuna's starter scan of the confirmed manifest (revision 1), repository app","evidence":["manifest"],"recorded":false,"idempotency_key":"starter-branch:app-0001"},
+                {"key":"branch:app","repository_id":"app","content":"In app, base every change on `main`.","provenance":"Luuna's starter scan of the confirmed manifest, repository app","evidence":["manifest revision 1"],"recorded":false,"idempotency_key":"starter-branch:app-0001"},
                 {"key":"lockfile:app:Cargo.lock","repository_id":"app","content":"In app, build and test with `--locked`.","provenance":"Luuna's starter scan of repository app: Cargo.lock is present","evidence":["Cargo.lock"],"recorded":false,"idempotency_key":"starter-lockfile:app:Cargo.lock-0002"},
                 {"key":"guide:app:README.md","repository_id":"app","content":"In app, read `README.md`.","provenance":"scan","evidence":["README.md"],"recorded":true,"idempotency_key":"starter-guide:app:README.md-0003"}
             ]}))

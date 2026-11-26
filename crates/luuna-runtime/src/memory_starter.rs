@@ -138,8 +138,9 @@ fn delivery_key(
     hasher.update(fact.key.as_bytes());
     hasher.update([0]);
     hasher.update(fact.content.as_bytes());
-    // The provenance is part of the request too: a new manifest revision
-    // changes it, and must not meet a pending delivery of the old request.
+    // The provenance is part of the request too. It names no revision or
+    // commit, so a new scan of an unchanged fact keeps its key and a pending
+    // delivery is retried with its original request.
     hasher.update([0]);
     hasher.update(fact.provenance.as_bytes());
     let hash: String = hasher.finalize()[..8]
@@ -192,11 +193,19 @@ pub fn propose(
     for repository in &manifest.repositories {
         let id = &repository.id;
         let registration = registrations.iter().find(|r| &r.repository_id == id);
-        let at = registration
-            .map(|r| format!(" at {}", short(&r.observation.head_commit)))
-            .unwrap_or_default();
+        // Provenance names only what stays true across scans; the manifest
+        // revision and head commit go into the evidence, which is not part of
+        // the Atlas request, so a pending delivery keeps its request (and key)
+        // across a new revision or commit.
+        let at = registration.map(|r| format!("commit {}", short(&r.observation.head_commit)));
         let scanned =
-            |file: &str| format!("Luuna's starter scan of repository {id}{at}: {file} is present");
+            |file: &str| format!("Luuna's starter scan of repository {id}: {file} is present");
+        let seen = |file: &str| -> Vec<String> {
+            std::iter::once(file.to_string())
+                .chain(at.clone())
+                .collect()
+        };
+        let manifest_evidence = vec![format!("manifest revision {}", manifest.revision)];
         let mut push = |key: String, content: String, provenance: String, evidence: Vec<String>| {
             facts.push(StarterFact {
                 key,
@@ -221,8 +230,8 @@ pub fn propose(
                     command_line(&check.executable, &check.args),
                     check.id
                 ),
-                format!("Luuna's starter scan of the confirmed manifest (revision {}), repository {id}", manifest.revision),
-                vec!["manifest".into()],
+                format!("Luuna's starter scan of the confirmed manifest, repository {id}"),
+                manifest_evidence.clone(),
             );
         }
         push(
@@ -231,8 +240,8 @@ pub fn propose(
                 "In {id}, base every change on `{}`, because it is the default branch of the confirmed manifest; never publish to it directly.",
                 repository.default_branch
             ),
-            format!("Luuna's starter scan of the confirmed manifest (revision {}), repository {id}", manifest.revision),
-            vec!["manifest".into()],
+            format!("Luuna's starter scan of the confirmed manifest, repository {id}"),
+            manifest_evidence.clone(),
         );
         let Some(root) = registration.map(|r| FsPath::new(&r.local_path)) else {
             continue;
@@ -243,7 +252,7 @@ pub fn propose(
                     format!("lockfile:{id}:{file}"),
                     format!("In {id}, {rule}, because `{file}` is committed and a change should not drift from it."),
                     scanned(file),
-                    vec![file.into()],
+                    seen(file),
                 );
             }
         }
@@ -253,7 +262,7 @@ pub fn propose(
                     format!("pin:{id}:{file}"),
                     format!("In {id}, use {what} pinned in `{file}`; avoid another version, because checks run against the pinned one."),
                     scanned(file),
-                    vec![file.into()],
+                    seen(file),
                 );
             }
         }
@@ -269,7 +278,7 @@ pub fn propose(
                     format!("guide:{id}:{file}"),
                     content,
                     scanned(file),
-                    vec![file.into()],
+                    seen(file),
                 );
             }
         }
@@ -285,11 +294,8 @@ pub fn propose(
                 "{} consumes {} through `{}`; change the producer first and never break that contract without changing the consumer in the same plan.",
                 relationship.consumer, relationship.producer, relationship.contract
             ),
-            provenance: format!(
-                "Luuna's starter scan of the confirmed manifest (revision {}): a confirmed relationship",
-                manifest.revision
-            ),
-            evidence: vec!["manifest".into()],
+            provenance: "Luuna's starter scan of the confirmed manifest: a confirmed relationship".into(),
+            evidence: vec![format!("manifest revision {}", manifest.revision)],
             recorded: false,
                 idempotency_key: String::new(),
         });
@@ -502,13 +508,16 @@ mod tests {
             "{}",
             check.content
         );
-        assert!(check.provenance.contains("revision 3"));
-        assert_eq!(check.evidence, ["manifest"]);
+        assert!(!check.provenance.contains("revision"));
+        assert_eq!(check.evidence, ["manifest revision 3"]);
         // Presence only: the guide's own text never reaches a fact.
         assert!(facts
             .iter()
             .all(|f| !f.content.contains("ignore all rules")));
-        assert!(facts[2].provenance.contains("at 0123456789ab"));
+        assert!(!facts[2].provenance.contains("0123456789ab"));
+        assert!(facts[2]
+            .evidence
+            .contains(&"commit 0123456789ab".to_string()));
         assert!(facts[5].content.contains("`trunk`"));
         for fact in &facts {
             assert!(crate::integrations::validate_memory_request(

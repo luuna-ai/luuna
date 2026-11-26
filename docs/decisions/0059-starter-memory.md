@@ -8,8 +8,8 @@ When a project has no Atlas memory, Luuna offers to build a small starter set. `
 
 - a stable `key`;
 - the repository it is about;
-- its content and provenance;
-- the evidence it rests on (`manifest`, or a repository-relative path);
+- its content and provenance (which names the scan and the file or manifest, never a revision or commit, so a new scan of an unchanged fact makes the same request);
+- the evidence it rests on: `manifest revision N`, or a repository-relative path with the scanned head commit (`commit <short sha>`). Evidence is shown, not sent to Atlas;
 - `recorded`, which is true when an existing memory already holds exactly that content.
 
 The route records nothing. It refuses with 409 until a manifest is confirmed.
