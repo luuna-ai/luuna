@@ -225,11 +225,15 @@ pub async fn mint_service_token(
     // other one saved instead of replacing it.
     let _lock = MintLock::acquire(&private).await?;
     let path = private.join("environment.json");
-    if let Some(token) = load(&path)?
-        .remove("LUUNA_API_TOKEN")
-        .filter(|v| !v.trim().is_empty())
+    let saved = load(&path)?;
+    if saved
+        .get("LUUNA_API_TOKEN")
+        .is_some_and(|v| !v.trim().is_empty())
     {
-        vars.insert("LUUNA_API_TOKEN".into(), token);
+        // Adopt everything the other launch saved, the data folder included.
+        for (name, value) in saved {
+            vars.insert(name, value);
+        }
         return Ok(false);
     }
     vars.insert("LUUNA_API_TOKEN".into(), mint_token()?);

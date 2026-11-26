@@ -314,13 +314,14 @@ async fn concurrent_first_launches_share_one_token() {
             luuna_tui::setup::mint_service_token(&mut vars, |_| None, &url, || Ok(private))
                 .await
                 .unwrap();
-            vars["LUUNA_API_TOKEN"].clone()
+            vars
         }
     };
-    let tokens = tokio::join!(launch(), launch(), launch());
+    let launches = tokio::join!(launch(), launch(), launch());
     let saved = luuna_tui::setup::load(&private.join("environment.json")).unwrap();
-    for token in [&tokens.0, &tokens.1, &tokens.2] {
-        assert_eq!(Some(token), saved.get("LUUNA_API_TOKEN"));
+    // Every launch ends with the saved token and data folder.
+    for vars in [&launches.0, &launches.1, &launches.2] {
+        assert_eq!(vars, &saved);
     }
     assert!(!private.join(".mint.lock").exists());
 }
