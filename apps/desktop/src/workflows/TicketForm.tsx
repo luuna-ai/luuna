@@ -1,6 +1,6 @@
 import type { TestingPrerequisite, TicketPurpose, TicketType } from "@luuna/api-client";
-import { Button, Form, FormFooter, Hint, Id, Inline, ListGroup, ListRow, ReasonNote, SelectField, Stack, StatusBadge, submitted, TextArea, TextField } from "@luuna/ui";
-import { TEXT_LIMITS, TICKET_PRIORITIES, TICKET_TYPES } from "./model";
+import { Button, Card, Form, FormFooter, Hint, Id, Inline, Item, List, ListGroup, ListRow, ReasonNote, SelectField, Stack, StatusBadge, submitted, Tag, Text, TextArea, TextField } from "@luuna/ui";
+import { parseLabels, TEXT_LIMITS, TICKET_PRIORITIES, TICKET_TYPES } from "./model";
 import type { ticketTextSizes } from "./model";
 import { ByteCount } from "./PlanReview";
 import { RepositoryScope } from "./RepositoryScope";
@@ -45,6 +45,32 @@ function ticketHint(manifestConfirmed: boolean, tooLong: boolean, multi: boolean
   return multi ? "Tickets are scoped to the registered repositories you tick; a plan's tasks stay within them." : "Tickets are scoped to this project's registered repository.";
 }
 
+/** The ticket as the runtime will receive it: trimmed title and intent, one criterion per non-blank line, labels as stored, and its scope. */
+export function TicketPreview({ form, scoped }: { form: TicketFormState; scoped: string[] }) {
+  const title = form.title.trim();
+  const intent = form.intent.trim();
+  const criteria = form.criteria.split("\n").map((line) => line.trim()).filter(Boolean);
+  const labels = parseLabels(form.labels);
+  const priority = TICKET_PRIORITIES.find((p) => p.value === String(form.priority))?.label ?? `P${form.priority}`;
+  return <Card className="ticket-preview" label="Ticket preview">
+    <Stack gap={2}>
+      <Hint>Preview: what the ticket will say once created.</Hint>
+      <strong className="ticket-preview-title">{title || <Hint>No title yet</Hint>}</strong>
+      <Inline wrap gap={1}>
+        <Tag>{form.ticketType}</Tag>
+        <Tag>{priority}</Tag>
+        {form.purpose === "testing_setup" && <Tag>testing setup</Tag>}
+        {labels.map((label) => <Tag key={label}>{label}</Tag>)}
+      </Inline>
+      <Text className="ticket-preview-intent">{intent || <Hint>No intent yet</Hint>}</Text>
+      {criteria.length
+        ? <List ordered label="Acceptance criteria preview">{criteria.map((criterion, index) => <Item key={index}>{criterion}</Item>)}</List>
+        : <Hint>No acceptance criteria yet</Hint>}
+      {scoped.length > 0 && <Hint>Scoped to {scoped.map((id, index) => <span key={id}>{index > 0 && ", "}<Id>{id}</Id></span>)}</Hint>}
+    </Stack>
+  </Card>;
+}
+
 /** A new ticket: title, intent and acceptance criteria, each counted in UTF-8 bytes as the runtime counts them. */
 export function TicketForm({ form, update, sizes, tooLong, disabled, manifestConfirmed, repositoryIds, scoped, onCreate }: Props) {
   const empty = !form.title.trim() || !form.intent.trim() || !form.criteria.trim();
@@ -68,6 +94,7 @@ export function TicketForm({ form, update, sizes, tooLong, disabled, manifestCon
       <TextField label="Labels (comma-separated)" aria-label="Ticket labels" value={form.labels} onChange={(event) => update({ labels: event.target.value })} placeholder="ui, docs" />
     </Inline>
     {repositoryIds.length > 1 && <RepositoryScope choices={repositoryIds} selected={scoped} onChange={(repositories) => update({ repositories })} />}
+    <TicketPreview form={form} scoped={scoped} />
     <FormFooter hint={ticketHint(manifestConfirmed, tooLong, repositoryIds.length > 1)}>
       <Button variant="primary" submit disabled={empty || tooLong} data-capability="tickets.create">Create ticket</Button>
     </FormFooter>
