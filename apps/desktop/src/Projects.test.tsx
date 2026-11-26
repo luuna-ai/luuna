@@ -83,3 +83,13 @@ test("a request from Home or the Board lands on the project heading, the ticket 
   expect(requestTarget({ ticketForm: true })).toBe("ticket-title");
   expect(requestTarget({ ticketId: "ticket-1", ticketForm: true })).toBe("ticket-ticket-1");
 });
+
+import { RemoveProject } from "./projects/RemoveProject";
+
+test("removing a project asks for confirmation and says its records stay", () => {
+  const view = { project: { id: "walkthrough", name: "Walkthrough" } } as unknown as ProjectView;
+  const html = renderToStaticMarkup(<RemoveProject view={view} busy={false} onRemove={async () => true} />);
+  expect(html).toContain("Remove Walkthrough from every list and free its folders.");
+  expect(html).toContain("adding the same folders again brings the project back");
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-capability="projects.remove"/);
+});

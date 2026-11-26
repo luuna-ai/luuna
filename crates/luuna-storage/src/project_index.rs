@@ -65,6 +65,17 @@ struct DocumentProject {
     manifest_hash: Option<String>,
     created_at: String,
     updated_at: String,
+    /// Set while the project is removed (ADR 0063). Absent, not null, for a
+    /// listed project, so files written before removal existed are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    removed_at: Option<String>,
+}
+
+impl ProjectDocument {
+    /// Whether the project is removed: its checkouts are free for others.
+    fn removed(&self) -> bool {
+        self.project.removed_at.is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -256,7 +267,7 @@ pub(crate) fn project_document(
 ) -> Result<Option<ProjectDocument>> {
     let Some(project) = connection
         .query_row(
-            "SELECT id,name,revision,manifest_hash,created_at,updated_at FROM projects WHERE id=?1",
+            "SELECT id,name,revision,manifest_hash,created_at,updated_at,removed_at FROM projects WHERE id=?1",
             [project_id],
             |r| {
                 Ok(DocumentProject {
@@ -266,6 +277,7 @@ pub(crate) fn project_document(
                     manifest_hash: r.get(3)?,
                     created_at: r.get(4)?,
                     updated_at: r.get(5)?,
+                    removed_at: r.get(6)?,
                 })
             },
         )
@@ -667,11 +679,17 @@ fn plan_actions(
             StorageError::Invalid(detail) => refused(&path, detail),
             other => other,
         })?;
+        // A removed project's checkouts are free (ADR 0063): its
+        // registrations claim nothing once reconcile is done.
+        let claims = |document: &ProjectDocument| {
+            if document.removed() {
+                Vec::new()
+            } else {
+                document.repositories.clone()
+            }
+        };
         let (action, repositories) = match (files.get(id), database) {
-            (Some((_, file)), None) => (
-                Some(Action::Index(Box::new(file.clone()))),
-                file.repositories.clone(),
-            ),
+            (Some((_, file)), None) => (Some(Action::Index(Box::new(file.clone()))), claims(file)),
             (None, Some(database)) => {
                 let bytes = render(&database, id).map_err(|detail| {
                     refused(
@@ -680,11 +698,11 @@ fn plan_actions(
                     )
                 })?;
                 writable(data_dir, id).map_err(|detail| refused(&path, detail))?;
-                (Some(Action::Backfill(bytes)), database.repositories)
+                (Some(Action::Backfill(bytes)), claims(&database))
             }
             (Some((file_path, file)), Some(database)) => (
                 compare(file, &database).map_err(|detail| refused(file_path, detail))?,
-                file.repositories.clone(),
+                claims(file),
             ),
             (None, None) => continue,
         };
@@ -761,8 +779,8 @@ fn apply(tx: &Transaction<'_>, project_id: &str, action: &Action) -> Result<()> 
         Action::Index(file) => {
             let p = &file.project;
             tx.execute(
-                "INSERT INTO projects(id,name,revision,manifest_hash,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6)",
-                params![p.id, p.name, p.revision, p.manifest_hash, p.created_at, p.updated_at],
+                "INSERT INTO projects(id,name,revision,manifest_hash,created_at,updated_at,removed_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                params![p.id, p.name, p.revision, p.manifest_hash, p.created_at, p.updated_at, p.removed_at],
             )?;
             for repository in &file.repositories {
                 insert_repository(tx, project_id, repository)?;
@@ -787,8 +805,8 @@ fn apply(tx: &Transaction<'_>, project_id: &str, action: &Action) -> Result<()> 
             if file.project != database.project {
                 let p = &file.project;
                 tx.execute(
-                    "UPDATE projects SET name=?1,revision=?2,manifest_hash=?3,updated_at=?4 WHERE id=?5",
-                    params![p.name, p.revision, p.manifest_hash, p.updated_at, project_id],
+                    "UPDATE projects SET name=?1,revision=?2,manifest_hash=?3,updated_at=?4,removed_at=?5 WHERE id=?6",
+                    params![p.name, p.revision, p.manifest_hash, p.updated_at, p.removed_at, project_id],
                 )?;
             }
             for repository in &file.repositories {
@@ -1084,5 +1102,115 @@ mod tests {
             fs::read(moved[0].join("luuna.sqlite3-wal")).unwrap(),
             b"stale"
         );
+    }
+
+    /// Register `/srv/alpha/app` as repository `app` of `project`.
+    fn checkout(store: &Store, project: &str) {
+        let observation = luuna_domain::RepositoryObservation {
+            local_path: "/srv/alpha/app".into(),
+            identity: luuna_domain::RepositoryIdentity {
+                remote: Some("https://example.invalid/app.git".into()),
+                push_remote: None,
+                root_commits: vec!["1".repeat(40)],
+                shallow: false,
+            },
+            head_commit: "2".repeat(40),
+            branch: Some("main".into()),
+            remote_default_branch: None,
+            local_branches: vec!["main".into()],
+            dirty: luuna_domain::DirtyState::default(),
+            git_version: "git version 2.43.0".into(),
+            observed_at: "2026-11-26T00:00:00.000Z".into(),
+        };
+        store
+            .connection
+            .execute(
+                "INSERT INTO repositories(project_id,id,local_path,observation,registered_at) VALUES (?1,'app','/srv/alpha/app',?2,'2026-10-17T00:00:00.000Z')",
+                rusqlite::params![project, serde_json::to_string(&observation).unwrap()],
+            )
+            .unwrap();
+    }
+
+    /// ADR 0063: a removed project keeps its file, which records the removal,
+    /// and a rebuild from files keeps it removed. Its checkout is free, so a
+    /// later project may register it, and the rebuild does not refuse that.
+    #[test]
+    fn a_removed_project_stays_removed_and_frees_its_checkout_across_a_rebuild() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        fs::create_dir_all(&data).unwrap();
+        let file = project_folder(&data, "alpha").join(PROJECT_FILE);
+        {
+            let store = registered(&data);
+            checkout(&store, "alpha");
+        }
+        let mut store = Store::open(data.join("luuna.sqlite3")).unwrap();
+        assert_eq!(
+            store.registration_at_path("/srv/alpha/app").unwrap(),
+            Some(("alpha".into(), "app".into()))
+        );
+        // A run that is not working in a checkout does not hold removal back.
+        store
+            .create_workflow_run("run-alpha", "alpha", serde_json::json!({}))
+            .unwrap();
+        store.remove_project("alpha").unwrap();
+        assert!(store.get_project("alpha").unwrap().is_none());
+        // Its runs leave the listings, and no new run is admitted.
+        assert!(store.runs().unwrap().is_empty());
+        assert!(store.runs_page(None, None, 10).unwrap().is_empty());
+        assert!(store.get_run("run-alpha").unwrap().is_some());
+        assert!(matches!(
+            store.create_run("run-late", "alpha", serde_json::json!({})),
+            Err(StorageError::NotFound(_))
+        ));
+        assert!(store.projects().unwrap().is_empty());
+        assert!(store.removed_project("alpha").unwrap().is_some());
+        assert_eq!(store.registration_at_path("/srv/alpha/app").unwrap(), None);
+        assert_eq!(
+            store.removed_projects_at_path("/srv/alpha/app").unwrap(),
+            ["alpha"]
+        );
+        // Its id stays taken while removed.
+        assert!(matches!(
+            store.remove_project("alpha"),
+            Err(StorageError::NotFound(_))
+        ));
+        let written: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert!(written["project"]["removed_at"].is_string(), "{written}");
+        // Another project registers the freed checkout.
+        store
+            .connection
+            .execute_batch(
+                "INSERT INTO projects(id,name,revision,manifest_hash,created_at,updated_at)
+                 VALUES ('beta','Beta',0,NULL,'2026-10-19T00:00:00.000Z','2026-10-19T00:00:00.000Z');",
+            )
+            .unwrap();
+        checkout(&store, "beta");
+        drop(store);
+        // Opening backfills beta's file; deleting the database then rebuilds
+        // both from files.
+        drop(Store::open(data.join("luuna.sqlite3")).unwrap());
+        remove(&data, &["", "-wal", "-shm"]);
+        let mut store = Store::open(data.join("luuna.sqlite3")).unwrap();
+        assert!(store.get_project("alpha").unwrap().is_none());
+        assert!(store.removed_project("alpha").unwrap().is_some());
+        assert_eq!(
+            store.registration_at_path("/srv/alpha/app").unwrap(),
+            Some(("beta".into(), "app".into()))
+        );
+        // While beta holds the checkout, alpha cannot come back.
+        assert!(matches!(
+            store.restore_project("alpha"),
+            Err(StorageError::Invalid(_))
+        ));
+        store.remove_project("beta").unwrap();
+        let restored = store.restore_project("alpha").unwrap();
+        assert_eq!(restored.id, "alpha");
+        assert_eq!(
+            store.registration_at_path("/srv/alpha/app").unwrap(),
+            Some(("alpha".into(), "app".into()))
+        );
+        let written: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert!(written["project"].get("removed_at").is_none(), "{written}");
     }
 }

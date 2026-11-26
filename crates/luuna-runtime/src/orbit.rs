@@ -161,6 +161,40 @@ struct Orbit {
     registrations: Vec<RepositoryRegistration>,
     manifest_revision: Option<u64>,
     checks: Vec<(String, Vec<ManifestCheck>)>,
+    /// Holds the project's in-flight count until the operation ends.
+    _in_flight: InFlight,
+}
+
+/// One Orbit operation counted against its project while it may use the
+/// project's checkouts; project removal waits while any is counted.
+pub(crate) struct InFlight {
+    counts: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, usize>>>,
+    project: String,
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        let mut counts = self
+            .counts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(count) = counts.get_mut(&self.project) {
+            *count -= 1;
+            if *count == 0 {
+                counts.remove(&self.project);
+            }
+        }
+    }
+}
+
+/// Whether an Orbit operation of the project is in flight. Call with the store
+/// lock held, so no operation starts between this check and what follows.
+pub(crate) fn in_flight(state: &AppState, project: &str) -> bool {
+    state
+        .orbit_in_flight
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains_key(project)
 }
 
 impl Orbit {
@@ -175,6 +209,17 @@ impl Orbit {
             .ok_or_else(not_found)?;
         let registrations = store.repositories(id).map_err(internal)?;
         let manifest = store.current_manifest(id).map_err(storage_error)?;
+        // Counted while the store lock is held, so removal sees it.
+        *state
+            .orbit_in_flight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(id.to_owned())
+            .or_default() += 1;
+        let in_flight = InFlight {
+            counts: state.orbit_in_flight.clone(),
+            project: id.to_owned(),
+        };
         let checks = manifest
             .as_ref()
             .map(|m| {
@@ -190,6 +235,7 @@ impl Orbit {
             registrations,
             manifest_revision: manifest.map(|m| m.revision),
             checks,
+            _in_flight: in_flight,
         })
     }
 
@@ -763,4 +809,27 @@ pub async fn sandbox(
         network,
         luuna_sandbox::host_backend(),
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_in_flight_count_is_released_when_each_operation_ends() {
+        let counts = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        counts.lock().unwrap().insert("app".to_string(), 2);
+        let first = InFlight {
+            counts: counts.clone(),
+            project: "app".into(),
+        };
+        let second = InFlight {
+            counts: counts.clone(),
+            project: "app".into(),
+        };
+        drop(first);
+        assert_eq!(counts.lock().unwrap().get("app"), Some(&1));
+        drop(second);
+        assert!(counts.lock().unwrap().is_empty());
+    }
 }

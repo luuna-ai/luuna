@@ -1678,6 +1678,11 @@ export class LuunaClient {
     return this.request(`/projects/${encodeURIComponent(projectId)}/repositories/${encodeURIComponent(repositoryId)}/rebind`, { method: "POST", body: JSON.stringify(request), signal });
   }
 
+  /** Removes a project from every list and frees its folders (ADR 0063). Its records stay on disk; registering the same repositories at the same folders brings it back. */
+  removeProject(projectId: string, signal?: AbortSignal): Promise<{ removed: string }> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}`, { method: "DELETE", signal });
+  }
+
   listBaselines(id: string, signal?: AbortSignal): Promise<BaselineEvidence[]> {
     return this.request(`/projects/${encodeURIComponent(id)}/baselines`, { signal });
   }

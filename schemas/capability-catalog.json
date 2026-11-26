@@ -224,6 +224,27 @@
       ]
     },
     {
+      "id": "projects.remove",
+      "title": "Remove a project from every list, keeping its records",
+      "method": "DELETE",
+      "route": "/api/v1/projects/{id}",
+      "client_method": "removeProject",
+      "desktop": "projects.remove",
+      "tui": "remove-project",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "not_found",
+        "refused",
+        "shutting_down",
+        "internal"
+      ],
+      "required_by": [
+        "docs/decisions/0063-removing-a-project.md"
+      ]
+    },
+    {
       "id": "projects.events",
       "title": "Replay the project's durable event record",
       "method": "GET",

@@ -274,6 +274,12 @@ fn project_id_taken(state: &AppState, name: &str) -> Result<(), ApiError> {
             "project {name} is already registered; choose another name"
         )));
     }
+    // A removed project keeps its ID (ADR 0063), so registration would refuse it.
+    if store.removed_project(name).map_err(internal)?.is_some() {
+        return Err(conflict(format!(
+            "project {name} was removed and keeps its ID; choose another name"
+        )));
+    }
     Ok(())
 }
 
