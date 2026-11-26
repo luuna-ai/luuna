@@ -13,7 +13,7 @@ use axum::{
 use luuna_domain::{DirtyState, RepositoryIdentity, RepositoryObservation, StoreMode};
 use luuna_runtime::{
     data_dir::{resolve_data_dir, DATA_DIR_VARIABLE, DEFAULT_DATA_DIR},
-    router, AppState, ServiceSettings,
+    router, AppState, DefaultStore, ServiceSettings,
 };
 use luuna_storage::{write_project_store_mode, Store};
 use serde_json::Value;
@@ -477,4 +477,24 @@ mod binary {
         assert!(data.path().join("runtime.lock").exists(), "{stderr}");
         assert!(!stderr.contains("current directory"), "{stderr}");
     }
+}
+
+#[test]
+fn the_default_store_is_repository_unless_runtime_is_chosen() {
+    let data = tempfile::tempdir().unwrap();
+    let with = |mode: Option<&'static str>| {
+        let path = data.path().as_os_str().to_os_string();
+        move |name: &str| match name {
+            "LUUNA_DATA_DIR" => Some(path.clone()),
+            "LUUNA_API_TOKEN" => Some(TOKEN.into()),
+            "LUUNA_DEFAULT_STORE_MODE" => mode.map(OsString::from),
+            _ => None,
+        }
+    };
+    let read = |mode| ServiceSettings::from_env(with(mode)).map(|s| s.default_store);
+    assert_eq!(read(None).unwrap(), DefaultStore::Repository);
+    assert_eq!(read(Some("repository")).unwrap(), DefaultStore::Repository);
+    assert_eq!(read(Some("runtime")).unwrap(), DefaultStore::Runtime);
+    let error = read(Some("both")).unwrap_err().to_string();
+    assert!(error.contains("LUUNA_DEFAULT_STORE_MODE"), "{error}");
 }

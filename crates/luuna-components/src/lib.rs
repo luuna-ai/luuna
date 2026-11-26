@@ -37,9 +37,10 @@ pub enum StoreRoot {
     /// with mode 0700 and a store from before ADR 0028 is moved into place.
     Managed(PathBuf),
     /// A registered checkout that the project's store mode file selects. It
-    /// is used as it is: nothing is created, moved or re-permissioned, a
-    /// store is never initialised there, and only `.luuna/<component>` is
-    /// read or written.
+    /// is used as it is: nothing is moved or re-permissioned, and only
+    /// `.luuna/<component>` is read or written, except that a component's
+    /// `init` also adds its union-merge lines to the checkout's
+    /// `.gitattributes`, as the component's own command does (ADR 0067).
     Checkout(PathBuf),
 }
 
@@ -56,8 +57,9 @@ impl StoreRoot {
 
 /// The canonical root a native call works in. A managed workspace is
 /// prepared as before; a checkout is only checked (absolute, no `..`, no
-/// linked element, a directory) and can never be initialised.
-fn open_store(store: &StoreRoot, initializing: bool) -> Result<PathBuf> {
+/// linked element, a directory). Initialising a checkout store is allowed
+/// (ADR 0067); each component's preflight still refuses links in it.
+fn open_store(store: &StoreRoot, _initializing: bool) -> Result<PathBuf> {
     match store {
         StoreRoot::Managed(path) => {
             let root = prepare_workspace(path)?;
@@ -65,7 +67,7 @@ fn open_store(store: &StoreRoot, initializing: bool) -> Result<PathBuf> {
             Ok(root)
         }
         StoreRoot::Checkout(path) => {
-            if initializing || !path.is_absolute() {
+            if !path.is_absolute() {
                 return Err(ComponentError::Workspace);
             }
             let mut current = PathBuf::new();
@@ -1233,7 +1235,7 @@ compile_error!("component process ownership is implemented only for Unix and Win
 #[cfg(test)]
 mod tests {
     #[test]
-    fn a_checkout_store_is_only_checked_never_prepared_or_initialised() {
+    fn a_checkout_store_is_only_checked_never_prepared() {
         let dir = tempfile::tempdir().unwrap();
         let checkout = dir.path().canonicalize().unwrap().join("checkout");
         std::fs::create_dir_all(checkout.join(".seeds")).unwrap();
@@ -1244,7 +1246,8 @@ mod tests {
         }
         let store = StoreRoot::Checkout(checkout.clone());
         assert_eq!(open_store(&store, false).unwrap(), checkout);
-        assert!(open_store(&store, true).is_err(), "init is refused");
+        // ADR 0067: opening for init is allowed and prepares nothing itself.
+        assert_eq!(open_store(&store, true).unwrap(), checkout);
         assert!(checkout.join(".seeds").is_dir(), "no legacy rename");
         assert!(!checkout.join(".luuna").exists());
         assert!(!checkout.join(".luuna-component-home").exists());

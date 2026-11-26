@@ -436,6 +436,8 @@ pub async fn register_project(
             .register_project(&id, &name, &observations)
             .map_err(storage_error)?;
     }
+    // ADR 0067: a new project's stores default to its first checkout.
+    crate::store_mode::apply_default(&state, &id, &observations[0].0).await?;
     Ok((StatusCode::CREATED, Json(view(&state, &id)?)))
 }
 
