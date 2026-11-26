@@ -505,3 +505,58 @@ async fn a_link_inside_a_component_store_is_refused_before_it_is_read() {
         "outside: true\n"
     );
 }
+
+#[tokio::test]
+async fn a_refused_store_spends_no_idempotency_key() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Ignored, &STORES).await;
+    select(data.path(), &checkout);
+    let app = serve(data.path());
+    let (status, body) = request(&app, "POST", "/api/v1/projects/app/components", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // The Atlas store goes missing after the project was enabled.
+    fs::rename(
+        checkout.join(".luuna/atlas"),
+        parent.path().join("atlas-aside"),
+    )
+    .unwrap();
+    let memory = |content: &str| {
+        json!({
+            "idempotency_key": "kept-key",
+            "scope": "project",
+            "content": content,
+            "provenance": "test",
+        })
+    };
+    let (status, body) = request(
+        &app,
+        "POST",
+        "/api/v1/projects/app/memory",
+        Some(memory("first try")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    drop(app);
+    let store = Store::open(data.path().join("luuna.sqlite3")).unwrap();
+    assert!(store
+        .component_operation("app", "kept-key")
+        .unwrap()
+        .is_none());
+    drop(store);
+    // With the store back, a corrected request may use the same key.
+    fs::rename(
+        parent.path().join("atlas-aside"),
+        checkout.join(".luuna/atlas"),
+    )
+    .unwrap();
+    let app = serve(data.path());
+    let (status, body) = request(
+        &app,
+        "POST",
+        "/api/v1/projects/app/memory",
+        Some(memory("corrected")),
+    )
+    .await;
+    assert!(status.is_success(), "{status}: {body}");
+}

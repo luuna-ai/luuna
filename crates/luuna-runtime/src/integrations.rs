@@ -266,11 +266,18 @@ pub struct MemoryRecord {
     pub hash: String,
     pub created_at: String,
 }
+/// The project's Atlas store, refused before anything is recorded when it is
+/// a checkout store that is missing or unusable (ADR 0061).
+fn atlas_store(state: &AppState, id: &str) -> Result<StoreRoot, ApiError> {
+    let store = workspace(state, id)?;
+    require_store(&store, "atlas")?;
+    Ok(store)
+}
 fn memory_workspace(state: &AppState, binding: &MemoryBinding) -> Result<StoreRoot, ApiError> {
     if binding.scope == "user" {
         Ok(crate::stores::user_store(state))
     } else {
-        workspace(state, &binding.project_id)
+        atlas_store(state, &binding.project_id)
     }
 }
 async fn atlas_records(state: &AppState, directory: &StoreRoot) -> Result<Vec<Value>, ApiError> {
@@ -439,7 +446,7 @@ pub(crate) async fn create_memory_locked(
     let directory = if scope == "user" {
         crate::stores::user_store(state)
     } else {
-        workspace(state, id)?
+        atlas_store(state, id)?
     };
     let operation = state
         .store
@@ -812,7 +819,7 @@ pub async fn promote_memory(
     // Both stores resolve before the operation row, as on create.
     memory_workspace(&state, &binding)?;
     if request.to_scope != "user" {
-        workspace(&state, &project_id)?;
+        atlas_store(&state, &project_id)?;
     }
     let operation = state
         .store
@@ -1648,6 +1655,9 @@ pub(crate) async fn create_prompt_locked(
         body: body.to_owned(),
         expected_version,
     };
+    // A missing or unusable checkout Beacon store is refused before the
+    // operation is recorded, so the key is not spent (ADR 0061).
+    require_store(&workspace(state, id)?, "beacon")?;
     let operation=state.store.lock().map_err(internal)?.begin_component_operation(id,&request.idempotency_key,"prompt.create",&json!({"name":request.name,"body":request.body,"expected_version":request.expected_version}),&format!("prompt-{}",uuid::Uuid::new_v4())).map_err(|_| conflict("Prompt idempotency key conflicts with a previous request"))?;
     if let Some(response) = operation.response {
         return serde_json::from_value(response).map_err(internal);
