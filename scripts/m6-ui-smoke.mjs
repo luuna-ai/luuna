@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
-import { bunExecutable } from "./components.mjs";
+import { runComponent } from "./components.mjs";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -28,7 +28,6 @@ if (option("out")) {
 }
 const runtimeBinary = path.resolve(option("runtime") ?? path.join(repository, "target/debug", process.platform === "win32" ? "luuna-runtime.exe" : "luuna-runtime"));
 if (!existsSync(runtimeBinary)) throw new Error("Build the current runtime with cargo build --locked -p luuna-runtime, or pass --runtime");
-const bun = bunExecutable(repository);
 const python = process.platform === "win32" ? "python" : "python3";
 const token = randomBytes(32).toString("hex");
 const checks = [];
@@ -36,7 +35,7 @@ let runtime, runtimeExit, runtimeResult, vite, viteExit, browser, browserInfo, p
 let fixtureView = false;
 
 function env() {
-  return Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(PATH|SystemRoot|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|TMPDIR|LANG|LC_ALL|LUUNA_BUN)$/i.test(key)));
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(PATH|SystemRoot|WINDIR|COMSPEC|PATHEXT|TEMP|TMP|TMPDIR|LANG|LC_ALL|CARGO_TARGET_DIR)$/i.test(key)));
 }
 async function port(requested) {
   const number = requested === undefined ? 0 : Number(requested);
@@ -209,7 +208,7 @@ async function approve(title) {
 
 try {
   const dataDir = path.join(out, "runtime-data");
-  runtime = spawn(runtimeBinary, [], { cwd: repository, env: { ...env(), LUUNA_COMPONENTS_ROOT: repository, LUUNA_BUN: bun, LUUNA_API_TOKEN: token, LUUNA_DATA_DIR: dataDir, LUUNA_PORT: String(runtimePort), LUUNA_PI_COMMAND: python, LUUNA_PI_ARGS_JSON: JSON.stringify([path.join(repository, "fixtures/pi-rpc/mock_pi.py")]), LUUNA_PI_PROVIDER: "test", LUUNA_PI_MODEL: "synthetic", LUUNA_RUN_TIMEOUT_SECONDS: "120" }, stdio: ["ignore", "ignore", "pipe"] });
+  runtime = spawn(runtimeBinary, [], { cwd: repository, env: { ...env(), LUUNA_API_TOKEN: token, LUUNA_DATA_DIR: dataDir, LUUNA_PORT: String(runtimePort), LUUNA_PI_COMMAND: python, LUUNA_PI_ARGS_JSON: JSON.stringify([path.join(repository, "fixtures/pi-rpc/mock_pi.py")]), LUUNA_PI_PROVIDER: "test", LUUNA_PI_MODEL: "synthetic", LUUNA_RUN_TIMEOUT_SECONDS: "120" }, stdio: ["ignore", "ignore", "pipe"] });
   runtimeExit = new Promise((resolve) => { runtime.once("exit", (code, signal) => { runtimeResult = { code, signal }; resolve(runtimeResult); }); runtime.once("error", () => { runtimeResult = { error: true }; resolve(runtimeResult); }); });
   runtime.stderr.on("data", (chunk) => writeFileSync(path.join(out, "runtime.log"), chunk, { flag: "a" }));
   await waitFor("isolated runtime health", () => fetch(`${runtimeUrl}/health`).then((r) => r.ok).catch(() => false), 45_000);
@@ -337,7 +336,7 @@ try {
   const tickets = await successful("GET", "/projects/m6-primary/tickets");
   const ticket = tickets.find((item) => item.title === "Component-guided writer");
   const source = await successful("GET", `/tickets/${ticket.id}/source`);
-  execFileSync(bun, [path.join(repository, "components/missions/src/index.ts"), "update", source.source_id, "--title", "External Missions edit", "--json"], { cwd: source.workspace, env: env(), encoding: "utf8", timeout: 30_000 });
+  runComponent("missions", ["update", source.source_id, "--title", "External Missions edit", "--json"], { root: repository, cwd: source.workspace, env: env() });
   await page.getByRole("button", { name: "Refresh workflows", exact: true }).click();
   await waitFor("external ticket drift shown", async () => (await ticketItem("Component-guided writer").innerText()).includes("changed outside Luuna"));
   const plans = await successful("GET", `/tickets/${ticket.id}/plans`);

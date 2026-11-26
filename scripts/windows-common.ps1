@@ -14,15 +14,3 @@ function Get-LuunaWindowsPaths {
     return @{ Home = $homeDirectory; Credentials = $credentialsDirectory; Logs = $logsDirectory }
 }
 
-# A packaged installation (scripts/package-windows.ps1, ADR 0024) stages the
-# pinned Missions/Atlas/Beacon trees with their distribution manifest and the
-# pinned Bun executable beside the runtime. Returns $null for a development
-# checkout, which keeps using its submodules and .tools Bun.
-function Get-LuunaPackagedComponents([string]$Root) {
-    $distManifest = Join-Path $Root 'components\dist-manifest.json'
-    $bun = Join-Path $Root 'bun\bun.exe'
-    if ((Test-Path -LiteralPath $distManifest) -and (Test-Path -LiteralPath $bun)) {
-        return @{ Root = $Root; Bun = $bun }
-    }
-    return $null
-}
