@@ -48,6 +48,29 @@ fn run_column(state: &J) -> Option<&'static str> {
     })
 }
 
+/// What a person does next with a board card, short enough for a card's width (owner
+/// feedback E3). The runtime still decides whether each step is allowed; `g` opens the
+/// card's run and `p` its plan form, both from the board.
+pub fn next_step(card: &serde_json::Value) -> &'static str {
+    if card["kind"].as_str() == Some("prerequisite") {
+        return "Next: set up tests";
+    }
+    match card["state"].as_str() {
+        None => "Next: plan it (p)",
+        Some("queued" | "running" | "discovered" | "exploring") => "Working: g follows",
+        Some("plan_ready") => "Next: approve plan (g)",
+        Some("approved") => "Next: implement (g)",
+        Some("implementing") => "Writing: g follows",
+        Some("validating") => "Next: validate (g)",
+        Some("reviewing") => "Reviewing: g follows",
+        Some("paused") => "Next: repair (g)",
+        Some("reviewed") => "Next: open the PR (g)",
+        Some("testing_blocked") => "Next: fix the check (g)",
+        Some("completed" | "failed" | "cancelled" | "interrupted") => "Next: plan again (p)",
+        Some(_) => "Enter: the ticket",
+    }
+}
+
 /// JavaScript `a > b` for the two values compared here (timestamps as strings).
 fn greater(a: &J, b: &J) -> bool {
     match (a, b) {
@@ -390,5 +413,45 @@ mod tests {
             assert_eq!(chosen.get("run_id").as_str(), Some("new"));
             assert_eq!(chosen.get("status").as_str(), Some(new_status));
         }
+    }
+}
+
+#[cfg(test)]
+mod next_step_tests {
+    use super::*;
+
+    #[test]
+    fn every_board_state_names_a_short_next_step() {
+        let states = [
+            "queued",
+            "running",
+            "discovered",
+            "exploring",
+            "plan_ready",
+            "approved",
+            "implementing",
+            "validating",
+            "reviewing",
+            "paused",
+            "reviewed",
+            "testing_blocked",
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted",
+        ];
+        for state in states {
+            let step = next_step(&serde_json::json!({"kind": "ticket", "state": state}));
+            assert!(step.chars().count() <= 24, "{state}: {step}");
+            assert_ne!(step, "Enter: the ticket", "{state}");
+        }
+        assert_eq!(
+            next_step(&serde_json::json!({"kind": "ticket"})),
+            "Next: plan it (p)"
+        );
+        assert_eq!(
+            next_step(&serde_json::json!({"kind": "prerequisite"})),
+            "Next: set up tests"
+        );
     }
 }
