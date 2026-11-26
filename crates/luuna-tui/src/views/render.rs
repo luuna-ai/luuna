@@ -301,6 +301,27 @@ fn heading(text: &str, theme: Theme) -> Line<'static> {
     Line::styled(safe_text(text), theme.title())
 }
 
+/// `P1 · bug · ui, docs`: a ticket's priority, type and labels, leaving out
+/// the defaults (P2, task, none) the record omits. Empty when all are default.
+pub(crate) fn triage(record: &Value) -> String {
+    let mut parts = Vec::new();
+    if let Some(priority) = record.get("priority").and_then(Value::as_u64) {
+        parts.push(format!("P{priority}"));
+    }
+    if let Some(kind) = record.get("type").and_then(Value::as_str) {
+        parts.push(safe_text(kind));
+    }
+    let labels: Vec<String> = array(record, "labels")
+        .iter()
+        .filter_map(Value::as_str)
+        .map(safe_text)
+        .collect();
+    if !labels.is_empty() {
+        parts.push(labels.join(", "));
+    }
+    parts.join(" · ")
+}
+
 fn field(label: &str, value: impl AsRef<str>, theme: Theme) -> Line<'static> {
     Line::from(vec![
         Span::styled(format!("{label}: "), theme.muted()),
@@ -630,6 +651,10 @@ fn render_board(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme) {
                 } else {
                     lines.push(field("Ticket", short_id(&text(card, "ticket_id")), theme));
                     lines.push(field("Revision", text(card, "ticket_revision"), theme));
+                    let triage = triage(card);
+                    if !triage.is_empty() {
+                        lines.push(field("Triage", triage, theme));
+                    }
                     let state = text(card, "state");
                     if !state.is_empty() {
                         lines.push(status(&state, theme));
@@ -638,6 +663,10 @@ fn render_board(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme) {
                         lines.push(field("Run", short_id(&text(card, "run_id")), theme));
                     }
                 }
+                lines.push(Line::styled(
+                    crate::projections::next_step(card),
+                    theme.accent(),
+                ));
                 lines.push(Line::styled("------------------------", theme.muted()));
                 ListItem::new(lines)
             })
@@ -704,6 +733,27 @@ fn detail_lines(screen: Screen, record: &Value, theme: Theme) -> Vec<Line<'stati
                 ],
                 theme,
             );
+            lines.push(field(
+                "Type",
+                record.get("type").and_then(Value::as_str).unwrap_or("task"),
+                theme,
+            ));
+            lines.push(field(
+                "Priority",
+                format!(
+                    "P{}",
+                    record.get("priority").and_then(Value::as_u64).unwrap_or(2)
+                ),
+                theme,
+            ));
+            let labels: Vec<String> = array(record, "labels")
+                .iter()
+                .filter_map(Value::as_str)
+                .map(safe_text)
+                .collect();
+            if !labels.is_empty() {
+                lines.push(field("Labels", labels.join(", "), theme));
+            }
             lines.push(Line::raw(""));
             lines.push(heading("INTENT", theme));
             lines.push(Line::raw(text(record, "intent")));

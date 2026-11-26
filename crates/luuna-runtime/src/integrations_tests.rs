@@ -939,6 +939,9 @@ async fn components_real_promotion_widens_scope_and_export_keeps_private_memory_
         acceptance_criteria: vec!["none".into()],
         repository_ids: vec!["app".into()],
         purpose: luuna_domain::TicketPurpose::Feature,
+        ticket_type: Default::default(),
+        priority: luuna_domain::DEFAULT_TICKET_PRIORITY,
+        labels: vec![],
         created_at: "2026-10-21T00:00:00.000Z".into(),
         updated_at: "2026-10-21T00:00:00.000Z".into(),
     };
@@ -1089,6 +1092,9 @@ async fn components_real_import_round_trips_tickets_memory_and_prompts_from_an_e
             acceptance_criteria: vec!["cargo test passes".into()],
             repository_ids: vec!["app".into()],
             purpose: luuna_domain::TicketPurpose::Feature,
+            ticket_type: luuna_domain::TicketType::Bug,
+            priority: 1,
+            labels: vec!["export".into()],
         }),
     )
     .await
@@ -1196,6 +1202,13 @@ async fn components_real_import_round_trips_tickets_memory_and_prompts_from_an_e
     assert_eq!(tickets[0].source, luuna_domain::TicketSource::Missions);
     assert_eq!(tickets[0].intent, ticket.intent);
     assert_eq!(tickets[0].created_at, ticket.created_at);
+    // Type, priority and labels travel through Missions on both sides.
+    assert_eq!(ticket.ticket_type, luuna_domain::TicketType::Bug);
+    assert_eq!(ticket.priority, 1);
+    assert_eq!(ticket.labels, vec!["export".to_owned()]);
+    assert_eq!(tickets[0].ticket_type, luuna_domain::TicketType::Bug);
+    assert_eq!(tickets[0].priority, 1);
+    assert_eq!(tickets[0].labels, ticket.labels);
     let status = crate::missions::source(&target, &tickets[0]).await.unwrap();
     assert_eq!(status["reconciliation_required"], false);
     // Atlas holds project and process memory with the exported text; no user memory arrived.

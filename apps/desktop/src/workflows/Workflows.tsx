@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ComponentContext, LuunaClient, PlanRevision, TaskRecord, TestingPrerequisite } from "@luuna/api-client";
 import { retryIdentity } from "../ProjectComponents";
 import { Alert, Button, EmptyState, ListGroup, Section } from "@luuna/ui";
-import { advisoryTasksForTicket, rowsFromProposal, setupTicketDraft, ticketTextSizes, tooLong } from "./model";
+import { advisoryTasksForTicket, rowsFromProposal, setupTicketDraft, ticketTextSizes, tooLong, triageFields } from "./model";
 import { DEFAULT_RUN_SETTINGS, emptyTicketForm, usePatchState } from "./settings";
 import { useWorkflowData } from "./useWorkflowData";
 import { useWorkflowActions } from "./useWorkflowActions";
@@ -71,6 +71,7 @@ export function Workflows({ client, projectId, repositoryId, repositoryIds = [re
     acceptance_criteria: form.criteria.split("\n").map((line) => line.trim()).filter(Boolean),
     repository_ids: scoped.length ? scoped : [repositoryId],
     ...(purpose !== "feature" && { purpose }),
+    ...triageFields(form.ticketType, form.priority, form.labels),
   };
   const sizes = ticketTextSizes(ticketRequest.title, ticketRequest.intent, ticketRequest.acceptance_criteria);
   const blocked = tooLong(sizes);

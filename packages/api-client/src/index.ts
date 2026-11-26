@@ -302,6 +302,9 @@ export interface TicketUsage {
 /** `feature` (the default, omitted from serialization) or the testing-setup prerequisite of ADR 0022. */
 export type TicketPurpose = "feature" | "testing_setup";
 
+/** The Missions issue type (ADR 0058); `task`, the default, is omitted from serialization. */
+export type TicketType = "task" | "bug" | "feature" | "epic";
+
 export interface Ticket {
   usage?: TicketUsage;
   schema_version: string;
@@ -315,6 +318,12 @@ export interface Ticket {
   repository_ids: string[];
   /** Absent for a feature ticket (the runtime omits the default so earlier records hash unchanged). */
   purpose?: TicketPurpose;
+  /** Absent for a task. */
+  type?: TicketType;
+  /** 0 (critical) to 4 (backlog); absent means 2. */
+  priority?: number;
+  /** Lowercase labels; absent means none. */
+  labels?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -336,6 +345,9 @@ export interface CreateTicketRequest {
   repository_ids: string[];
   /** `testing_setup` for the prerequisite ticket the runtime offers; omitted for a feature. */
   purpose?: TicketPurpose;
+  type?: TicketType;
+  priority?: number;
+  labels?: string[];
 }
 
 /** `PUT /tickets/{id}`: the named fields replace the current ones; the revision must match what the client read. */
@@ -345,6 +357,10 @@ export interface UpdateTicketRequest {
   intent?: string;
   acceptance_criteria?: string[];
   repository_ids?: string[];
+  type?: TicketType;
+  priority?: number;
+  /** The whole new list; `[]` removes every label. */
+  labels?: string[];
 }
 
 export interface ComponentStatus {

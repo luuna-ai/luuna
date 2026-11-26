@@ -20,8 +20,10 @@ mod history;
 mod missions;
 mod project_files;
 mod project_index;
+mod project_log;
 mod projects;
 mod publication;
+mod ticket_index;
 mod validation;
 mod writer;
 pub use backup::{
@@ -211,6 +213,18 @@ impl Store {
             project_index::reconcile_project_files(&mut store.connection, data_dir)?;
         }
         Ok(store)
+    }
+
+    /// Append the committed project events and discoveries of these projects
+    /// to their files (ADR 0057). Best effort: the next open repairs a miss.
+    pub(crate) fn mirror_logs(&mut self, project_ids: &[&str]) {
+        project_log::mirror(&mut self.connection, self.data_dir.as_deref(), project_ids);
+    }
+
+    /// Replace the ticket files of these projects from the committed tickets
+    /// and Missions bindings (ADR 0060). Best effort: the next open repairs a miss.
+    pub(crate) fn mirror_tickets(&mut self, project_ids: &[&str]) {
+        ticket_index::mirror(&mut self.connection, self.data_dir.as_deref(), project_ids);
     }
 
     /// A run is one owned Pi attempt in M1. Metadata is descriptive, never authority.
@@ -432,6 +446,7 @@ impl Store {
         validation::interrupt_candidates(&tx, &mut report.skipped)?;
         writer::abandon_orphaned_work(&tx, &mut report.skipped)?;
         tx.commit()?;
+        project_log::mirror_all(&mut self.connection, self.data_dir.as_deref());
         Ok(report)
     }
 

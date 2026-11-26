@@ -197,7 +197,7 @@ pub fn hints(screen: Screen) -> &'static str {
         Screen::Projects => "Enter open  n register  s guided setup  F5 refresh",
         Screen::Orbit => "x exec  r recipe  s sync  b sandbox  F5 refresh",
         Screen::Project => "b baseline  d discover  c confirm  x components  y activate",
-        Screen::Missions => "←→ columns  Enter ticket  n new  r refresh",
+        Screen::Missions => "←→ columns  Enter ticket  p plan  g follow run  n new  r refresh",
         Screen::Ticket => "e edit  p plan  g run  o source  c reconcile",
         Screen::Memory => "Enter inspect  n new  s starter set  / search  u user memory",
         Screen::MemoryDetail => "e correct  d delete  p promote  s select context",
@@ -733,6 +733,15 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
                         ("intent", text(&v, "intent")),
                         ("criterion", joined(&v, "acceptance_criteria")),
                         ("repository", joined(&v, "repository_ids")),
+                        ("type", text(&v, "type")),
+                        (
+                            "priority",
+                            match text(&v, "priority") {
+                                p if p.is_empty() => String::new(),
+                                p => format!("P{p}"),
+                            },
+                        ),
+                        ("label", joined(&v, "labels").replace('\n', ",")),
                     ],
                 ),
                 Screen::MemoryDetail => prefill(
@@ -781,19 +790,28 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
                 _ => {}
             }
         }
+        KeyCode::Char('p') if screen == Screen::Missions => {
+            if board_card_context(app) {
+                let context = plan_context(app);
+                prefill(app, "plan", context);
+            }
+        }
+        KeyCode::Char('g') if screen == Screen::Missions => {
+            if board_card_context(app) {
+                if app.context.contains_key("run") {
+                    app.workbench.evidence = 0;
+                    open(app, Screen::RunDetail);
+                } else {
+                    app.status = "This ticket has no run yet; p plans it.".into();
+                }
+            }
+        }
         KeyCode::Char('p') => {
             let v = selected(app);
             match screen {
                 Screen::Ticket => {
-                    let memory = app
-                        .workbench
-                        .memory_ids
-                        .iter()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let prompt = app.workbench.prompt_selection.clone().unwrap_or_default();
-                    prefill(app, "plan", vec![("memory", memory), ("prompt", prompt)]);
+                    let context = plan_context(app);
+                    prefill(app, "plan", context);
                 }
                 Screen::MemoryDetail if text(&v, "scope") == "user" => {
                     app.status =
@@ -863,6 +881,42 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
         KeyCode::Char('f') if screen == Screen::RunDetail => app.begin("follow"),
         _ => {}
     }
+    true
+}
+
+/// Scopes the workbench to the selected board card's ticket (and run), as Enter does,
+/// without leaving the board. False for an empty board or a prerequisite card.
+/// The plan form's memory and prompt flags from the context selected locally,
+/// so a plan started from the ticket screen or a board card carries it alike.
+fn plan_context(app: &AppState) -> Vec<(&'static str, String)> {
+    let memory = app
+        .workbench
+        .memory_ids
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prompt = app.workbench.prompt_selection.clone().unwrap_or_default();
+    vec![("memory", memory), ("prompt", prompt)]
+}
+
+fn board_card_context(app: &mut AppState) -> bool {
+    let v = selected(app);
+    let ticket = text(&v, "ticket_id");
+    if ticket.is_empty() {
+        app.status = "Select a ticket card first.".into();
+        return false;
+    }
+    let project = text(&v, "project_id");
+    if !project.is_empty() {
+        choose_project(app, &project);
+    }
+    app.context.remove("plan");
+    app.context.insert("ticket".into(), ticket);
+    match text(&v, "run_id") {
+        run if run.is_empty() => app.context.remove("run"),
+        run => app.context.insert("run".into(), run),
+    };
     true
 }
 

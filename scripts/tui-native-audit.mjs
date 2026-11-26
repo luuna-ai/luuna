@@ -88,7 +88,7 @@ try {
   writeFileSync(path.join(out, "native-process-evidence.json"), JSON.stringify(processEvidence, null, 2));
   writeFileSync(path.join(out, "native-processes.json"), JSON.stringify(terminal.ownedProcesses, null, 2));
   record("VT model understands the native output", screen.unknown.length === 0, screen.unknown.join(", "));
-  record("DOS blue background is present in native cells", screen.colors.some((row) => row.some((sgr) => /48;2;0;0;170/.test(sgr))));
+  record("Pascal navy background is present in native cells", screen.colors.some((row) => row.some((sgr) => /48;2;13;32;59/.test(sgr))));
   if (!options.foundation) {
     try { await auditWorkflows({ terminal, fixture, capture, screenContains, record }); await auditRefusals({ terminal, fixture, capture, screenContains, record }); }
     catch (failure) { record("component UI workflows", false, failure.message); await capture(terminal, "workflow-failure"); await terminal.send("\x1b"); await sleep(150); await terminal.send("\x1bOP"); }

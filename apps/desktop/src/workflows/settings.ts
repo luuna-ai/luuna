@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { DependencyOverride, TicketPurpose } from "@luuna/api-client";
+import type { DependencyOverride, TicketPurpose, TicketType } from "@luuna/api-client";
 import { DEFAULT_PLAN_BUDGETS } from "@luuna/api-client";
 import type { TaskRow } from "./model";
 
@@ -61,8 +61,12 @@ export interface TicketFormState {
   criteria: string;
   purpose: TicketPurpose;
   repositories: string[];
+  /** Missions type, priority and comma-separated labels (ADR 0058). */
+  ticketType: TicketType;
+  priority: number;
+  labels: string;
 }
 
 export function emptyTicketForm(repositoryId: string): TicketFormState {
-  return { title: "", intent: "", criteria: "", purpose: "feature", repositories: [repositoryId] };
+  return { title: "", intent: "", criteria: "", purpose: "feature", repositories: [repositoryId], ticketType: "task", priority: 2, labels: "" };
 }

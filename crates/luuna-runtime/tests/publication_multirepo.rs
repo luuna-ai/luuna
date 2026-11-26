@@ -105,15 +105,30 @@ impl Harness {
     async fn settled(&self, id: &str) -> Value {
         for _ in 0..2400 {
             let run = self.run(id).await;
+            if run["state"] == "validating" {
+                self.released(id).await;
+                return run;
+            }
             if matches!(
                 run["state"].as_str(),
-                Some("validating" | "completed" | "failed" | "cancelled" | "interrupted")
+                Some("completed" | "failed" | "cancelled" | "interrupted")
             ) {
                 return run;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("run did not settle: {}", self.run(id).await);
+    }
+    /// The runtime reports `validating` before it removes the run from its active
+    /// map (src/lib.rs); wait for the candidate view to say it has let go.
+    async fn released(&self, id: &str) {
+        for _ in 0..2400 {
+            if self.candidate(id).await["active"] == false {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("run was never released: {}", self.candidate(id).await);
     }
     async fn events(&self, id: &str) -> Vec<Value> {
         self.request("GET", &format!("/api/v1/runs/{id}/events"), None)

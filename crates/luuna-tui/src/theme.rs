@@ -11,8 +11,9 @@ pub struct Slot {
     pub bold: bool,
 }
 
-/// Every color the client draws with. `classic` is the original blue workbench;
-/// `terminal` keeps the terminal's own background and foreground.
+/// Every color the client draws with. `pascal` (the default) is the navy Quick Access
+/// Pascal scheme; `classic` is the original blue workbench; `terminal` keeps the
+/// terminal's own background and foreground.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Palette {
     pub base: Slot,
@@ -35,6 +36,36 @@ const fn slot(fg: Color, bg: Color, bold: bool) -> Slot {
 }
 
 impl Palette {
+    /// The Quick Access Pascal scheme: navy panels, pale text, cyan highlights and
+    /// warm keys (owner feedback G1, 2026-11-13).
+    pub const PASCAL: Palette = {
+        let navy = Color::Rgb(0x0d, 0x20, 0x3b);
+        let panel = Color::Rgb(0x10, 0x25, 0x41);
+        let deepest = Color::Rgb(0x02, 0x0d, 0x20);
+        let text = Color::Rgb(0xe0, 0xed, 0xf4);
+        let muted = Color::Rgb(0x8b, 0xb3, 0xc6);
+        let cyan = Color::Rgb(0x78, 0xe0, 0xe6);
+        let warm = Color::Rgb(0xf3, 0xdd, 0x96);
+        Palette {
+            base: slot(muted, navy, false),
+            panel: slot(text, panel, false),
+            accent: slot(cyan, panel, false),
+            selected: slot(
+                Color::Rgb(0xec, 0xf7, 0xfc),
+                Color::Rgb(0x1d, 0x5f, 0x75),
+                true,
+            ),
+            chrome: slot(Color::Rgb(0xd8, 0xea, 0xf0), deepest, false),
+            mnemonic: slot(warm, deepest, true),
+            title: slot(Color::Rgb(0x73, 0xd8, 0xd6), panel, true),
+            success: Color::Rgb(0x37, 0xf4, 0x99),
+            active: cyan,
+            danger: Color::Rgb(0xff, 0x7b, 0x6b),
+            attention: Color::Rgb(0xf4, 0xcd, 0x81),
+            interrupted: Color::Rgb(0xff, 0xa9, 0x9a),
+            neutral: muted,
+        }
+    };
     pub const CLASSIC: Palette = {
         let blue = Color::Rgb(0, 0, 170);
         let grey = Color::Rgb(170, 170, 170);
@@ -72,6 +103,7 @@ impl Palette {
 
     pub fn preset(name: &str) -> Option<Palette> {
         match name {
+            "pascal" => Some(Self::PASCAL),
             "classic" => Some(Self::CLASSIC),
             "terminal" => Some(Self::TERMINAL),
             _ => None,
@@ -81,12 +113,12 @@ impl Palette {
     /// Applies a configuration's preset and overrides; bad values are reported and skipped.
     pub fn configured(config: &ThemeConfig, warnings: &mut Vec<String>) -> Palette {
         let mut palette = match config.preset.as_deref() {
-            None => Self::CLASSIC,
+            None => Self::PASCAL,
             Some(name) => Self::preset(name).unwrap_or_else(|| {
                 warnings.push(format!(
-                    "theme.preset: unknown preset {name:?} (classic, terminal)"
+                    "theme.preset: unknown preset {name:?} (pascal, classic, terminal)"
                 ));
-                Self::CLASSIC
+                Self::PASCAL
             }),
         };
         for (name, spec) in &config.styles {
@@ -213,7 +245,7 @@ pub fn install(palette: Palette, color: Option<bool>) {
 }
 
 pub fn palette() -> &'static Palette {
-    PALETTE.get_or_init(|| Palette::CLASSIC)
+    PALETTE.get_or_init(|| Palette::PASCAL)
 }
 
 #[derive(Clone, Copy)]
@@ -337,14 +369,32 @@ mod tests {
 
     #[test]
     fn classic_matches_the_original_styles() {
+        assert_eq!(
+            Palette::CLASSIC.selected,
+            slot(Color::Rgb(255, 255, 255), Color::Rgb(0, 170, 0), true)
+        );
+        assert_eq!(Palette::preset("classic"), Some(Palette::CLASSIC));
+        assert_eq!(Theme { color: false }.title(), Style::default());
+    }
+
+    #[test]
+    fn pascal_is_the_default_and_uses_the_quick_access_navy() {
+        let mut warnings = Vec::new();
+        assert_eq!(
+            Palette::configured(&ThemeConfig::default(), &mut warnings),
+            Palette::PASCAL
+        );
+        assert!(warnings.is_empty());
+        assert_eq!(Palette::PASCAL.base.bg, Color::Rgb(0x0d, 0x20, 0x3b));
+        assert_eq!(Palette::PASCAL.accent.fg, Color::Rgb(0x78, 0xe0, 0xe6));
+        assert_eq!(Palette::PASCAL.success, Color::Rgb(0x37, 0xf4, 0x99));
         let theme = Theme { color: true };
         assert_eq!(
             theme.selected(),
             Style::default()
-                .fg(Color::Rgb(255, 255, 255))
-                .bg(Color::Rgb(0, 170, 0))
+                .fg(Color::Rgb(0xec, 0xf7, 0xfc))
+                .bg(Color::Rgb(0x1d, 0x5f, 0x75))
                 .add_modifier(Modifier::BOLD)
         );
-        assert_eq!(Theme { color: false }.title(), Style::default());
     }
 }
