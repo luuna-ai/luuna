@@ -105,7 +105,9 @@ pub enum PortStatus {
 fn pi_remedy(detail: String) -> String {
     format!(
         "{detail}. Run `lu init`: it installs Luuna's own Pi {} in its private tools folder and \
-         leaves any Pi you installed yourself untouched",
+         leaves any Pi you installed yourself untouched. If LUUNA_PI_COMMAND or a saved Pi \
+         command selects this Pi, correct or remove it first, because init keeps an explicit \
+         choice",
         luuna_engine_pi::PI_VERSION
     )
 }

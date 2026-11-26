@@ -8,6 +8,12 @@ if command -v cygpath >/dev/null 2>&1 && command -v powershell.exe >/dev/null 2>
   exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/../scripts/start-terminal.ps1")" "$@"
 fi
 root=$(cd "$here/.." && pwd)
-cargo build --quiet --locked --manifest-path "$root/Cargo.toml" -p luuna-tui -p luuna-runtime -p luuna-sandbox >&2 || exit $?
-target=${CARGO_TARGET_DIR:-$root/target}
+# Build from the checkout so rustup selects its pinned toolchain (rust-toolchain.toml),
+# whatever folder the caller is in; the client still starts in the caller's folder.
+(cd "$root" && cargo build --quiet --locked -p luuna-tui -p luuna-runtime -p luuna-sandbox) >&2 || exit $?
+case ${CARGO_TARGET_DIR:-} in
+  "") target=$root/target ;;
+  /*) target=$CARGO_TARGET_DIR ;;
+  *) target=$root/$CARGO_TARGET_DIR ;;
+esac
 exec "$target/debug/luuna-tui" "$@"
