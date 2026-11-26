@@ -81,10 +81,8 @@ pub struct DoctorProbes {
     /// the environment, yet no model run can use them.
     pub empty_provider_keys: Vec<String>,
     pub port: Probe<PortStatus>,
-    /// Native component backend availability (historical layouts are separate audits).
+    /// The compiled-in Atlas, Beacon and Missions libraries.
     pub components: Probe<Result<String, String>>,
-    /// Optional Bun executable for explicitly selected JavaScript recipes.
-    pub bun: Probe<Result<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,7 +233,6 @@ pub fn doctor_report(probes: &DoctorProbes) -> DoctorReport {
         item("provider_credentials", false, providers),
         port,
         item("components", false, (probes.components)()),
-        item("bun", false, (probes.bun)()),
     ];
     let ok = items.iter().all(|item| item.status != "missing");
     DoctorReport { ok, items }
@@ -465,9 +462,8 @@ pub struct Host {
     pub pi_program: PathBuf,
     pub pi_launcher_args: Vec<String>,
     pub port: Port,
-    /// The toolchain the running runtime discovered at start; `None`
-    /// discovers now (a portable layout verifies every staged digest, which
-    /// is the expensive part, so it happens once for both component items).
+    /// The native components the running runtime discovered at start; `None`
+    /// discovers now.
     pub components: Option<Arc<luuna_components::Components>>,
     pub api_token_configured: bool,
     pub github_token_configured: bool,
@@ -515,15 +511,6 @@ pub fn host_probes(host: Host) -> DoctorProbes {
                 .as_ref()
                 .map(|components| components.describe())
                 .map_err(|error| format!("native components unavailable: {error}"))
-        }),
-        bun: Box::new(move || {
-            let executable = std::env::var("LUUNA_BUN").unwrap_or_else(|_| "bun".into());
-            version_of(&executable, "--version")
-                .map(|version| format!("bun {version} (optional JavaScript recipe runtime)"))
-                .map_err(|_| {
-                    "Bun is unavailable; install it separately only for optional JavaScript recipes"
-                        .into()
-                })
         }),
     }
 }
@@ -581,8 +568,7 @@ mod tests {
             provider_keys: vec!["OPENROUTER_API_KEY".into()],
             empty_provider_keys: vec![],
             port: Box::new(|| PortStatus::LuunaRunning(4242)),
-            components: Box::new(|| Err("component toolchain unavailable".into())),
-            bun: Box::new(|| Err("bun not found".into())),
+            components: Box::new(|| Err("native components unavailable".into())),
         }
     }
 
@@ -603,8 +589,7 @@ mod tests {
             .contains("OPENROUTER_API_KEY"));
         assert!(by_name("port").detail.contains("already answers"));
         assert_eq!(by_name("components").status, "warning");
-        assert_eq!(by_name("bun").status, "warning");
-        assert!(!by_name("bun").required);
+        assert!(report.items.iter().all(|item| item.name != "bun"));
         assert_eq!(
             by_name("database").detail,
             "not created yet; the runtime creates it at first start"
@@ -632,21 +617,14 @@ mod tests {
     }
 
     #[test]
-    fn doctor_reports_the_component_layout_kind_and_bun_as_advisory_items() {
+    fn doctor_reports_the_native_components_last_and_no_bun() {
         let mut probes = probes(Ok("pi".into()), Ok("ok".into()));
-        probes.components = Box::new(|| {
-            Ok("pinned Missions/Atlas/Beacon toolchain discovered: portable layout at C:/Luuna/luuna (distribution manifest digests verified)".into())
-        });
-        probes.bun = Box::new(|| Ok("bun 1.4.3 at C:/Luuna/luuna/bun/bun.exe".into()));
+        probes.components = Box::new(|| Ok("native Atlas, Beacon and Missions libraries".into()));
         let report = doctor_report(&probes);
         assert!(report.ok);
-        let by_name = |name: &str| report.items.iter().find(|i| i.name == name).unwrap();
-        assert_eq!(by_name("components").status, "ok");
-        assert!(by_name("components").detail.contains("portable layout"));
-        assert_eq!(by_name("bun").status, "ok");
-        assert!(by_name("bun").detail.contains("1.4.3"));
-        let names: Vec<&str> = report.items.iter().map(|i| i.name).collect();
-        assert_eq!(&names[names.len() - 2..], ["components", "bun"]);
+        let last = report.items.last().unwrap();
+        assert_eq!((last.name, last.status), ("components", "ok"));
+        assert!(last.detail.contains("native"));
     }
 
     #[test]

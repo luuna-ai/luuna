@@ -41,21 +41,21 @@
       "url": "https://github.com/jayminwest/mulch",
       "checked_date": "2026-10-15",
       "pinned_version": "0.11.0",
-      "note": "Imported MIT source baseline 0.11.0; maintained as Luuna Atlas under components/atlas. See component manifest/lockfile for the branded version and dependency graph. Extracted to https://github.com/brodynelly/luuna-atlas; Luuna consumes the exact Git submodule commit in components/manifest.json (ADR 0012)."
+      "note": "Imported MIT source baseline 0.11.0; ported to native Rust as Luuna Atlas in crates/luuna-atlas; the former submodule and its pin were removed (ADR 0066)."
     },
     {
       "id": "S07",
       "url": "https://github.com/jayminwest/canopy",
       "checked_date": "2026-10-15",
       "pinned_version": "0.2.6",
-      "note": "Imported MIT source baseline 0.2.6; maintained as Luuna Beacon under components/beacon. See component manifest/lockfile for the branded version and dependency graph. Extracted to https://github.com/brodynelly/luuna-beacon; Luuna consumes the exact Git submodule commit in components/manifest.json (ADR 0012)."
+      "note": "Imported MIT source baseline 0.2.6; ported to native Rust as Luuna Beacon in crates/luuna-beacon; the former submodule and its pin were removed (ADR 0066)."
     },
     {
       "id": "S08",
       "url": "https://github.com/jayminwest/seeds",
       "checked_date": "2026-10-15",
       "pinned_version": "0.6.0",
-      "note": "Imported MIT source baseline 0.6.0; maintained as Luuna Missions under components/missions. See component manifest/lockfile for the branded version and dependency graph. Extracted to https://github.com/brodynelly/luuna-missions; Luuna consumes the exact Git submodule commit in components/manifest.json (ADR 0012)."
+      "note": "Imported MIT source baseline 0.6.0; ported to native Rust as Luuna Missions in crates/luuna-missions; the former submodule and its pin were removed (ADR 0066)."
     },
     {
       "id": "S09",
