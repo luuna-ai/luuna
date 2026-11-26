@@ -463,3 +463,45 @@ async fn the_store_follows_a_rebind_to_the_new_checkout() {
     drop(app);
     assert_eq!(outside_stores(&first), before);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_link_inside_a_component_store_is_refused_before_it_is_read() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Ignored, &STORES).await;
+    // A Roots store that is a link to a store elsewhere.
+    let elsewhere = parent.path().join("other-roots");
+    fs::create_dir_all(&elsewhere).unwrap();
+    fs::write(elsewhere.join("config.yaml"), "outside: true\n").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, checkout.join(".luuna/roots")).unwrap();
+    // A link below a real Atlas store.
+    std::os::unix::fs::symlink(&elsewhere, checkout.join(".luuna/atlas/linked")).unwrap();
+    select(data.path(), &checkout);
+    let app = serve(data.path());
+    let (status, body) = request(&app, "GET", "/api/v1/projects/app/intent", None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("no usable roots store"),
+        "{body}"
+    );
+    let (status, body) = request(&app, "POST", "/api/v1/projects/app/components", None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("no usable atlas store"),
+        "{body}"
+    );
+    drop(app);
+    // Nothing was written through either link.
+    assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_to_string(elsewhere.join("config.yaml")).unwrap(),
+        "outside: true\n"
+    );
+}

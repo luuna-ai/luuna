@@ -122,6 +122,58 @@ pub fn check_checkout(checkout: &Path, data_dir: &Path) -> Result<(), StoreRefus
     Ok(())
 }
 
+/// Most entries and folder depth looked through in a checkout component store.
+const TREE_MAX_ENTRIES: usize = 100_000;
+const TREE_MAX_DEPTH: usize = 32;
+
+/// Whether a checkout's `.luuna/<component>` store is usable: a real folder
+/// whose `config.yaml` is a regular file and which holds no link, junction or
+/// special file anywhere below it, so nothing the component reads or writes
+/// can lead outside the checkout. A store too large to look through counts
+/// as unusable.
+pub fn checkout_component_usable(checkout: &Path, component: &str) -> bool {
+    fn walk(dir: &Path, depth: usize, seen: &mut usize) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        for entry in entries {
+            *seen += 1;
+            let Ok(entry) = entry else { return false };
+            let path = entry.path();
+            if *seen > TREE_MAX_ENTRIES {
+                return false;
+            }
+            if real_directory(&path) {
+                if depth >= TREE_MAX_DEPTH || !walk(&path, depth + 1, seen) {
+                    return false;
+                }
+            } else if !real_file(&path) {
+                return false;
+            }
+        }
+        true
+    }
+    let store = checkout.join(".luuna").join(component);
+    real_directory(&checkout.join(".luuna"))
+        && real_directory(&store)
+        && real_file(&store.join("config.yaml"))
+        && walk(&store, 0, &mut 0)
+}
+
+fn unlinked(metadata: &std::fs::Metadata) -> bool {
+    let link = metadata.file_type().is_symlink();
+    #[cfg(windows)]
+    let link = {
+        use std::os::windows::fs::MetadataExt;
+        link || metadata.file_attributes() & 0x400 != 0
+    };
+    !link
+}
+
+fn real_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| unlinked(&metadata) && metadata.is_file())
+}
+
 fn real_directory(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|metadata| {
         let link = metadata.file_type().is_symlink();
