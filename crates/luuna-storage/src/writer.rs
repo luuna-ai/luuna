@@ -249,6 +249,7 @@ impl Store {
         )?;
         tx.commit()?;
         self.mirror_logs(&[&ticket.project_id]);
+        self.mirror_tickets(&[&ticket.project_id]);
         Ok((ticket.clone(), true))
     }
 
@@ -338,6 +339,7 @@ impl Store {
         )?;
         tx.commit()?;
         self.mirror_logs(&[&ticket.project_id]);
+        self.mirror_tickets(&[&ticket.project_id]);
         Ok(ticket)
     }
 

@@ -18,7 +18,7 @@ Snapshot restore already sets the whole `project-records/` folder aside, so a re
 
 ## Consequences
 
-Losing SQLite no longer loses project history or the latest discovery: the project event cursor and `latest_discovery` behave as before, and the next event continues the sequence. These files are private runtime metadata. They are not exports and do not authorize anything. Run events, plans, approvals, attempts, evidence, publication and the component operation ledger stay SQLite authority. Legacy tickets and the Missions projections remain the last unfinished record-index slice (7c). Edit these files only while the runtime is stopped; a hand-edited line that disagrees with the database refuses the next open.
+Losing SQLite no longer loses project history or the latest discovery: the project event cursor and `latest_discovery` behave as before, and the next event continues the sequence. These files are private runtime metadata. They are not exports and do not authorize anything. Run events, plans, approvals, attempts, evidence, publication and the component operation ledger stay SQLite authority. Tickets and the Missions projections follow in [ADR 0060](0060-ticket-files.md). Edit these files only while the runtime is stopped; a hand-edited line that disagrees with the database refuses the next open.
 
 ## Evidence
 
