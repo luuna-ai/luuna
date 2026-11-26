@@ -1,4 +1,5 @@
-import type { LuunaClient } from "@luuna/api-client";
+import { useEffect } from "react";
+import type { LuunaClient, ProjectRecord } from "@luuna/api-client";
 import { Breadcrumbs, ErrorBanner, Page, Split } from "@luuna/ui";
 import { viewInfo } from "../content/views";
 import { ProjectDetail } from "./ProjectDetail";
@@ -12,8 +13,10 @@ import { useProjects } from "./useProjects";
  * confirm an exact manifest revision, run baselines, and work its tickets. The runtime inspects
  * and validates; this view only displays authoritative state and submits the developer's requests.
  */
-export function Projects({ client, connectionEpoch = 0, requested = null }: { client: LuunaClient | null; connectionEpoch?: number; requested?: ProjectRequest | null }) {
+export function Projects({ client, connectionEpoch = 0, requested = null, onSelection }: { client: LuunaClient | null; connectionEpoch?: number; requested?: ProjectRequest | null; onSelection?: (projects: ProjectRecord[], selected: string | null) => void }) {
   const state = useProjects(client, connectionEpoch, requested);
+  // The window's project switcher shows what this view lists and has open.
+  useEffect(() => { onSelection?.(state.projects, state.selected); }, [onSelection, state.projects, state.selected]);
   const actions = projectActions(state);
   const info = viewInfo("projects");
   return <Page id="projects" className="projects-panel" title={info.label} description={info.description} breadcrumbs={state.view && <Breadcrumbs items={[{ label: info.label }, { label: state.view.project.name }]} />}>

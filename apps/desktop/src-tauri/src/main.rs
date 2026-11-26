@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod folders;
+
 // ADR 0038: on Windows the in-app top bar is the title bar and there is no native menu bar; every
 // menu command is also a page shortcut or the palette. macOS and Linux keep the menu (ADR 0030).
 #[cfg(not(target_os = "windows"))]
@@ -16,7 +18,9 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             window::reveal_main(app)
         }))
-        .plugin(window::state_plugin());
+        .plugin(window::state_plugin())
+        .plugin(folders::dialog_plugin())
+        .on_window_event(folders::on_window_event);
     #[cfg(not(target_os = "windows"))]
     let builder = builder
         .menu(menu::build)
@@ -35,7 +39,10 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![runtime::ensure_local_runtime])
+        .invoke_handler(tauri::generate_handler![
+            runtime::ensure_local_runtime,
+            folders::pick_folder
+        ])
         .run(tauri::generate_context!())
         .expect("failed to start Luuna desktop");
 }

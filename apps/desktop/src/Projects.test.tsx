@@ -84,6 +84,16 @@ test("a request from Home or the Board lands on the project heading, the ticket 
   expect(requestTarget({ ticketId: "ticket-1", ticketForm: true })).toBe("ticket-ticket-1");
 });
 
+import { withDroppedFolders } from "./projects/RegisterForm";
+
+test("dropped folders fill empty rows first, then add rows, and skip folders already listed", () => {
+  const typed = withDroppedFolders([{ id: "mine", path: "" }], [true], ["/srv/My API"]);
+  expect(typed.rows).toEqual([{ id: "mine", path: "/srv/My API" }]);
+  const next = withDroppedFolders([{ id: "", path: "" }, { id: "web", path: "/srv/web" }], [false, false], ["/srv/app", "/srv/web", "/srv/docs"]);
+  expect(next.rows).toEqual([{ id: "app", path: "/srv/app" }, { id: "web", path: "/srv/web" }, { id: "docs", path: "/srv/docs" }]);
+  expect(next.typed).toEqual([false, false, false]);
+});
+
 import { RemoveProject } from "./projects/RemoveProject";
 
 test("removing a project asks for confirmation and says its records stay", () => {

@@ -44,14 +44,16 @@ export function Banner({ label, children, action, className, title }: { label: s
 }
 
 /**
- * The sticky top bar: the menu button (under 768 px), the palette trigger shaped as a Ledger search field, then `actions`.
+ * The sticky top bar: the menu button (under 768 px), `lead` (such as the project switcher), the palette trigger shaped
+ * as a Ledger search field, then `actions`.
  * With `windowControls` (ADR 0038) it is also the window's title bar: the bar and its spacer are drag regions and the
  * controls sit flush at the right edge. Buttons stay separate elements, so pressing one never starts a drag.
  */
-export function TopBar({ onMenu, menuOpen, onSearch, actions, windowControls }: { onMenu: () => void; menuOpen: boolean; onSearch: () => void; actions?: ReactNode; windowControls?: ReactNode }) {
+export function TopBar({ onMenu, menuOpen, onSearch, lead, actions, windowControls }: { onMenu: () => void; menuOpen: boolean; onSearch: () => void; lead?: ReactNode; actions?: ReactNode; windowControls?: ReactNode }) {
   const drag = windowControls ? "" : undefined;
   return <header className="topbar" data-tauri-drag-region={drag}>
     <button type="button" id="nav-menu" className="topbar-menu" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} aria-controls="app-sidebar" onClick={onMenu}><Icon name="sidebar" /></button>
+    {lead}
     <button type="button" className="topbar-search" aria-label="Go to a view, project or ticket" aria-haspopup="dialog" aria-keyshortcuts="Control+K" title="Go to a view, project or ticket (Ctrl+K)" onClick={onSearch}>
       <Icon name="search" /><span className="topbar-search-label">Go to…</span><Kbd>Ctrl K</Kbd>
     </button>

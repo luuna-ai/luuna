@@ -13,8 +13,10 @@ tauri = { version = "2.9.3", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Desktop-only window plugins (ADR 0039). Rust-only: no JavaScript API and no capability permission.
+# Desktop-only plugins: window state and single instance (ADR 0039), and the folder dialog behind
+# `pick_folder`. Rust-only: the page is granted none of their commands.
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+tauri-plugin-dialog = "=2.8.4"
 tauri-plugin-single-instance = "=2.5.4"
 tauri-plugin-window-state = "=2.5.0"
 
