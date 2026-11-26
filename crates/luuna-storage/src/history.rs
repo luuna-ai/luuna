@@ -14,7 +14,7 @@ impl Store {
                     .ok_or_else(|| StorageError::NotFound(id.into()))
             })
             .transpose()?;
-        let mut query = self.connection.prepare("SELECT id,project_id,state,revision,metadata,created_at,updated_at FROM runs WHERE (?1 IS NULL OR project_id=?1) AND (?2 IS NULL OR created_at<?2 OR (created_at=?2 AND id>?3)) ORDER BY created_at DESC,id LIMIT ?4")?;
+        let mut query = self.connection.prepare("SELECT id,project_id,state,revision,metadata,created_at,updated_at FROM runs WHERE NOT EXISTS (SELECT 1 FROM projects p WHERE p.id=runs.project_id AND p.removed_at IS NOT NULL) AND (?1 IS NULL OR project_id=?1) AND (?2 IS NULL OR created_at<?2 OR (created_at=?2 AND id>?3)) ORDER BY created_at DESC,id LIMIT ?4")?;
         let rows = query.query_map(
             params![
                 project,

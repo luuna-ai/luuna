@@ -93,3 +93,13 @@ test("dropped folders fill empty rows first, then add rows, and skip folders alr
   expect(next.rows).toEqual([{ id: "app", path: "/srv/app" }, { id: "web", path: "/srv/web" }, { id: "docs", path: "/srv/docs" }]);
   expect(next.typed).toEqual([false, false, false]);
 });
+
+import { RemoveProject } from "./projects/RemoveProject";
+
+test("removing a project asks for confirmation and says its records stay", () => {
+  const view = { project: { id: "walkthrough", name: "Walkthrough" } } as unknown as ProjectView;
+  const html = renderToStaticMarkup(<RemoveProject view={view} busy={false} onRemove={async () => true} />);
+  expect(html).toContain("Remove Walkthrough from every list and free its folders.");
+  expect(html).toContain("adding the same folders again brings the project back");
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-capability="projects.remove"/);
+});

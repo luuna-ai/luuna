@@ -402,9 +402,19 @@ fn build_level(source: &Path, target: &Path, level: u32) {
         .execute("ATTACH DATABASE ?1 AS source", [source.to_str().unwrap()])
         .unwrap();
     for table in tables_at(level) {
+        // Only the columns the table had at `level`: a later migration may
+        // have added columns (migration 13 adds projects.removed_at).
+        let columns: Vec<String> = connection
+            .prepare(&format!("PRAGMA main.table_info({table})"))
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let columns = columns.join(",");
         connection
             .execute_batch(&format!(
-                "INSERT INTO main.{table} SELECT * FROM source.{table};"
+                "INSERT INTO main.{table}({columns}) SELECT {columns} FROM source.{table};"
             ))
             .unwrap();
     }
@@ -502,7 +512,20 @@ fn every_earlier_schema_version_upgrades_with_rows_intact_and_later_tables_usabl
             "level {level}"
         );
         assert_eq!(status.integrity_problem, None);
-        assert_eq!(dump(&path, &tables), before, "level {level} rows changed");
+        // Columns a later migration added (migration 13's projects.removed_at)
+        // start NULL; every column the rows had is unchanged.
+        let mut after = dump(&path, &tables);
+        for (table, rows) in after.iter_mut() {
+            let width = before[table].first().map_or(0, Vec::len);
+            for row in rows.iter_mut() {
+                assert!(
+                    row[width..].iter().all(|value| *value == Sql::Null),
+                    "level {level} {table}"
+                );
+                row.truncate(width);
+            }
+        }
+        assert_eq!(after, before, "level {level} rows changed");
         assert_eq!(
             schema(&path),
             schema(&fresh),

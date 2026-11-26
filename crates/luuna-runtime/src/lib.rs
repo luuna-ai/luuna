@@ -165,6 +165,10 @@ pub struct AppState {
     executor: Arc<Executor>,
     components: Option<Arc<luuna_components::Components>>,
     component_locks: Arc<tokio::sync::Mutex<()>>,
+    /// Orbit operations in flight per project (ADR 0063): they run in its
+    /// checkouts without a run record, so removal waits for them. Taken while
+    /// the store lock is held, like removal's check.
+    orbit_in_flight: Arc<Mutex<HashMap<String, usize>>>,
     /// The port this runtime listens on, once the service binary bound it;
     /// `GET /api/v1/doctor` reports it. `None` for an in-process router.
     listen_port: Option<u16>,
@@ -308,6 +312,7 @@ impl AppState {
             executor: Arc::new(Executor::default()),
             components: discovered_components(),
             component_locks: Arc::new(tokio::sync::Mutex::new(())),
+            orbit_in_flight: Arc::new(Mutex::new(HashMap::new())),
             listen_port: None,
             shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             shutdown_requested: Arc::new(Notify::new()),
@@ -756,7 +761,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/projects",
             get(projects::list_projects).post(projects::register_project),
         )
-        .route("/api/v1/projects/{id}", get(projects::get_project))
+        .route(
+            "/api/v1/projects/{id}",
+            get(projects::get_project).delete(projects::remove_project),
+        )
         .route(
             "/api/v1/projects/import",
             post(projects::import_project)

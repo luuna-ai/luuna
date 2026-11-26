@@ -1018,6 +1018,13 @@ pub fn received(app: &mut AppState, event: &BridgeEvent, command: Option<&str>, 
     }
     match command {
         "register" | "import" => open(app, Screen::Projects),
+        // The removed project is no longer listed, so nothing points at it.
+        "remove-project" => {
+            for key in ["project", "ticket", "plan", "run"] {
+                app.context.remove(key);
+            }
+            open(app, Screen::Projects);
+        }
         "confirm" | "enable-components" | "rebind" => open(app, Screen::Project),
         "plan" => {
             let p = v.get("plan").unwrap_or(&v);

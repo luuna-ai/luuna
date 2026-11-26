@@ -7,6 +7,7 @@ import { DiscoveryReview } from "./Discovery";
 import { EventRecord } from "./EventRecord";
 import { ManifestBadge } from "./ProjectRail";
 import { RebindForm } from "./RebindForm";
+import { RemoveProject } from "./RemoveProject";
 import { jsonDataUrl } from "./project-model";
 import type { ProjectActions } from "./project-actions";
 import type { ProjectsState } from "./useProjects";
@@ -50,6 +51,7 @@ export function ProjectDetail({ client, connectionEpoch, state, actions }: { cli
     </Inline>
     <ProjectFacts state={state} />
     <RebindForm key={`rebind-${view.project.id}`} view={view} busy={busy} onRebind={actions.rebind} />
+    <RemoveProject key={`remove-${view.project.id}`} view={view} busy={busy} onRemove={actions.remove} />
     <Inline className="project-actions" align="center" gap={2} wrap>
       <Button disabled={busy} data-capability="projects.discover" onClick={actions.discover}>Discover proposed map</Button>
       <Button disabled={busy} data-capability="projects.export" onClick={actions.exportProject}>Export project</Button>

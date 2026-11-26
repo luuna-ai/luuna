@@ -257,6 +257,9 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // A removed project admits no run (ADR 0063), checked in the same
+        // transaction as the insert so removal and admission never both win.
+        refuse_removed_project(&tx, project_id)?;
         tx.execute("INSERT INTO runs(id,project_id,state,revision,metadata,created_at,updated_at) VALUES (?1,?2,?3,1,?4,?5,?5)",
             params![id, project_id, state_json(state)?, serde_json::to_string(&metadata)?, now])?;
         append(&tx, id, "run.created", serde_json::json!({"state":state}))?;
@@ -303,9 +306,10 @@ impl Store {
         Ok(result)
     }
 
+    /// Every run, except those of a removed project (ADR 0063), newest first.
     pub fn runs(&self) -> Result<Vec<RunRecord>> {
         let mut query = self.connection.prepare(
-            "SELECT id,project_id,state,revision,metadata,created_at,updated_at FROM runs ORDER BY created_at DESC,id",
+            "SELECT id,project_id,state,revision,metadata,created_at,updated_at FROM runs WHERE NOT EXISTS (SELECT 1 FROM projects p WHERE p.id=runs.project_id AND p.removed_at IS NOT NULL) ORDER BY created_at DESC,id",
         )?;
         let rows = query.query_map([], run_row)?;
         rows.map(|row| decode_run(row?)).collect()
@@ -770,6 +774,7 @@ const MIGRATIONS: &[(u32, &str)] = &[
     (10, MIGRATION_10),
     (11, MIGRATION_11),
     (12, MIGRATION_12),
+    (13, MIGRATION_13),
 ];
 
 /// The highest schema version this build creates and understands. A database
@@ -987,6 +992,28 @@ COMMIT;
 /// task records its role, who assigned it (the approval of the exact plan),
 /// the advisory task it was derived from, the dependency overrides that
 /// name it and, for an advisory role, its structured result.
+/// A removed project admits no new work (ADR 0063). Callers run this inside
+/// the transaction that admits the work, so removal and admission never both win.
+pub(crate) fn refuse_removed_project(connection: &Connection, project_id: &str) -> Result<()> {
+    let removed: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND removed_at IS NOT NULL)",
+        [project_id],
+        |row| row.get(0),
+    )?;
+    if removed {
+        return Err(StorageError::NotFound(project_id.into()));
+    }
+    Ok(())
+}
+
+/// A removed project stays on disk with its history; `removed_at` takes it off
+/// every list and frees its checkouts (ADR 0063).
+const MIGRATION_13: &str = "
+BEGIN IMMEDIATE;
+ALTER TABLE projects ADD COLUMN removed_at TEXT;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (13);
+COMMIT;
+";
 const MIGRATION_12: &str = "
 BEGIN IMMEDIATE;
 ALTER TABLE run_tasks ADD COLUMN role TEXT NOT NULL DEFAULT 'implementer';

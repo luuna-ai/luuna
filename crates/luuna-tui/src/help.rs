@@ -28,6 +28,7 @@ pub const HELP_GROUPS: [(&str, &str, &[&str]); 11] = [
             "baseline",
             "baselines",
             "rebind",
+            "remove-project",
             "store-mode",
             "set-store-mode",
             "project-events",

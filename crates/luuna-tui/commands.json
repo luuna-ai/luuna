@@ -313,6 +313,33 @@
       }
     },
     {
+      "id": "projects.remove",
+      "name": "remove-project",
+      "action": "Project removal",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        }
+      ],
+      "flags": {
+        "confirm": {
+          "boolean": true,
+          "description": "confirms the project should leave every list; its records stay on disk and registering the same folders brings it back",
+          "prompt": "Remove this project from every list, keeping its records (yes/no)"
+        }
+      },
+      "example": {
+        "args": [
+          "walkthrough"
+        ],
+        "flags": {
+          "confirm": true
+        }
+      }
+    },
+    {
       "id": "projects.export",
       "name": "export",
       "action": "Project export",

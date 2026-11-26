@@ -178,6 +178,16 @@ export function useProjects(client: LuunaClient | null, connectionEpoch: number,
     setSelected(id);
   }
 
+  /** After a removal: the project is no longer listed, so select the first one that is. */
+  async function afterRemoval(signal: AbortSignal) {
+    if (!client) return;
+    const list = await client.listProjects(signal);
+    if (signal.aborted) return;
+    setProjects(list);
+    setView(null);
+    setSelected(list[0]?.id ?? null);
+  }
+
   // A baseline advances on the runtime: poll its durable record from the moment the
   // run is accepted (its record appears after inspection and probing) until it settles.
   const pendingList = Object.values(pendingBaselineRuns);
@@ -225,7 +235,7 @@ export function useProjects(client: LuunaClient | null, connectionEpoch: number,
     client, projects, selected, setSelected, view, events, draft, setDraft, discovery, setDiscovery, baselines,
     pendingBaselineRuns, setPendingBaselineRuns, error, setError, busy, componentContext, setComponentContext,
     componentStatus, setComponentStatus, componentEpoch, setComponentEpoch, baselineLog, setBaselineLog,
-    exported, setExported, guarded, refresh, requested,
+    exported, setExported, guarded, refresh, afterRemoval, requested,
   };
 }
 

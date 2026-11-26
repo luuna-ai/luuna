@@ -1024,6 +1024,14 @@ pub async fn run(
                 )
                 .await
         }
+        "projects.remove" => {
+            if !input.truthy("confirm") {
+                return Err(refusal("Removing takes the project off every list and frees its folders; its records stay on disk, and registering the same folders brings it back. Repeat with --confirm to remove it."));
+            }
+            client
+                .request("DELETE", &format!("/projects/{}", e(0)), None, s)
+                .await
+        }
         "projects.export" => {
             let exported = client.get(&format!("/projects/{}/export", e(0)), s).await?;
             if let Some(output) = input.text_if("output") {
@@ -2436,7 +2444,7 @@ mod tests {
     #[test]
     fn the_table_matches_the_catalog_and_parses_specs_like_the_regular_expressions() {
         let table = table();
-        assert_eq!(table.commands.len(), 75);
+        assert_eq!(table.commands.len(), 76);
         assert_eq!(table.projections.len(), 2);
         for command in &table.commands {
             assert_eq!(
