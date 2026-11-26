@@ -175,6 +175,10 @@ async fn call(
     } else {
         available(state)?.call_in(component, store, &args).await
     };
+    if result.is_ok() {
+        let command = args.first().map(String::as_str).unwrap_or_default();
+        crate::stores::commit_checkout_store(state, store, component, Some(command)).await;
+    }
     result.map_err(|error| {
         // Diagnostic data for the operator's log only; the API answer stays
         // generic so component output never reaches a client.
@@ -269,6 +273,8 @@ pub(crate) async fn enable_project(state: &AppState, id: &str) -> Result<(), Api
         .map_err(internal)?
         .finish_component_enable(id)
         .map_err(internal)?;
+    // ADR 0068: the stores the init created, and any migrated tickets.
+    crate::stores::commit_checkout_store(state, &directory, "enable components", None).await;
     Ok(())
 }
 

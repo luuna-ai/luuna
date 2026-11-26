@@ -6,7 +6,8 @@
 //! a populated submodule) are neutralised from the command line, inspection
 //! issues no network operation (publication's push in `remote` and Orbit's
 //! explicit fetch and clone in `sync` are the only ones), and remote URLs are
-//! redacted before they leave this crate.
+//! redacted before they leave this crate. `store_commit` is the one place that
+//! commits in a developer checkout, and only `.luuna/` (ADR 0068).
 //! Output is capped per stream: a command passing the cap is killed at once.
 use chrono::{SecondsFormat, Utc};
 use luuna_domain::{
@@ -28,9 +29,11 @@ use tokio::{
 pub const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 
 mod remote;
+mod store_commit;
 mod sync;
 mod worktree;
 pub use remote::*;
+pub use store_commit::*;
 pub use sync::*;
 pub use worktree::*;
 const MAX_ROOT_COMMITS: usize = 64;

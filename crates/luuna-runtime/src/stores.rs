@@ -286,3 +286,47 @@ pub(crate) fn project_store(state: &AppState, project_id: &str) -> Result<StoreR
 pub(crate) fn user_store(state: &AppState) -> StoreRoot {
     StoreRoot::Managed(user_store_path(&state.config.data_dir))
 }
+
+/// Component commands that change a store; only these are followed by a
+/// commit (ADR 0068). A change another command made is picked up by the next
+/// commit.
+const WRITES: [&str; 8] = [
+    "create", "update", "block", "add", "record", "edit", "delete", "schema",
+];
+
+/// One commit at a time across the runtime, so two store changes never race
+/// on the same branch.
+static COMMITS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// After a component write to a checkout store, commit `.luuna/` to the
+/// checkout's current branch (ADR 0068). A failure is logged and never fails
+/// the component call: the change is already on disk and the next commit
+/// carries it. `command` of `None` is an explicit commit (component enable).
+pub(crate) async fn commit_checkout_store(
+    state: &AppState,
+    store: &StoreRoot,
+    component: &str,
+    command: Option<&str>,
+) {
+    if !state.store_auto_commit || !store.is_checkout() {
+        return;
+    }
+    if command.is_some_and(|command| !WRITES.contains(&command)) {
+        return;
+    }
+    let summary = match command {
+        Some(command) => format!("{component} {command}"),
+        None => component.to_owned(),
+    };
+    let message = format!(
+        "luuna: {summary}\n\nRecorded by Luuna in .luuna/ (ADR 0068). Set LUUNA_STORE_AUTO_COMMIT=0 to stop these commits."
+    );
+    let _guard = COMMITS.lock().await;
+    match state.git.commit_store(store.path(), &message).await {
+        Ok(luuna_git::StoreCommit::Busy) => eprintln!(
+            "luuna-runtime: .luuna changes left uncommitted: a merge, rebase or similar is in progress in the checkout"
+        ),
+        Ok(_) => {}
+        Err(error) => eprintln!("luuna-runtime: .luuna changes left uncommitted: {error}"),
+    }
+}

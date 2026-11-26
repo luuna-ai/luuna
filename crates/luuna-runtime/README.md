@@ -19,6 +19,7 @@ variables locally; keep credentials out of repository files:
 | `LUUNA_PORT` | Loopback port, default `4242` |
 | `LUUNA_RUN_TIMEOUT_SECONDS` | Positive operation deadline, default `600`; version probe has a separate 15s deadline |
 | `LUUNA_DEFAULT_STORE_MODE` | Where a newly registered project keeps its tickets, memory and prompts: `repository` (default; the first checkout's `.luuna/` stores, when they hold no records yet) or `runtime` (the private store under the data directory); see [ADR 0067](../../docs/decisions/0067-repository-store-by-default.md) |
+| `LUUNA_STORE_AUTO_COMMIT` | `1` (default) commits each change Luuna makes to a checkout's `.luuna/` stores, and only those paths, to the checkout's current branch; `0` leaves them for you to commit; see [ADR 0068](../../docs/decisions/0068-commit-repository-store-changes.md) |
 
 A setting that cannot be used stops startup with a message naming the variable
 and the form it expects (for example `LUUNA_PORT must be a whole number from 0
