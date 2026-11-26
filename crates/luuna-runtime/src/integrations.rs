@@ -177,7 +177,12 @@ async fn call(
     };
     if result.is_ok() {
         let command = args.first().map(String::as_str).unwrap_or_default();
-        crate::stores::commit_checkout_store(state, store, component, Some(command)).await;
+        // `schema show` and `schema list` only read; other `schema` verbs write.
+        let reads_schema =
+            command == "schema" && matches!(args.get(1).map(String::as_str), Some("show" | "list"));
+        if !reads_schema {
+            crate::stores::commit_checkout_store(state, store, component, Some(command)).await;
+        }
     }
     result.map_err(|error| {
         // Diagnostic data for the operator's log only; the API answer stays

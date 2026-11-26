@@ -1012,3 +1012,26 @@ async fn nothing_is_committed_while_a_merge_is_in_progress() {
     drop(app);
     assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), head);
 }
+
+#[tokio::test]
+async fn a_staged_gitattributes_the_developer_has_is_kept() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    // Staged one way, then emptied in the work tree: the index is theirs.
+    fs::write(checkout.join(".gitattributes"), "*.png binary\n").unwrap();
+    git(&checkout, &["add", ".gitattributes"]);
+    fs::write(checkout.join(".gitattributes"), "").unwrap();
+    select(data.path(), &checkout);
+    let first = git(&checkout, &["rev-parse", "HEAD"]).trim().to_owned();
+    let app = serve_committing(data.path());
+    use_the_stores(&app, &checkout).await;
+    drop(app);
+    let changed = git(&checkout, &["diff", "--name-only", &first, "HEAD"]);
+    assert!(changed.contains(".luuna/missions/"), "{changed}");
+    assert!(!changed.contains(".gitattributes"), "{changed}");
+    assert_eq!(
+        git(&checkout, &["show", ":.gitattributes"]),
+        "*.png binary\n"
+    );
+}

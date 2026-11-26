@@ -59,16 +59,18 @@ impl Drop for TemporaryIndex {
 
 /// Whether the developer's `.gitattributes` differs from HEAD's only by added
 /// lines that name `.luuna/` paths, which is what a component init writes.
+/// HEAD's lines must all remain, in their order and number; a reordered,
+/// removed or changed rule is the developer's edit and is never committed.
 pub fn only_store_attribute_lines(head: Option<&str>, worktree: &str) -> bool {
-    let before: Vec<&str> = head.unwrap_or("").lines().collect();
-    let after: Vec<&str> = worktree.lines().collect();
-    if !before.iter().all(|line| after.contains(line)) {
-        return false;
+    let mut before = head.unwrap_or("").lines().peekable();
+    for line in worktree.lines() {
+        if before.peek() == Some(&line) {
+            before.next();
+        } else if !line.trim_start().starts_with(".luuna/") {
+            return false;
+        }
     }
-    after
-        .iter()
-        .filter(|line| !before.contains(line))
-        .all(|line| line.trim_start().starts_with(".luuna/"))
+    before.next().is_none()
 }
 
 impl GitInspector {
@@ -245,6 +247,19 @@ impl GitInspector {
         if committed.as_deref() == Some(worktree.as_str()) {
             return Ok(false);
         }
+        // A `.gitattributes` the developer staged differently from HEAD is
+        // theirs: committing and resetting it would lose the staged version.
+        let staged = self
+            .store_git(
+                root,
+                &["diff", "--cached", "--quiet", "--", ATTRIBUTES],
+                &[],
+                None,
+            )
+            .await?;
+        if staged.status != Some(0) {
+            return Ok(false);
+        }
         Ok(only_store_attribute_lines(committed.as_deref(), &worktree))
     }
 }
@@ -266,5 +281,18 @@ mod tests {
             &format!("*.jpg binary\n{union}")
         ));
         assert!(!only_store_attribute_lines(None, "*.png binary\n"));
+        // Reordering or dropping a duplicate rule is the developer's edit.
+        assert!(!only_store_attribute_lines(
+            Some("*.txt text\n*.txt -text\n"),
+            &format!("*.txt -text\n*.txt text\n{union}")
+        ));
+        assert!(!only_store_attribute_lines(
+            Some("*.txt text\n*.txt text\n"),
+            &format!("*.txt text\n{union}")
+        ));
+        assert!(only_store_attribute_lines(
+            Some("*.txt text\n*.txt text\n"),
+            &format!("*.txt text\n{union}*.txt text\n")
+        ));
     }
 }
