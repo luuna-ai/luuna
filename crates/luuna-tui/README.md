@@ -13,7 +13,7 @@ shows short ids and hash prefixes; `--json` output is unchanged.
 ```sh
 cargo build --locked -p luuna-tui                # target/debug/luuna-tui[.exe]; `npm run tui -- …` runs it too
 export LUUNA_URL=http://127.0.0.1:4242          # loopback only; this is the default
-export LUUNA_API_TOKEN=...                       # never echoed; prompted (hidden) on a terminal when unset
+export LUUNA_API_TOKEN=...                       # optional: minted and saved on first launch (ADR 0069); never echoed
 luuna-tui                                        # interactive workbench (on a terminal)
 luuna-tui help                                   # the overview: commands grouped by workflow, the component CLIs, flags, environment
 luuna-tui plan --help                            # one command's page: arguments, every flag, the runtime route, an example (also `help plan`)

@@ -20,6 +20,14 @@ the URL and token through an anonymous pipe; tokens do not enter app launch
 arguments or bundled frontend assets. The local `script/build_and_run.sh`
 builds and opens a Tauri app bundle.
 
+Nobody types the service token ([ADR 0069](decisions/0069-minted-service-token.md)).
+When none is set or saved and nothing answers on the default port, the
+terminal and `desktop-connection` mint one from the operating system's random
+source and save it in the owner-only private settings, outside every
+repository. Opening the workbench or running a command then starts the saved
+runtime when it is not running. A runtime someone started by hand keeps its
+own token, and the hidden prompt stays for that case.
+
 Windows native development startup invokes a fixed local bootstrap command,
 starts or authenticates/reuses the independent runtime and connects without
 manual token entry. DPAPI records live in `%USERPROFILE%\.luuna\credentials`;

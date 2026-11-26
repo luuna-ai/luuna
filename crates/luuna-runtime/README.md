@@ -8,7 +8,7 @@ variables locally; keep credentials out of repository files:
 
 | Variable | Purpose |
 | --- | --- |
-| `LUUNA_API_TOKEN` | Required random token of at least 32 visible ASCII characters, with no spaces or line breaks; frontend enters it locally |
+| `LUUNA_API_TOKEN` | Required random token of at least 32 visible ASCII characters, with no spaces or line breaks; the terminal and desktop mint and save one on first launch (ADR 0069) |
 | `LUUNA_PI_COMMAND` | Pi executable, default `pi`; may be an absolute Node executable. On Windows a bare name is searched through PATH, executables first and then PATHEXT, and an npm `pi.cmd` shim is started as the Node executable and `dist/bundle/cli.js` it names; other `.cmd`/`.bat` launchers are refused |
 | `LUUNA_GIT_COMMAND` | Host `git` used for read-only repository inspection, default `git` |
 | `LUUNA_PI_ARGS_JSON` | Optional JSON array of launcher arguments, e.g. absolute `dist/cli.js` path |

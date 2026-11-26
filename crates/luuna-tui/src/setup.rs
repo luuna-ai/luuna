@@ -1,7 +1,5 @@
 //! User-owned first-run prerequisites. No secrets or tools live in the project.
 use crate::client::{Client, Signal};
-#[cfg(unix)]
-use std::io::Read;
 use std::{
     collections::BTreeMap,
     fs,
@@ -161,6 +159,75 @@ async fn run(
     }
 }
 
+/// A new service token: 32 random bytes from the operating system, as hex.
+pub fn mint_token() -> io::Result<String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| io::Error::other(error.to_string()))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Whether anything answers the unauthenticated health check at `url`.
+async fn answers(url: &str) -> bool {
+    let Ok(client) = Client::new(url, "health-probe") else {
+        return false;
+    };
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        client.get("/health", &Signal::never()),
+    )
+    .await
+    .is_ok_and(|r| r.is_ok())
+}
+
+/// Mints and saves the local service token when none is set or saved, so
+/// nobody has to type one (ADR 0069). Returns whether a token was minted.
+///
+/// Only the default local runtime gets one, and only when nothing answers
+/// there yet: a runtime someone started by hand has a token Luuna cannot
+/// know, so the hidden prompt stays for that case. The token is saved in the
+/// private settings (owner-only, outside every repository) beside the rest.
+pub async fn ensure_service_token(vars: &mut BTreeMap<String, String>) -> io::Result<bool> {
+    mint_service_token(
+        vars,
+        |name| std::env::var(name).ok(),
+        crate::cli::DEFAULT_URL,
+        directory,
+    )
+    .await
+}
+
+/// [`ensure_service_token`] with the environment, the default URL and the
+/// private directory given, for tests.
+#[doc(hidden)]
+pub async fn mint_service_token(
+    vars: &mut BTreeMap<String, String>,
+    env: impl Fn(&str) -> Option<String>,
+    default_url: &str,
+    private: impl FnOnce() -> io::Result<PathBuf>,
+) -> io::Result<bool> {
+    let set = |name: &str| env(name).filter(|v| !v.trim().is_empty());
+    if set("LUUNA_API_TOKEN").is_some()
+        || vars
+            .get("LUUNA_API_TOKEN")
+            .is_some_and(|v| !v.trim().is_empty())
+    {
+        return Ok(false);
+    }
+    let url = set("LUUNA_URL")
+        .or_else(|| vars.get("LUUNA_URL").cloned())
+        .unwrap_or_else(|| default_url.into());
+    if url != default_url || answers(&url).await {
+        return Ok(false);
+    }
+    let private = private()?;
+    secure_dir(&private)?;
+    vars.insert("LUUNA_API_TOKEN".into(), mint_token()?);
+    vars.entry("LUUNA_DATA_DIR".into())
+        .or_insert_with(|| private.join("data").to_string_lossy().into_owned());
+    save(&private.join("environment.json"), vars)?;
+    Ok(true)
+}
+
 /// Prepares interactive init; callers relaunch with the returned environment rather
 /// than mutating process environment after Tokio has started worker threads.
 pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::Result<()> {
@@ -175,19 +242,7 @@ pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::R
             .or_else(|| vars.get(name).cloned())
     };
     if current("LUUNA_API_TOKEN", vars).is_none() {
-        #[cfg(unix)]
-        {
-            let mut bytes = [0u8; 32];
-            fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-            vars.insert(
-                "LUUNA_API_TOKEN".into(),
-                bytes.iter().map(|b| format!("{b:02x}")).collect(),
-            );
-        }
-        #[cfg(not(unix))]
-        return Err(io::Error::other(
-            "Set LUUNA_API_TOKEN using the platform credential setup",
-        ));
+        vars.insert("LUUNA_API_TOKEN".into(), mint_token()?);
     }
     vars.entry("LUUNA_DATA_DIR".into())
         .or_insert_with(|| private.join("data").to_string_lossy().into_owned());
@@ -368,12 +423,17 @@ fn desktop_search_path() -> std::ffi::OsString {
 /// saved and prints one JSON line with the URL and service token on stdout,
 /// which the desktop reads over an anonymous pipe. Nothing else is printed there.
 pub async fn desktop_connection() -> io::Result<String> {
-    let vars = load(&directory()?.join("environment.json"))?;
+    let mut vars = load(&directory()?.join("environment.json"))?;
+    ensure_service_token(&mut vars).await?;
     let token = std::env::var("LUUNA_API_TOKEN")
         .ok()
         .filter(|token| !token.is_empty())
         .or_else(|| vars.get("LUUNA_API_TOKEN").cloned())
-        .ok_or_else(|| io::Error::other("No service token is saved; run lu init first"))?;
+        .ok_or_else(|| {
+            io::Error::other(
+                "A runtime someone started by hand already answers on the default port; stop it, or set LUUNA_API_TOKEN to its token",
+            )
+        })?;
     let url = std::env::var("LUUNA_URL").unwrap_or_else(|_| crate::cli::DEFAULT_URL.into());
     if url != crate::cli::DEFAULT_URL {
         return Err(io::Error::other(
