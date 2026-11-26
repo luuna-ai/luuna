@@ -1318,6 +1318,16 @@ fn board_cards_name_the_next_step_and_act_without_leaving_the_board_first() {
         a.form.as_ref().map(|f| f.command.name.as_str()),
         Some("plan")
     );
+    // A plan started from the board carries the context selected locally, as
+    // one started from the ticket screen does.
+    let mut a = app();
+    a.workbench.screen = Screen::Missions;
+    a.workbench.memory_ids.insert("mem-1".into());
+    a.workbench.prompt_selection = Some("review@2#abc".into());
+    key(&mut a, KeyCode::Char('p'));
+    let (_, flags) = a.form.as_ref().unwrap().input().unwrap();
+    assert_eq!(flags["memory"], json!(["mem-1"]));
+    assert_eq!(flags["prompt"], "review@2#abc");
 }
 fn text_of(value: &serde_json::Value, key: &str) -> String {
     value[key].as_str().unwrap_or_default().to_string()

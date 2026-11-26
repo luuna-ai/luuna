@@ -781,7 +781,8 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
         }
         KeyCode::Char('p') if screen == Screen::Missions => {
             if board_card_context(app) {
-                prefill(app, "plan", vec![]);
+                let context = plan_context(app);
+                prefill(app, "plan", context);
             }
         }
         KeyCode::Char('g') if screen == Screen::Missions => {
@@ -798,15 +799,8 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
             let v = selected(app);
             match screen {
                 Screen::Ticket => {
-                    let memory = app
-                        .workbench
-                        .memory_ids
-                        .iter()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let prompt = app.workbench.prompt_selection.clone().unwrap_or_default();
-                    prefill(app, "plan", vec![("memory", memory), ("prompt", prompt)]);
+                    let context = plan_context(app);
+                    prefill(app, "plan", context);
                 }
                 Screen::MemoryDetail if text(&v, "scope") == "user" => {
                     app.status =
@@ -881,6 +875,20 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
 
 /// Scopes the workbench to the selected board card's ticket (and run), as Enter does,
 /// without leaving the board. False for an empty board or a prerequisite card.
+/// The plan form's memory and prompt flags from the context selected locally,
+/// so a plan started from the ticket screen or a board card carries it alike.
+fn plan_context(app: &AppState) -> Vec<(&'static str, String)> {
+    let memory = app
+        .workbench
+        .memory_ids
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prompt = app.workbench.prompt_selection.clone().unwrap_or_default();
+    vec![("memory", memory), ("prompt", prompt)]
+}
+
 fn board_card_context(app: &mut AppState) -> bool {
     let v = selected(app);
     let ticket = text(&v, "ticket_id");
