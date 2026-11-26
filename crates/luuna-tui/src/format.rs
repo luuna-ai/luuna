@@ -1426,6 +1426,20 @@ pub fn format(id: &str, value: &J, colour: bool) -> R<String> {
                 if reason.truthy() { format!(" · {}", s(reason)) } else { String::new() }
             )
         }
+        "projects.storemode.show" | "projects.storemode.set" => {
+            let (mode, repository, problem) = (f(v, "mode")?, f(v, "repository")?, f(v, "problem")?);
+            let choices = map(f(v, "choices")?, |c| {
+                let repository = f(c, "repository")?;
+                Ok(if repository.truthy() { format!("repository {}", s(repository)) } else { s(f(c, "mode")?) })
+            })?;
+            format!(
+                "store mode {}{}{}\n  can be changed to: {}",
+                if mode.truthy() { s(mode) } else { "unreadable".into() },
+                if repository.truthy() { format!(" · repository {}", s(repository)) } else { String::new() },
+                if problem.truthy() { format!("\n  not usable now: {}", s(problem)) } else { String::new() },
+                choices.join(", ")
+            )
+        }
         "memory.list" => listed(v, "No memory records in this view.", |r| {
             Ok(format!("{}  {}  {}\n  {}\n  provenance: {}", sid(f(r, "id")?), s(f(r, "scope")?), shash(f(r, "hash")?), s(f(r, "content")?), s(f(r, "provenance")?)))
         })?,
@@ -1637,6 +1651,10 @@ mod tests {
         assert_eq!(
             format("artifacts.read", &J::str(""), false).unwrap(),
             "Empty log."
+        );
+        assert_eq!(
+            format("projects.storemode.show", &js::parse(r#"{"mode":"repository","repository":"api","usable":false,"problem":"no checkout","choices":[{"mode":"runtime","repository":null},{"mode":"repository","repository":"api"}]}"#).unwrap(), false).unwrap(),
+            "store mode repository · repository api\n  not usable now: no checkout\n  can be changed to: runtime, repository api"
         );
         assert_eq!(format("memory.retention.show", &js::parse(r#"{"process_max_age_days":null,"project_max_age_days":30}"#).unwrap(), false).unwrap(), "process memory: kept · project memory: 30 day(s) · user memory is never subject to a project policy");
         assert_eq!(dollars(&J::Num(1234.0)), "$0.0012");

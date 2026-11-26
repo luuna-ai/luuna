@@ -353,6 +353,24 @@ export interface ComponentStatus {
   reason?: string;
 }
 
+/** One store mode a project can be switched to (ADR 0062). */
+export interface StoreModeChoice {
+  mode: "runtime" | "repository";
+  repository: string | null;
+}
+
+/** Where a project's component data is stored (ADR 0045, 0061, 0062). */
+export interface StoreModeStatus {
+  project_id: string;
+  /** Null when the recorded store mode file cannot be used. */
+  mode: "runtime" | "repository" | "both" | null;
+  repository: string | null;
+  /** Whether the store resolves now; when not, `problem` says why. */
+  usable: boolean;
+  problem: string | null;
+  choices: StoreModeChoice[];
+}
+
 export type MemoryScope = "project" | "process" | "user";
 
 export interface MemoryRecord {
@@ -1670,6 +1688,16 @@ export class LuunaClient {
 
   enableComponents(projectId: string, signal?: AbortSignal): Promise<ComponentStatus> {
     return this.request(`/projects/${encodeURIComponent(projectId)}/components`, { method: "POST", signal });
+  }
+
+  storeMode(projectId: string, signal?: AbortSignal): Promise<StoreModeStatus> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/store-mode`, { signal });
+  }
+
+  /** Refused while the project keeps tickets or memory in its current store, or the chosen side already holds records. */
+  setStoreMode(projectId: string, choice: StoreModeChoice, signal?: AbortSignal): Promise<StoreModeStatus> {
+    const body = choice.mode === "repository" ? { mode: "repository", repository: choice.repository } : { mode: "runtime" };
+    return this.request(`/projects/${encodeURIComponent(projectId)}/store-mode`, { method: "PUT", body: JSON.stringify(body), signal });
   }
 
   listMemory(projectId: string, options: { query?: string; includeUser?: boolean } = {}, signal?: AbortSignal): Promise<MemoryRecord[]> {

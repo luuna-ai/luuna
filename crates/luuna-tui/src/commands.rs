@@ -1043,6 +1043,44 @@ pub async fn run(
                 .get(&format!("/projects/{}/components", e(0)), s)
                 .await
         }
+        "projects.storemode.show" => {
+            client
+                .get(&format!("/projects/{}/store-mode", e(0)), s)
+                .await
+        }
+        "projects.storemode.set" => {
+            let mode = input
+                .flag("mode")
+                .map(|v| v.text().trim().to_lowercase())
+                .unwrap_or_default();
+            let repository = input.flag("repository").map(|v| v.text().trim().to_owned());
+            let body = match (mode.as_str(), repository) {
+                ("runtime", None) => obj![("mode", J::Str("runtime".into()))],
+                ("repository", Some(repository)) if !repository.is_empty() => obj![
+                    ("mode", J::Str("repository".into())),
+                    ("repository", J::Str(repository))
+                ],
+                ("repository", _) => {
+                    return Err(usage_error(
+                        "--mode repository needs --repository <registered repository id>.",
+                    ))
+                }
+                ("runtime", Some(_)) => {
+                    return Err(usage_error(
+                        "--repository applies only to --mode repository.",
+                    ))
+                }
+                _ => return Err(usage_error("--mode is runtime or repository.")),
+            };
+            client
+                .request(
+                    "PUT",
+                    &format!("/projects/{}/store-mode", e(0)),
+                    Some(&body),
+                    s,
+                )
+                .await
+        }
         "components.enable" => {
             client
                 .post(&format!("/projects/{}/components", e(0)), None, s)
@@ -2183,7 +2221,7 @@ mod tests {
     #[test]
     fn the_table_matches_the_catalog_and_parses_specs_like_the_regular_expressions() {
         let table = table();
-        assert_eq!(table.commands.len(), 72);
+        assert_eq!(table.commands.len(), 74);
         assert_eq!(table.projections.len(), 2);
         for command in &table.commands {
             assert_eq!(

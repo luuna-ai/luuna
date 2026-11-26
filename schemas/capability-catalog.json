@@ -359,6 +359,48 @@
       ]
     },
     {
+      "id": "projects.storemode.show",
+      "title": "Show where a project's component data is stored and what it can be changed to",
+      "method": "GET",
+      "route": "/api/v1/projects/{id}/store-mode",
+      "client_method": "storeMode",
+      "desktop": "projects.storemode.show",
+      "tui": "store-mode",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "not_found",
+        "internal"
+      ],
+      "required_by": [
+        "docs/decisions/0045-per-project-store-mode.md",
+        "docs/decisions/0062-choosing-the-store-mode.md"
+      ]
+    },
+    {
+      "id": "projects.storemode.set",
+      "title": "Choose the runtime store or a registered repository's own stores for a project",
+      "method": "PUT",
+      "route": "/api/v1/projects/{id}/store-mode",
+      "client_method": "setStoreMode",
+      "desktop": "projects.storemode.set",
+      "tui": "set-store-mode",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "not_found",
+        "refused",
+        "internal",
+        "client"
+      ],
+      "required_by": [
+        "docs/decisions/0045-per-project-store-mode.md",
+        "docs/decisions/0062-choosing-the-store-mode.md"
+      ]
+    },
+    {
       "id": "components.enable",
       "title": "Enable Missions, Atlas and Beacon for a project",
       "method": "POST",
