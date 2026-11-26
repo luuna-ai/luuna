@@ -70,8 +70,12 @@ pub fn test_commands(root: &Path) -> Vec<Suggestion> {
             );
         }
     }
-    if exists(root, "Cargo.toml") {
-        add("cargo test", "Cargo.toml (Rust)");
+    if let Some(text) = read(root, "Cargo.toml") {
+        if text.lines().any(|line| line.trim() == "[workspace]") {
+            add("cargo test --workspace", "Cargo.toml declares a workspace");
+        } else {
+            add("cargo test", "Cargo.toml (Rust)");
+        }
     }
     if exists(root, "go.mod") {
         add("go test ./...", "go.mod (Go)");
@@ -146,6 +150,10 @@ mod tests {
     #[test]
     fn each_ecosystem_proposes_its_usual_command() {
         assert_eq!(commands(&[("Cargo.toml", "[package]")]), ["cargo test"]);
+        assert_eq!(
+            commands(&[("Cargo.toml", "[workspace]\nmembers = [\"a\"]")]),
+            ["cargo test --workspace"]
+        );
         assert_eq!(commands(&[("go.mod", "module x")]), ["go test ./..."]);
         assert_eq!(commands(&[("pom.xml", "<project/>")]), ["mvn test"]);
         assert_eq!(commands(&[("build.gradle", "")]), ["gradle test"]);
