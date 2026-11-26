@@ -466,6 +466,55 @@
       }
     },
     {
+      "id": "projects.storemode.show",
+      "name": "store-mode",
+      "action": "Store mode",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        }
+      ],
+      "flags": {},
+      "example": {
+        "args": [
+          "walkthrough"
+        ],
+        "flags": {}
+      }
+    },
+    {
+      "id": "projects.storemode.set",
+      "name": "set-store-mode",
+      "action": "Store mode change",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        }
+      ],
+      "flags": {
+        "mode": {
+          "description": "runtime (Luuna's private store) or repository (a registered repository's own .luuna stores)",
+          "prompt": "Store mode (runtime or repository)"
+        },
+        "repository": {
+          "description": "the registered repository whose .luuna stores to use, for --mode repository"
+        }
+      },
+      "example": {
+        "args": [
+          "walkthrough"
+        ],
+        "flags": {
+          "mode": "repository",
+          "repository": "api"
+        }
+      }
+    },
+    {
       "id": "components.enable",
       "name": "enable-components",
       "action": "Component activation",

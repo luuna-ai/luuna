@@ -464,6 +464,154 @@ async fn the_store_follows_a_rebind_to_the_new_checkout() {
     assert_eq!(outside_stores(&first), before);
 }
 
+fn register_only(data: &Path, checkout: &Path) {
+    Store::open(data.join("luuna.sqlite3"))
+        .unwrap()
+        .register_project("app", "App", &[("api".into(), observation(checkout))])
+        .unwrap();
+}
+
+fn store_file(data: &Path) -> Option<Vec<u8>> {
+    fs::read(data.join("projects/app/store.json")).ok()
+}
+
+async fn mode_changes(app: &Router) -> usize {
+    let (_, body) = request(app, "GET", "/api/v1/projects/app/events", None).await;
+    body.to_string()
+        .matches("project.store_mode.changed")
+        .count()
+}
+
+#[tokio::test]
+async fn the_store_mode_is_shown_and_chosen_from_the_product() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Ignored, &STORES).await;
+    register_only(data.path(), &checkout);
+    let app = serve(data.path());
+    let (status, body) = request(&app, "GET", "/api/v1/projects/app/store-mode", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["mode"], "runtime");
+    assert_eq!(body["usable"], true);
+    assert_eq!(
+        body["choices"],
+        json!([
+            {"mode": "runtime", "repository": null},
+            {"mode": "repository", "repository": "api"},
+        ])
+    );
+    let choose = json!({"mode": "repository", "repository": "api"});
+    let (status, body) = request(
+        &app,
+        "PUT",
+        "/api/v1/projects/app/store-mode",
+        Some(choose.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["mode"], "repository");
+    assert_eq!(body["repository"], "api");
+    assert_eq!(body["usable"], true);
+    let (_, status_body) = request(&app, "GET", "/api/v1/projects/app/components", None).await;
+    assert_eq!(
+        status_body["workspace_path"],
+        checkout.to_string_lossy().as_ref()
+    );
+    assert_eq!(mode_changes(&app).await, 1);
+    // The same choice again changes nothing.
+    let written = store_file(data.path());
+    let (status, _) = request(&app, "PUT", "/api/v1/projects/app/store-mode", Some(choose)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(store_file(data.path()), written);
+    assert_eq!(mode_changes(&app).await, 1);
+    // And back to the runtime store, whose side is still empty.
+    let (status, body) = request(
+        &app,
+        "PUT",
+        "/api/v1/projects/app/store-mode",
+        Some(json!({"mode": "runtime"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["mode"], "runtime");
+    assert_eq!(mode_changes(&app).await, 2);
+}
+
+#[tokio::test]
+async fn a_change_that_would_strand_or_merge_records_is_refused() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Ignored, &STORES).await;
+    register_only(data.path(), &checkout);
+    let app = serve(data.path());
+    let put = |body: Value| {
+        let app = app.clone();
+        async move { request(&app, "PUT", "/api/v1/projects/app/store-mode", Some(body)).await }
+    };
+    // Invalid or unavailable choices.
+    for (body, expected) in [
+        (
+            json!({"mode": "both", "repository": "api"}),
+            StatusCode::CONFLICT,
+        ),
+        (
+            json!({"mode": "repository", "repository": "ghost"}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            json!({"mode": "repository"}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            json!({"mode": "runtime", "repository": "api"}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            json!({"mode": "sideways"}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let (status, response) = put(body.clone()).await;
+        assert_eq!(status, expected, "{body}: {response}");
+        assert_eq!(store_file(data.path()), None, "{body}");
+    }
+    // The checkout's Missions store already holds a record.
+    let issues = checkout.join(".luuna/missions/issues.jsonl");
+    fs::write(&issues, "{\"id\":\"someone-else\"}\n").unwrap();
+    let (status, body) = put(json!({"mode": "repository", "repository": "api"})).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("missions store already holds records"));
+    assert_eq!(store_file(data.path()), None);
+    fs::write(&issues, "").unwrap();
+    // Memory recorded in the runtime store would be left behind.
+    let (status, body) = request(&app, "POST", "/api/v1/projects/app/components", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = request(
+        &app,
+        "POST",
+        "/api/v1/projects/app/memory",
+        Some(json!({
+            "idempotency_key": "runtime-memory",
+            "scope": "project",
+            "content": "Kept in the runtime store",
+            "provenance": "test",
+        })),
+    )
+    .await;
+    assert!(status.is_success(), "{status}: {body}");
+    let (status, body) = put(json!({"mode": "repository", "repository": "api"})).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("never moves or merges"));
+    assert_eq!(store_file(data.path()), None);
+    assert_eq!(mode_changes(&app).await, 0);
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_link_inside_a_component_store_is_refused_before_it_is_read() {
@@ -504,6 +652,45 @@ async fn a_link_inside_a_component_store_is_refused_before_it_is_read() {
         fs::read_to_string(elsewhere.join("config.yaml")).unwrap(),
         "outside: true\n"
     );
+}
+
+#[tokio::test]
+async fn a_component_write_with_no_recorded_outcome_holds_the_store_mode() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Ignored, &STORES).await;
+    register_only(data.path(), &checkout);
+    {
+        // A memory write that reached Atlas before the runtime stopped.
+        let store = Store::open(data.path().join("luuna.sqlite3")).unwrap();
+        store
+            .begin_component_operation(
+                "app",
+                "memory-cut-short",
+                "memory.create",
+                &json!({"scope": "project", "content": "x", "provenance": "test"}),
+                "mem-cut-short",
+            )
+            .unwrap();
+        store
+            .mark_component_operation_attempted("app", "memory-cut-short")
+            .unwrap();
+    }
+    let app = serve(data.path());
+    let (status, body) = request(
+        &app,
+        "PUT",
+        "/api/v1/projects/app/store-mode",
+        Some(json!({"mode": "repository", "repository": "api"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let text = body["error"].as_str().unwrap();
+    assert!(
+        text.contains("memory.create") && text.contains("retry it"),
+        "{text}"
+    );
+    assert_eq!(store_file(data.path()), None);
 }
 
 #[tokio::test]

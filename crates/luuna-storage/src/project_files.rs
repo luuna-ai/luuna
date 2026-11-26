@@ -1,8 +1,11 @@
 //! The per-project store file `<data_dir>/projects/<id>/store.json`.
 //!
 //! An absent file (or folder) means runtime mode. A file that exists but
-//! cannot be trusted is refused, never defaulted. Nothing here follows a link,
-//! and writes are private and atomic.
+//! cannot be trusted is refused, never defaulted. Nothing here follows a link:
+//! paths are checked element by element, the read opens without following a
+//! link or blocking on a FIFO, and folders are created one at a time and
+//! re-checked. Writes are private and atomic; the product route that writes
+//! holds the component lock, so writers never race on the temporary file.
 use crate::{Result, StorageError};
 use luuna_domain::{valid_project_id, ProjectStoreFile, StoreMode};
 use std::{
@@ -76,7 +79,22 @@ pub fn read_project_store_mode(data_dir: &Path, project_id: &str) -> Result<Stor
         return Ok(StoreMode::Runtime);
     }
     let mut bytes = Vec::new();
-    let file = match fs::File::open(&path) {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    // Never follow a link swapped in after the check, and never block on a
+    // FIFO; the handle itself must then be a regular file.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_FLAG_OPEN_REPARSE_POINT: open a reparse point itself.
+        options.custom_flags(0x0020_0000);
+    }
+    let file = match options.open(&path) {
         Ok(file) => file,
         // Removed between the check and the open: still absent.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -84,6 +102,10 @@ pub fn read_project_store_mode(data_dir: &Path, project_id: &str) -> Result<Stor
         }
         Err(error) => return Err(error.into()),
     };
+    let opened = file.metadata()?;
+    if !opened.is_file() || is_link(&opened) {
+        return invalid("project store file is not a regular file");
+    }
     file.take(MAX_STORE_FILE_BYTES + 1)
         .read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_STORE_FILE_BYTES {
@@ -117,14 +139,33 @@ pub fn write_project_store_mode(data_dir: &Path, project_id: &str, mode: &StoreM
     existing(&path, false)?;
     let stale = existing(&temporary, false)?.is_some();
 
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
+    // One folder at a time, re-checked after creation, so a link made after
+    // the check is refused rather than followed; existing folders are made
+    // private as the ADR says.
+    for directory in [&projects, &folder] {
+        if existing(directory, true)?.is_none() {
+            let mut builder = fs::DirBuilder::new();
+            builder.recursive(false);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(directory) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        if existing(directory, true)?.is_none() {
+            return invalid("project store folder could not be created");
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+        }
     }
-    builder.create(&folder)?;
     if stale {
         fs::remove_file(&temporary)?;
     }

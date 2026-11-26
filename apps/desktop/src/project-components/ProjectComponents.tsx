@@ -2,6 +2,7 @@ import { Button, Disclosure, ErrorBanner, Grid, Hint, Id, Section, StatusLine, S
 import { IntentPanel } from "./Intent";
 import { AtlasMemory } from "./AtlasMemory";
 import { BeaconPrompts } from "./Prompts";
+import { StoreMode } from "./StoreMode";
 import { useComponents } from "./useComponents";
 import type { ComponentsProps } from "./useComponents";
 
@@ -23,6 +24,7 @@ export function ProjectComponents(props: ComponentsProps) {
         <StatusLine className="component-status">{loading ? "Refreshing component state…" : status?.reason ?? "Project components are not enabled."}</StatusLine>
         <Button variant="primary" disabled={!client || busy || loading || status === null} data-capability="components.enable" onClick={enable}>Enable project components</Button>
       </Surface>}
+    <StoreMode client={client} projectId={projectId} onChanged={() => state.setRefreshTick((value) => value + 1)} />
     <IntentPanel client={client} projectId={projectId} />
     {status?.enabled && <>
       {status.workspace_path && <Disclosure section={false} className="component-location" summary="Component data location">

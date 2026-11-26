@@ -165,6 +165,20 @@ impl Store {
         Ok(())
     }
 
+    /// The kinds of the project's component operations that reached their
+    /// component without recording an outcome: a write that may have landed in
+    /// the store and is reconciled only by retrying it.
+    pub fn uncertain_component_operations(&self, project_id: &str) -> Result<Vec<String>> {
+        let mut statement = self.connection.prepare(
+            "SELECT kind FROM component_operations
+             WHERE project_id=?1 AND attempted=1 AND response IS NULL ORDER BY kind",
+        )?;
+        let kinds = statement
+            .query_map(params![project_id], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()?;
+        Ok(kinds)
+    }
+
     pub fn complete_component_operation(
         &self,
         project_id: &str,

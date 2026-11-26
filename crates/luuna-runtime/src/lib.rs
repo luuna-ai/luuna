@@ -228,6 +228,7 @@ pub mod roots;
 mod roots_init;
 mod roots_routes;
 mod scaffold;
+mod store_mode;
 pub mod stores;
 mod writer;
 pub use baselines::{ArtifactId, StartBaseline};
@@ -642,6 +643,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/projects/{id}/memory/{memory_id}",
             axum::routing::delete(integrations::delete_memory).put(integrations::update_memory),
+        )
+        .route(
+            "/api/v1/projects/{id}/store-mode",
+            get(store_mode::show).put(store_mode::set),
         )
         .route(
             "/api/v1/projects/{id}/memory/retention",
