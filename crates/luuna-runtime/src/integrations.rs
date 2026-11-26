@@ -1,5 +1,5 @@
 //! Explicit component activation, private memory and versioned prompt resources.
-use crate::{internal, not_found, ApiError, AppState};
+use crate::{internal, not_found, stores::StoreRoot, ApiError, AppState};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -12,7 +12,7 @@ use luuna_domain::{
 use luuna_storage::{MemoryBinding, MemoryRetentionPolicy};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::{Path as FsPath, PathBuf};
+use std::path::Path as FsPath;
 
 pub(crate) fn conflict(message: impl Into<String>) -> ApiError {
     ApiError(StatusCode::CONFLICT, message.into())
@@ -38,7 +38,7 @@ fn project(state: &AppState, id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 /// The project's component store, as the store resolver decides it.
-pub(crate) fn workspace(state: &AppState, id: &str) -> Result<PathBuf, ApiError> {
+pub(crate) fn workspace(state: &AppState, id: &str) -> Result<StoreRoot, ApiError> {
     crate::stores::project_store(state, id)
 }
 pub(crate) fn enabled(state: &AppState, id: &str) -> Result<bool, ApiError> {
@@ -75,6 +75,17 @@ fn require_beacon_enabled(state: &AppState, id: &str) -> Result<(), ApiError> {
                     .into(),
             )
         })?;
+    }
+    Ok(())
+}
+/// A repository store is never initialised by the runtime (ADR 0061): a
+/// component store missing from the selected checkout refuses before any
+/// component call, and asks the developer to initialise it there.
+pub(crate) fn require_store(store: &StoreRoot, component: &str) -> Result<(), ApiError> {
+    if store.is_checkout() && !crate::stores::checkout_component_usable(store.path(), component) {
+        return Err(conflict(format!(
+            "This project's store mode is 'repository' and the repository has no usable {component} store; initialise .luuna/{component} in the checkout, without links, then retry. No component data was read or written"
+        )));
     }
     Ok(())
 }
@@ -140,15 +151,16 @@ fn private_directory(path: &FsPath, anchor: &FsPath) -> Result<(), ApiError> {
 async fn call(
     state: &AppState,
     component: &str,
-    directory: &FsPath,
+    store: &StoreRoot,
     args: Vec<String>,
 ) -> Result<Value, ApiError> {
+    require_store(store, component)?;
     let result = if component == "beacon" {
-        luuna_components::call_beacon_native(directory, &args).await
+        luuna_components::call_beacon_in(store, &args).await
     } else if component == "missions" {
-        luuna_components::call_missions_native(directory, &args).await
+        luuna_components::call_missions_in(store, &args).await
     } else {
-        available(state)?.call(component, directory, &args).await
+        available(state)?.call_in(component, store, &args).await
     };
     result.map_err(|error| {
         // Diagnostic data for the operator's log only; the API answer stays
@@ -181,7 +193,7 @@ pub async fn status(
         None
     };
     Ok(Json(
-        json!({"enabled":phase.as_deref()==Some("enabled"),"workspace_path":path,"reason":reason}),
+        json!({"enabled":phase.as_deref()==Some("enabled"),"workspace_path":path.path(),"reason":reason}),
     ))
 }
 pub async fn enable(
@@ -199,21 +211,28 @@ pub async fn enable(
 pub(crate) async fn enable_project(state: &AppState, id: &str) -> Result<(), ApiError> {
     let directory = workspace(state, id)?;
     available(state)?;
+    // A repository store is used as the developer initialised it, never
+    // initialised here: refuse before the project is frozen.
+    for component in ["missions", "atlas", "beacon"] {
+        require_store(&directory, component)?;
+    }
     state
         .store
         .lock()
         .map_err(internal)?
         .begin_component_enable(id)
         .map_err(internal)?;
-    private_directory(&directory, &state.config.data_dir)?;
-    // Stores created before ADR 0028 move to `.luuna/<component>` first.
-    luuna_components::adopt_legacy_layout(&directory).map_err(internal)?;
+    if !directory.is_checkout() {
+        private_directory(directory.path(), &state.config.data_dir)?;
+        // Stores created before ADR 0028 move to `.luuna/<component>` first.
+        luuna_components::adopt_legacy_layout(directory.path()).map_err(internal)?;
+    }
     for (component, marker) in [
         ("missions", ".luuna/missions/config.yaml"),
         ("atlas", ".luuna/atlas/config.yaml"),
         ("beacon", ".luuna/beacon/config.yaml"),
     ] {
-        if !directory.join(marker).exists() {
+        if !directory.path().join(marker).exists() {
             call(state, component, &directory, vec!["init".into()]).await?;
         }
     }
@@ -250,14 +269,21 @@ pub struct MemoryRecord {
     pub hash: String,
     pub created_at: String,
 }
-fn memory_workspace(state: &AppState, binding: &MemoryBinding) -> Result<PathBuf, ApiError> {
+/// The project's Atlas store, refused before anything is recorded when it is
+/// a checkout store that is missing or unusable (ADR 0061).
+fn atlas_store(state: &AppState, id: &str) -> Result<StoreRoot, ApiError> {
+    let store = workspace(state, id)?;
+    require_store(&store, "atlas")?;
+    Ok(store)
+}
+fn memory_workspace(state: &AppState, binding: &MemoryBinding) -> Result<StoreRoot, ApiError> {
     if binding.scope == "user" {
         Ok(crate::stores::user_store(state))
     } else {
-        workspace(state, &binding.project_id)
+        atlas_store(state, &binding.project_id)
     }
 }
-async fn atlas_records(state: &AppState, directory: &FsPath) -> Result<Vec<Value>, ApiError> {
+async fn atlas_records(state: &AppState, directory: &StoreRoot) -> Result<Vec<Value>, ApiError> {
     let result = call(
         state,
         "atlas",
@@ -368,6 +394,8 @@ pub async fn list_memory(
     Query(query): Query<MemoryQuery>,
 ) -> Result<Json<Vec<MemoryRecord>>, ApiError> {
     require_enabled(&state, &id)?;
+    // Fail closed on the project's store even when it holds no memory yet.
+    workspace(&state, &id)?;
     let _guard = state.component_locks.lock().await;
     let mut records = memory_records(&state, &id, query.include_user).await?;
     if let Some(query) = query.q {
@@ -430,6 +458,13 @@ pub(crate) async fn create_memory_locked(
     provenance: &str,
 ) -> Result<MemoryRecord, ApiError> {
     let request_value = json!({"scope":scope,"content":content,"provenance":provenance});
+    // Resolve the store before the operation row, so a refused store leaves
+    // no pending row that a later retry could replay into another store.
+    let directory = if scope == "user" {
+        crate::stores::user_store(state)
+    } else {
+        atlas_store(state, id)?
+    };
     let operation = state
         .store
         .lock()
@@ -445,15 +480,12 @@ pub(crate) async fn create_memory_locked(
     if let Some(response) = operation.response {
         return serde_json::from_value(response).map_err(internal);
     }
-    let directory = if scope == "user" {
-        crate::stores::user_store(state)
-    } else {
-        workspace(state, id)?
-    };
-    private_directory(&directory, &state.config.data_dir)?;
-    luuna_components::adopt_legacy_layout(&directory).map_err(internal)?;
-    if !directory.join(".luuna/atlas/config.yaml").exists() {
-        call(state, "atlas", &directory, vec!["init".into()]).await?;
+    if !directory.is_checkout() {
+        private_directory(directory.path(), &state.config.data_dir)?;
+        luuna_components::adopt_legacy_layout(directory.path()).map_err(internal)?;
+        if !directory.path().join(".luuna/atlas/config.yaml").exists() {
+            call(state, "atlas", &directory, vec!["init".into()]).await?;
+        }
     }
     let domain = format!("luuna-{scope}");
     let payload =
@@ -585,6 +617,8 @@ async fn delete_memory_locked(
         return Err(invalid("A valid displayed memory hash is required"));
     }
     let key = format!("memory-delete:{id}:{expected_hash}");
+    // Resolved before the operation row, as on create.
+    let directory = memory_workspace(state, &binding)?;
     let operation = state
         .store
         .lock()
@@ -600,7 +634,6 @@ async fn delete_memory_locked(
     if let Some(response) = operation.response {
         return Ok(response);
     }
-    let directory = memory_workspace(state, &binding)?;
     let rows = atlas_records(state, &directory).await?;
     let present = rows.iter().any(|row| {
         row["record"]["id"].as_str() == Some(&binding.source_id)
@@ -685,6 +718,8 @@ pub async fn update_memory(
         .ok_or_else(not_found)?;
     let request_value =
         json!({"id":id,"expected_hash":request.expected_hash,"content":request.content});
+    // Resolved before the operation row, as on create.
+    let directory = memory_workspace(&state, &binding)?;
     let operation = state
         .store
         .lock()
@@ -700,7 +735,6 @@ pub async fn update_memory(
     if let Some(response) = operation.response {
         return Ok(Json(serde_json::from_value(response).map_err(internal)?));
     }
-    let directory = memory_workspace(&state, &binding)?;
     let current = resolved_memory(&state, &binding).await?;
     let correction = format!("corrected from {}", request.expected_hash);
     // An acknowledged CLI write whose response was lost already holds the
@@ -799,6 +833,11 @@ pub async fn promote_memory(
     }
     let request_value =
         json!({"id":id,"expected_hash":request.expected_hash,"to_scope":request.to_scope});
+    // Both stores resolve before the operation row, as on create.
+    memory_workspace(&state, &binding)?;
+    if request.to_scope != "user" {
+        atlas_store(&state, &project_id)?;
+    }
     let operation = state
         .store
         .lock()
@@ -1633,6 +1672,9 @@ pub(crate) async fn create_prompt_locked(
         body: body.to_owned(),
         expected_version,
     };
+    // A missing or unusable checkout Beacon store is refused before the
+    // operation is recorded, so the key is not spent (ADR 0061).
+    require_store(&workspace(state, id)?, "beacon")?;
     let operation=state.store.lock().map_err(internal)?.begin_component_operation(id,&request.idempotency_key,"prompt.create",&json!({"name":request.name,"body":request.body,"expected_version":request.expected_version}),&format!("prompt-{}",uuid::Uuid::new_v4())).map_err(|_| conflict("Prompt idempotency key conflicts with a previous request"))?;
     if let Some(response) = operation.response {
         return serde_json::from_value(response).map_err(internal);

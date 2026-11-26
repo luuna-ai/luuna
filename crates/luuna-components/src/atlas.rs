@@ -1,8 +1,5 @@
 //! Bounded in-process Atlas. Managed store roots never depend on a source checkout.
-use super::{
-    adopt_legacy_layout, check_project_data_links, prepare_workspace, ComponentError, Result,
-    MAX_STDOUT,
-};
+use super::{check_project_data_links, open_store, ComponentError, Result, StoreRoot, MAX_STDOUT};
 use luuna_atlas::{
     config, git,
     json::Value as AtlasValue,
@@ -91,6 +88,11 @@ pub async fn run_atlas_native(
 }
 /// Finite managed-runtime protocol. Configured executable hooks remain unauthorized.
 pub async fn call_atlas_native(workspace: &Path, args: &[String]) -> Result<Value> {
+    call_atlas_in(&StoreRoot::Managed(workspace.to_owned()), args).await
+}
+
+/// The same call against a managed workspace or a selected checkout.
+pub async fn call_atlas_in(store: &StoreRoot, args: &[String]) -> Result<Value> {
     arguments(args, &[])?;
     if !matches!(
         args[0].as_str(),
@@ -101,7 +103,7 @@ pub async fn call_atlas_native(workspace: &Path, args: &[String]) -> Result<Valu
     if args[0] == "config" && args.get(1).map(String::as_str) != Some("show") {
         return Err(ComponentError::Protocol);
     }
-    let root = workspace.to_path_buf();
+    let store = store.clone();
     let mut args = args.to_vec();
     if !args.iter().any(|s| s == "--json") {
         args.push("--json".into())
@@ -114,8 +116,7 @@ pub async fn call_atlas_native(workspace: &Path, args: &[String]) -> Result<Valu
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         managed::with_yaml_limits(YamlLimits::default(), || {
-            let root = prepare_workspace(&root)?;
-            adopt_legacy_layout(&root)?;
+            let root = open_store(&store, args[0] == "init")?;
             check_project_data_links(&root, ".luuna/atlas")?;
             preflight(&root, true)?;
             if args[0] != "init" {

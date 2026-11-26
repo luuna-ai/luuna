@@ -11,7 +11,6 @@ use luuna_storage::{MissionsBinding, TicketRevision};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
 
 fn conflict(message: &str) -> ApiError {
     ApiError(StatusCode::CONFLICT, message.into())
@@ -53,7 +52,8 @@ impl Intent {
 
 async fn call(state: &AppState, project: &str, args: &[String]) -> Result<Value, ApiError> {
     let workspace = integrations::workspace(state, project)?;
-    luuna_components::call_missions_native(&workspace, args)
+    integrations::require_store(&workspace, "missions")?;
+    luuna_components::call_missions_in(&workspace, args)
         .await
         .map_err(|_| unavailable())
 }
@@ -441,11 +441,11 @@ pub(crate) async fn source(state: &AppState, ticket: &Ticket) -> Result<Value, A
         );
     }
     let (binding, issue, all, hash) = current(state, ticket).await?;
-    let workspace: PathBuf = integrations::workspace(state, &ticket.project_id)?;
+    let workspace = integrations::workspace(state, &ticket.project_id)?;
     Ok(
         json!({"source":"missions","source_id":binding.source_id,"source_revision":hash,
         "reconciliation_required":binding.source_revision.as_deref()!=Some(hash.as_str()),
-        "workspace":workspace,"status":issue["status"],"blocked":ready(&issue,&all).is_err()}),
+        "workspace":workspace.path(),"status":issue["status"],"blocked":ready(&issue,&all).is_err()}),
     )
 }
 
@@ -787,6 +787,7 @@ mod tests {
         );
         let store = integrations::workspace(&state, project)
             .unwrap()
+            .path()
             .join(".luuna/missions/issues.jsonl");
         let bytes = std::fs::read(&store).unwrap();
         std::fs::write(&store, b"invalid").unwrap();
@@ -1159,7 +1160,7 @@ mod tests {
             .begin_component_enable(&original.project_id)
             .unwrap();
         let workspace = integrations::workspace(&state, &original.project_id).unwrap();
-        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::create_dir_all(workspace.path()).unwrap();
         call(&state, &original.project_id, &["init".into()])
             .await
             .unwrap();
