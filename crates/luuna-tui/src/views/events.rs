@@ -1,9 +1,10 @@
 //! What the workbench does after a bridge result: follow-on screens and adopted identities.
 use super::*;
+use crate::protocol::EventKind;
 
 /// Called after the core protocol reducer, with the original request identity captured first.
 pub fn received(app: &mut AppState, event: &BridgeEvent, command: Option<&str>, was_read: bool) {
-    if event.event == "catalog" && !app.workbench.initialized && !app.commands.is_empty() {
+    if event.event == EventKind::Catalog && !app.workbench.initialized && !app.commands.is_empty() {
         app.workbench.initialized = true;
         open(app, Screen::Home);
         return;
@@ -11,11 +12,11 @@ pub fn received(app: &mut AppState, event: &BridgeEvent, command: Option<&str>, 
     let Some(command) = command else {
         return;
     };
-    if event.event == "error" {
+    if event.event == EventKind::Error {
         app.workbench.error = Some(app.status.clone());
         return;
     }
-    if event.event != "result" {
+    if event.event != EventKind::Result {
         return;
     }
     app.workbench.error = None;
