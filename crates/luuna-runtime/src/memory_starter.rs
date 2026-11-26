@@ -114,12 +114,18 @@ fn command_line(executable: &str, args: &[String]) -> String {
         .join(" ")
 }
 
+/// Most bytes of a fact's key kept in its idempotency key.
+const KEY_PREFIX_BYTES: usize = 120;
+/// The ordinary memory route's limits (`validate_memory_request`): a fact
+/// that could not be kept is never proposed.
+const MAX_CONTENT_BYTES: usize = 16_000;
+const MAX_PROVENANCE_BYTES: usize = 1000;
 /// Most deliveries of one fact looked through before its key stops advancing.
 const MAX_DELIVERIES: usize = 1000;
 
 /// The key for the next delivery of `fact`: `starter-<key>-<content hash>`,
 /// then `-2`, `-3`… past each delivery whose memory was kept and later
-/// deleted. A delivery that has not finished, or whose memory still exists,
+/// deleted or corrected away from this content. A delivery that has not finished, or whose memory still exists,
 /// keeps its key, so a retry resumes or replays it.
 fn delivery_key(
     store: &luuna_storage::Store,
@@ -127,9 +133,26 @@ fn delivery_key(
     fact: &StarterFact,
 ) -> luuna_storage::Result<String> {
     use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(fact.content.as_bytes());
-    let hash: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
-    let base = format!("starter-{}-{hash}", fact.key);
+    let mut hasher = Sha256::new();
+    hasher.update(fact.key.as_bytes());
+    hasher.update([0]);
+    hasher.update(fact.content.as_bytes());
+    let hash: String = hasher.finalize()[..8]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    // Idempotency keys are bounded (200 bytes), so a long fact key is cut;
+    // the hash covers the whole key and the content.
+    let mut prefix = fact.key.as_str();
+    while prefix.len() > KEY_PREFIX_BYTES {
+        let mut end = KEY_PREFIX_BYTES.min(prefix.len() - 1);
+        while !prefix.is_char_boundary(end) {
+            end -= 1;
+        }
+        prefix = &prefix[..end];
+    }
+    let prefix: String = prefix.chars().filter(|c| !c.is_control()).collect();
+    let base = format!("starter-{prefix}-{hash}");
     for delivery in 1..=MAX_DELIVERIES {
         let key = if delivery == 1 {
             base.clone()
@@ -139,11 +162,14 @@ fn delivery_key(
         let Some(operation) = store.component_operation(project_id, &key)? else {
             return Ok(key);
         };
-        let deleted = operation.response.is_some()
-            && store
-                .memory_binding(project_id, &operation.record_id)?
-                .is_none_or(|binding| binding.deleted);
-        if !deleted {
+        // A finished delivery whose memory no longer holds this content (it
+        // was deleted or corrected) is spent; anything else is retried as is.
+        let spent = operation.response.is_some()
+            && (!fact.recorded
+                || store
+                    .memory_binding(project_id, &operation.record_id)?
+                    .is_none_or(|binding| binding.deleted));
+        if !spent {
             return Ok(key);
         }
     }
@@ -246,8 +272,8 @@ pub fn propose(
     for relationship in manifest.relationships.iter().filter(|r| r.confirmed) {
         facts.push(StarterFact {
             key: format!(
-                "relationship:{}:{}",
-                relationship.producer, relationship.consumer
+                "relationship:{}:{}:{}",
+                relationship.producer, relationship.consumer, relationship.contract
             ),
             repository_id: relationship.consumer.clone(),
             content: format!(
@@ -263,6 +289,9 @@ pub fn propose(
                 idempotency_key: String::new(),
         });
     }
+    facts.retain(|fact| {
+        fact.content.len() <= MAX_CONTENT_BYTES && fact.provenance.len() <= MAX_PROVENANCE_BYTES
+    });
     facts.truncate(MAX_FACTS);
     facts
 }
@@ -400,6 +429,19 @@ mod tests {
     }
 
     #[test]
+    fn every_proposed_fact_can_be_kept_through_the_memory_route() {
+        let mut manifest = manifest();
+        let check = &mut manifest.repositories[0].checks[0];
+        check.args = (0..32).map(|i| format!("{i:0>512}")).collect();
+        let facts = propose(&manifest, &[]);
+        assert!(!facts.iter().any(|f| f.key == "check:api:unit"));
+        assert!(facts
+            .iter()
+            .all(|f| f.content.len() <= MAX_CONTENT_BYTES
+                && f.provenance.len() <= MAX_PROVENANCE_BYTES));
+    }
+
+    #[test]
     fn check_commands_keep_their_argument_boundaries() {
         let args = |list: &[&str]| list.iter().map(|a| a.to_string()).collect::<Vec<_>>();
         assert_eq!(
@@ -446,7 +488,7 @@ mod tests {
                 "branch:web",
                 "lockfile:web:package-lock.json",
                 "pin:web:.nvmrc",
-                "relationship:api:web",
+                "relationship:api:web:openapi.yaml",
             ]
         );
         let check = &facts[0];
@@ -495,7 +537,7 @@ mod tests {
                 "check:api:unit",
                 "branch:api",
                 "branch:web",
-                "relationship:api:web"
+                "relationship:api:web:openapi.yaml"
             ]
         );
     }

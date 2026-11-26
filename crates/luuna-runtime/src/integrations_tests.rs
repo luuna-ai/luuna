@@ -1708,11 +1708,27 @@ async fn components_real_starter_memory_proposes_and_records_only_what_is_kept()
         .await
         .unwrap()
         .0;
-    assert!(
-        last.facts
-            .iter()
-            .find(|f| f.key == kept.key)
-            .unwrap()
-            .recorded
-    );
+    let current = last.facts.iter().find(|f| f.key == kept.key).unwrap();
+    assert!(current.recorded);
+    // Correcting the kept memory away from the fact spends that delivery too.
+    let corrected = update_memory(
+        State(state.clone()),
+        Path(("starter".into(), renewed.id.clone())),
+        Json(UpdateMemory {
+            idempotency_key: "correct-starter".into(),
+            expected_hash: renewed.hash.clone(),
+            content: "In app, build with care.".into(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(corrected.content, "In app, build with care.");
+    let reoffered = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    let reoffered = reoffered.facts.iter().find(|f| f.key == kept.key).unwrap();
+    assert!(!reoffered.recorded);
+    assert_ne!(reoffered.idempotency_key, current.idempotency_key);
 }

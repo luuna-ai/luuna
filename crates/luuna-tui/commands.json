@@ -780,7 +780,7 @@
       "flags": {
         "keep": {
           "repeat": true,
-          "description": "the key of a proposed fact to keep (repeatable), or all; without it an interactive terminal asks about each fact and a script only lists them"
+          "description": "the key of a proposed fact to keep (repeatable), or all; without it the workbench asks about each fact and the command line only lists them"
         }
       },
       "example": {
