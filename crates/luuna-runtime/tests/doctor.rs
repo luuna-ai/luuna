@@ -79,8 +79,7 @@ async fn the_doctor_route_needs_the_token_and_reports_presence_without_values() 
             "github_token",
             "provider_credentials",
             "port",
-            "components",
-            "bun"
+            "components"
         ]
     );
     let missing = items.iter().any(|item| item["status"] == "missing");

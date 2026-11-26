@@ -22,15 +22,13 @@
     "test:tui-smoke": "node scripts/tui-smoke.mjs",
     "test:tui-interactive-audit": "node scripts/tui-interactive-audit.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test:tui-terminal && npm run test:contracts && npm run test:guard && npm run test:component-pins && npm run test:smoke-harness && npm run test --workspaces --if-present",
-    "test:smoke-harness": "node --test scripts/m3-checkout-digest.test.mjs scripts/windows-m3-job.test.mjs scripts/smoke-process.test.mjs scripts/m3-evidence.test.mjs scripts/stage-components.test.mjs",
+    "test": "npm run test:tui-terminal && npm run test:contracts && npm run test:guard && npm run test:smoke-harness && npm run test --workspaces --if-present",
+    "test:smoke-harness": "node --test scripts/m3-checkout-digest.test.mjs scripts/windows-m3-job.test.mjs scripts/smoke-process.test.mjs scripts/m3-evidence.test.mjs",
     "test:contracts": "node scripts/check-contracts.mjs",
     "test:guard": "node --test \"tools/pi/test/**/*.test.mjs\"",
     "components:setup": "node scripts/components.mjs setup",
     "components:verify": "node scripts/components.mjs verify",
-    "components:stage": "node scripts/stage-components.mjs stage",
     "components:run": "node scripts/components.mjs run",
-    "test:component-pins": "node --test scripts/components.test.mjs",
     "test:components": "node scripts/components-smoke.mjs"
   },
   "devDependencies": {
