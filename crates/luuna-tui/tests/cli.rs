@@ -63,7 +63,8 @@ fn records(request: &Request) -> Reply {
             return json(json!({"memory_empty":true,"facts":[
                 {"key":"branch:app","repository_id":"app","content":"In app, base every change on `main`.","provenance":"Luuna's starter scan of the confirmed manifest, repository app","evidence":["manifest revision 1"],"recorded":false,"idempotency_key":"starter-branch:app-0001"},
                 {"key":"lockfile:app:Cargo.lock","repository_id":"app","content":"In app, build and test with `--locked`.","provenance":"Luuna's starter scan of repository app: Cargo.lock is present","evidence":["Cargo.lock"],"recorded":false,"idempotency_key":"starter-lockfile:app:Cargo.lock-0002"},
-                {"key":"guide:app:README.md","repository_id":"app","content":"In app, read `README.md`.","provenance":"scan","evidence":["README.md"],"recorded":true,"idempotency_key":"starter-guide:app:README.md-0003"}
+                {"key":"guide:app:README.md","repository_id":"app","content":"In app, read `README.md`.","provenance":"scan","evidence":["README.md"],"recorded":true,"idempotency_key":"starter-guide:app:README.md-0003"},
+                {"key":"relationship:api:app:OpenAPI, v2","repository_id":"app","content":"app consumes api through `OpenAPI, v2`.","provenance":"Luuna's starter scan of the confirmed manifest: a confirmed relationship","evidence":["manifest revision 1"],"recorded":false,"idempotency_key":"starter-relationship-0004"}
             ]}))
         }
         ["tickets", _] if request.method == "GET" => {
@@ -280,6 +281,37 @@ fn memory_starter_records_only_the_facts_named_to_keep() {
         json!({"idempotency_key":"starter-lockfile:app:Cargo.lock-0002","scope":"project","content":"In app, build and test with `--locked`.","provenance":"Luuna's starter scan of repository app: Cargo.lock is present"})
     );
     assert!(out.contains("kept"), "{out}");
+    // A key that holds a comma is kept whole, while a comma-separated list
+    // of other keys still names each of them.
+    let (code, _, err) = run_client(
+        &[
+            "memory-starter",
+            "walkthrough",
+            "--keep",
+            "relationship:api:app:OpenAPI, v2",
+            "--keep",
+            "branch:app,lockfile:app:Cargo.lock",
+        ],
+        &mock.url(),
+        Some(TOKEN),
+        "",
+        directory.path(),
+    );
+    assert_eq!(code, 0, "{err}");
+    let keys: Vec<_> = mock
+        .take()
+        .into_iter()
+        .filter(|r| r.method == "POST")
+        .map(|r| r.json()["idempotency_key"].clone())
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "starter-branch:app-0001",
+            "starter-lockfile:app:Cargo.lock-0002",
+            "starter-relationship-0004"
+        ]
+    );
     // `all` keeps every fact not yet recorded; an unknown key sends nothing.
     let (code, _, err) = run_client(
         &["memory-starter", "walkthrough", "--keep", "all"],
@@ -289,7 +321,7 @@ fn memory_starter_records_only_the_facts_named_to_keep() {
         directory.path(),
     );
     assert_eq!(code, 0, "{err}");
-    assert_eq!(mock.take().iter().filter(|r| r.method == "POST").count(), 2);
+    assert_eq!(mock.take().iter().filter(|r| r.method == "POST").count(), 3);
     let (code, _, err) = run_client(
         &["memory-starter", "walkthrough", "--keep", "nope"],
         &mock.url(),

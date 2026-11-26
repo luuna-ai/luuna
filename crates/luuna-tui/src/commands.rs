@@ -1176,20 +1176,28 @@ pub async fn run(
             let mut set = client
                 .get(&format!("/projects/{}/memory/starter", e(0)), s)
                 .await?;
+            let facts = set.get("facts").items().to_vec();
+            let proposed = |key: &str| facts.iter().any(|f| f.get("key").as_str() == Some(key));
+            // A fact key can hold a comma (a relationship contract may), so an
+            // argument that names a whole proposed key is kept as written and
+            // only other arguments are read as comma-separated lists.
             let wanted: Vec<String> = input
                 .list("keep")
                 .iter()
-                .flat_map(|item| item.split(','))
-                .map(js_trim)
+                .flat_map(|item| {
+                    let whole = js_trim(item);
+                    if proposed(&whole) {
+                        vec![whole]
+                    } else {
+                        item.split(',').map(js_trim).collect()
+                    }
+                })
                 .filter(|key| !key.is_empty())
                 .collect();
-            let facts = set.get("facts").items().to_vec();
-            if let Some(unknown) = wanted.iter().find(|key| {
-                key.as_str() != "all"
-                    && !facts
-                        .iter()
-                        .any(|f| f.get("key").as_str() == Some(key.as_str()))
-            }) {
+            if let Some(unknown) = wanted
+                .iter()
+                .find(|key| key.as_str() != "all" && !proposed(key))
+            {
                 return Err(usage_error(format!(
                     "No proposed fact has the key {unknown}; run memory-starter without --keep to list them."
                 )));
