@@ -282,7 +282,7 @@ fn exact_six_tones_and_monochrome_preserve_status_semantics() {
     .map(|v| format!("{:?}", t.tone(v).fg))
     .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(colors.len(), 6);
-    assert_eq!(t.base().bg, Some(Color::Rgb(0, 0, 170)));
+    assert_eq!(t.base().bg, Some(Color::Rgb(0x0d, 0x20, 0x3b)));
     assert_eq!(state_tone("completed"), "neutral");
     assert_eq!(state_tone("interrupted"), "interrupted");
     assert_eq!(state_tone("reviewed"), "success");

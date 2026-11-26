@@ -188,7 +188,7 @@ pub fn defaults_json() -> String {
         .iter()
         .map(|(name, _, defaults, _)| ((*name).to_string(), serde_json::json!(defaults)))
         .collect();
-    let p = Palette::CLASSIC;
+    let p = Palette::PASCAL;
     let hex = |c: ratatui::style::Color| match c {
         ratatui::style::Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
         other => format!("{other}").to_lowercase(),
@@ -198,7 +198,7 @@ pub fn defaults_json() -> String {
     let value = serde_json::json!({
         "keyboard_enhancement": true,
         "theme": {
-            "preset": "classic",
+            "preset": "pascal",
             "styles": {
                 "base": style(p.base), "panel": style(p.panel), "accent": style(p.accent),
                 "selected": style(p.selected), "chrome": style(p.chrome),
@@ -329,7 +329,7 @@ mod tests {
         let mut theme_warnings = Vec::new();
         assert_eq!(
             Palette::configured(&config.theme, &mut theme_warnings),
-            Palette::CLASSIC
+            Palette::PASCAL
         );
         assert!(theme_warnings.is_empty(), "{theme_warnings:?}");
     }
