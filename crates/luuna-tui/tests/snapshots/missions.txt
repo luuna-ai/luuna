@@ -9,8 +9,8 @@
 ║ 6 Atlas                     ║║║ Revision: 3               ║║                           ║║                           ║║
 ║ 7 Beacon                    ║║║ ? plan_ready              ║║                           ║║                           ║║
 ║ 8 Runs                      ║║║ Run: run-1                ║║                           ║║                           ║║
-║ 9 Commands                  ║║║ ------------------------  ║║                           ║║                           ║║
-║ 10 Help                     ║║║                           ║║                           ║║                           ║║
+║ 9 Commands                  ║║║ Next: approve plan (g)    ║║                           ║║                           ║║
+║ 10 Help                     ║║║ ------------------------  ║║                           ║║                           ║║
 ║                             ║║║                           ║║                           ║║                           ║║
 ║                             ║║║                           ║║                           ║║                           ║║
 ║                             ║║║                           ║║                           ║║                           ║║
@@ -29,7 +29,7 @@
 ║UNSENT PLAN CONTEXT          ║║║                           ║║                           ║║                           ║║
 ║0 memory selection(s)        ║║║                           ║║                           ║║                           ║║
 ║No prompt selected           ║║╚═══════════════════════════╝╚═══════════════════════════╝╚═══════════════════════════╝║
-║F10 menu / Tab focus         ║║←→ columns  Enter ticket  n new  r refresh                                             ║
+║F10 menu / Tab focus         ║║←→ columns  Enter ticket  p plan  g follow run  n new  r refresh                       ║
 ╚═════════════════════════════╝╚═══════════════════════════════════════════════════════════════════════════════════════╝
 Connecting to the local runtime…
-←→ columns  Enter ticket  n new  r refresh
+←→ columns  Enter ticket  p plan  g follow run  n new  r refresh

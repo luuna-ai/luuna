@@ -638,6 +638,10 @@ fn render_board(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme) {
                         lines.push(field("Run", short_id(&text(card, "run_id")), theme));
                     }
                 }
+                lines.push(Line::styled(
+                    crate::projections::next_step(card),
+                    theme.accent(),
+                ));
                 lines.push(Line::styled("------------------------", theme.muted()));
                 ListItem::new(lines)
             })
