@@ -195,9 +195,11 @@ pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::R
     let entry = pi.join("node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js");
     // Never replace a user's Pi installation or its OAuth/configuration stores.
     let owned_pi_missing = std::env::var_os("LUUNA_PI_COMMAND").is_none()
-        && vars
-            .get("LUUNA_PI_COMMAND")
-            .is_some_and(|program| program == "node")
+        && vars.get("LUUNA_PI_COMMAND").is_some_and(|program| {
+            Path::new(program)
+                .file_stem()
+                .is_some_and(|stem| stem == "node")
+        })
         && vars.get("LUUNA_PI_ARGS_JSON").is_some_and(|args| {
             serde_json::from_str::<Vec<PathBuf>>(args)
                 .is_ok_and(|args| args.as_slice() == std::slice::from_ref(&entry))
@@ -217,7 +219,13 @@ pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::R
             vars,
         )
         .await?;
-        vars.insert("LUUNA_PI_COMMAND".into(), "node".into());
+        // An absolute path, so a runtime started from the desktop (whose
+        // PATH may lack Homebrew or a version manager) still finds Node.
+        let node = find_program("node").unwrap_or_else(|| PathBuf::from("node"));
+        vars.insert(
+            "LUUNA_PI_COMMAND".into(),
+            node.to_string_lossy().into_owned(),
+        );
         vars.insert(
             "LUUNA_PI_ARGS_JSON".into(),
             serde_json::to_string(&[entry]).map_err(io::Error::other)?,
@@ -249,6 +257,13 @@ pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::R
 /// The service token and URL of the local runtime, starting the installed
 /// runtime with the private settings when nothing answers on the URL.
 pub async fn start_runtime(vars: &BTreeMap<String, String>) -> io::Result<Client> {
+    start_runtime_with_path(vars, None).await
+}
+
+async fn start_runtime_with_path(
+    vars: &BTreeMap<String, String>,
+    path: Option<std::ffi::OsString>,
+) -> io::Result<Client> {
     let value = |name: &str| std::env::var(name).ok().or_else(|| vars.get(name).cloned());
     let token = value("LUUNA_API_TOKEN").unwrap_or_default();
     let url = value("LUUNA_URL").unwrap_or_else(|| crate::cli::DEFAULT_URL.into());
@@ -293,6 +308,9 @@ pub async fn start_runtime(vars: &BTreeMap<String, String>) -> io::Result<Client
                 command.env(name, value);
             }
         }
+        if let Some(path) = &path {
+            command.env("PATH", path);
+        }
         command
             .current_dir(&private)
             .stdin(Stdio::null())
@@ -322,6 +340,29 @@ pub async fn start_runtime(vars: &BTreeMap<String, String>) -> io::Result<Client
     Ok(client)
 }
 
+/// The first executable named `name` on PATH.
+fn find_program(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|directory| directory.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+/// PATH for a runtime the desktop starts. An app opened from Finder gets a
+/// minimal PATH, so the usual Homebrew and system tool folders are appended
+/// (never prepended) for Git, Python and Node.
+fn desktop_search_path() -> std::ffi::OsString {
+    let mut directories: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect())
+        .unwrap_or_default();
+    for extra in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+        let extra = PathBuf::from(extra);
+        if !directories.contains(&extra) {
+            directories.push(extra);
+        }
+    }
+    std::env::join_paths(directories).unwrap_or_default()
+}
+
 /// `luuna-tui desktop-connection`: the desktop app's local start on macOS and
 /// Linux (ADR 0065). Starts the runtime from the private settings `lu init`
 /// saved and prints one JSON line with the URL and service token on stdout,
@@ -339,7 +380,7 @@ pub async fn desktop_connection() -> io::Result<String> {
             "The desktop starts only the default local runtime; unset LUUNA_URL",
         ));
     }
-    start_runtime(&vars).await?;
+    start_runtime_with_path(&vars, Some(desktop_search_path())).await?;
     serde_json::to_string(&serde_json::json!({"url": url, "token": token}))
         .map_err(io::Error::other)
 }
@@ -416,6 +457,19 @@ pub async fn git(root: &Path, args: &[&str]) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_desktop_runtime_path_appends_the_usual_tool_folders_once() {
+        let path = desktop_search_path();
+        let directories: Vec<PathBuf> = std::env::split_paths(&path).collect();
+        for extra in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+            let count = directories
+                .iter()
+                .filter(|d| *d == Path::new(extra))
+                .count();
+            assert_eq!(count, 1, "{extra}");
+        }
+    }
     #[test]
     fn private_settings_roundtrip_and_refuse_unsafe_inputs() {
         let dir = tempfile::tempdir().unwrap();

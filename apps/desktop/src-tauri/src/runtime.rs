@@ -10,9 +10,11 @@ pub struct LocalConnection {
 fn validate_connection(bytes: &[u8]) -> Result<LocalConnection, String> {
     let connection: LocalConnection = serde_json::from_slice(bytes)
         .map_err(|_| "The local startup helper returned an invalid connection.".to_owned())?;
+    // The runtime's own token rule: at least 32 visible ASCII characters.
     if connection.url != "http://127.0.0.1:4242"
-        || connection.token.len() != 64
-        || !connection.token.bytes().all(|b| b.is_ascii_hexdigit())
+        || connection.token.len() < 32
+        || connection.token.len() > 512
+        || !connection.token.bytes().all(|b| b.is_ascii_graphic())
     {
         return Err("The local startup helper returned an unexpected connection.".to_owned());
     }
@@ -256,6 +258,25 @@ mod tests {
         }
         assert!(
             validate_connection(br#"{"url":"http://127.0.0.1:4242","token":"short"}"#).is_err()
+        );
+        // Any token the runtime accepts: 32 or more visible ASCII characters.
+        let accepted = "Zx9_-.~".repeat(5);
+        assert!(
+            validate_connection(
+                format!(r#"{{"url":"http://127.0.0.1:4242","token":"{accepted}"}}"#).as_bytes()
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_connection(
+                format!(
+                    r#"{{"url":"http://127.0.0.1:4242","token":"{} {}"}}"#,
+                    "a".repeat(20),
+                    "b".repeat(20)
+                )
+                .as_bytes()
+            )
+            .is_err()
         );
     }
 
