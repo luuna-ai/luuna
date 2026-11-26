@@ -35,6 +35,11 @@ pub(crate) struct Reject {
 // Core errors can include a canonical path different from the resolver's
 // lexical root. Only fixed messages cross this API boundary.
 fn safe(error: ApiError) -> ApiError {
+    // The store resolver's refusals name no path and say what to change, so
+    // they reach the developer as written.
+    if error.0 == StatusCode::CONFLICT && error.1.starts_with("This project's store mode is") {
+        return error;
+    }
     let message = match error.0 {
         StatusCode::NOT_FOUND => "not found",
         StatusCode::CONFLICT if error.1 == "Roots is not set up for this project" => {

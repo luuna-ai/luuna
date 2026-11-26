@@ -82,16 +82,9 @@ fn require_beacon_enabled(state: &AppState, id: &str) -> Result<(), ApiError> {
 /// component store missing from the selected checkout refuses before any
 /// component call, and asks the developer to initialise it there.
 pub(crate) fn require_store(store: &StoreRoot, component: &str) -> Result<(), ApiError> {
-    if store.is_checkout()
-        && !store
-            .path()
-            .join(".luuna")
-            .join(component)
-            .join("config.yaml")
-            .is_file()
-    {
+    if store.is_checkout() && !crate::stores::checkout_component_usable(store.path(), component) {
         return Err(conflict(format!(
-            "This project's store mode is 'repository' and the repository has no {component} store; initialise .luuna/{component} in the checkout, then retry. No component data was read or written"
+            "This project's store mode is 'repository' and the repository has no usable {component} store; initialise .luuna/{component} in the checkout, without links, then retry. No component data was read or written"
         )));
     }
     Ok(())

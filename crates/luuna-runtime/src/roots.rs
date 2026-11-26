@@ -320,8 +320,11 @@ impl RootsStore {
     /// checkout. Refused with 409 when that store has no `config.yaml`.
     /// Creates nothing.
     pub fn for_project(state: &AppState, project_id: &str) -> Result<Self, ApiError> {
-        let store = crate::stores::project_store(state, project_id)?;
-        let store = store.path();
+        let root = crate::stores::project_store(state, project_id)?;
+        // In a checkout the Roots store must hold no link (ADR 0061), as the
+        // other component stores must.
+        crate::integrations::require_store(&root, "roots")?;
+        let store = root.path();
         // A relative path would be made absolute against the process working
         // directory; the resolver's path is absolute, and this keeps it so.
         if !store.is_absolute() {
