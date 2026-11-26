@@ -39,8 +39,35 @@ fn defines_test(text: &str) -> bool {
     })
 }
 
+/// The Python interpreter this host runs, chosen as the runtime's discovery
+/// chooses it: `python` first on Windows, otherwise `python3` when it is on
+/// PATH, then `python`; `python3` (Unix) or `python` (Windows) when neither is.
+/// The executor runs the exact name, with no fallback between the two.
+pub fn python_executable() -> &'static str {
+    let on_path = |name: &str| {
+        std::env::var_os("PATH").is_some_and(|path| {
+            std::env::split_paths(&path).any(|dir| {
+                let file = dir.join(name);
+                file.is_file() || (cfg!(windows) && file.with_extension("exe").is_file())
+            })
+        })
+    };
+    match (on_path("python3"), on_path("python")) {
+        (_, true) if cfg!(windows) => "python",
+        (true, _) => "python3",
+        (_, true) => "python",
+        _ if cfg!(windows) => "python",
+        _ => "python3",
+    }
+}
+
 /// Likely test commands for the repository at `root`, most specific first.
 pub fn test_commands(root: &Path) -> Vec<Suggestion> {
+    test_commands_with(root, python_executable())
+}
+
+/// [`test_commands`] with the Python interpreter given.
+fn test_commands_with(root: &Path, python: &str) -> Vec<Suggestion> {
     let mut out: Vec<Suggestion> = Vec::new();
     let mut add = |command: &str, because: &str| {
         if !out.iter().any(|s| s.command == command) {
@@ -89,9 +116,12 @@ pub fn test_commands(root: &Path) -> Vec<Suggestion> {
         || read(root, "setup.cfg").is_some_and(|t| t.contains("[tool:pytest]"))
         || read(root, "tox.ini").is_some_and(|t| t.contains("[pytest]"));
     if pytest {
-        add("python -m pytest", "pytest is configured");
+        add(&format!("{python} -m pytest"), "pytest is configured");
     } else if pyproject.is_some() || exists(root, "setup.py") {
-        add("python -m unittest -v", "a Python project without pytest");
+        add(
+            &format!("{python} -m unittest -v"),
+            "a Python project without pytest",
+        );
     }
     if exists(root, "pom.xml") {
         add("mvn test", "pom.xml (Maven)");
@@ -141,10 +171,18 @@ mod tests {
     }
 
     fn commands(files: &[(&str, &str)]) -> Vec<String> {
-        test_commands(repo(files).path())
+        test_commands_with(repo(files).path(), "python")
             .into_iter()
             .map(|s| s.command)
             .collect()
+    }
+
+    #[test]
+    fn python_checks_name_the_host_interpreter() {
+        let dir = repo(&[("pytest.ini", "")]);
+        let command = &test_commands_with(dir.path(), "python3")[0].command;
+        assert_eq!(command, "python3 -m pytest");
+        assert!(["python", "python3"].contains(&python_executable()));
     }
 
     #[test]

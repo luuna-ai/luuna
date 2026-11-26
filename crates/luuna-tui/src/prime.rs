@@ -622,31 +622,70 @@ async fn pick_folder(
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .or_else(|| home.map(Path::to_path_buf))
         .unwrap_or_else(|| resolve(cwd, ""));
+    /// A step in the folder browser.
+    #[derive(Clone)]
+    enum Browse {
+        Use,
+        Open(PathBuf),
+        More,
+        Type,
+    }
+    /// Folders listed per page; the rest are a "More folders" step away.
+    const PAGE: usize = 60;
+    let mut skip = 0;
     loop {
         let here = dir.to_string_lossy().into_owned();
-        let mut choices: Vec<(String, String, Option<PathBuf>)> =
-            vec![("Use this folder".into(), here.clone(), Some(PathBuf::new()))];
+        let mut choices: Vec<(String, String, Browse)> =
+            vec![("Use this folder".into(), here.clone(), Browse::Use)];
         if let Some(parent) = dir.parent() {
             choices.push((
                 "..".into(),
                 "up one folder".into(),
-                Some(parent.to_path_buf()),
+                Browse::Open(parent.to_path_buf()),
             ));
         }
-        for (name, git) in child_folders(&dir).into_iter().take(60) {
+        let children = child_folders(&dir);
+        let total = children.len();
+        for (name, git) in children.into_iter().skip(skip).take(PAGE) {
             let hint = if git { "Git checkout" } else { "" };
-            choices.push((format!("{name}/"), hint.into(), Some(dir.join(name))));
+            choices.push((
+                format!("{name}/"),
+                hint.into(),
+                Browse::Open(dir.join(name)),
+            ));
         }
-        let initial = usize::from(choices.len() > 2) * 2;
+        if skip + PAGE < total {
+            choices.push((
+                "More folders".into(),
+                format!("{} more here", total - skip - PAGE),
+                Browse::More,
+            ));
+        }
+        choices.push(("Type or paste a path".into(), String::new(), Browse::Type));
+        let initial = usize::from(choices.len() > 3) * 2;
         match g
             .face
             .choose(&format!("Browsing {here}"), &choices, initial)
             .await
             .map_err(|f| g.left_or(f))?
         {
-            Some(next) if next.as_os_str().is_empty() => return Ok(here),
-            Some(next) => dir = next,
-            None => return Ok(here),
+            Browse::Use => return Ok(here),
+            Browse::Open(next) => {
+                dir = next;
+                skip = 0;
+            }
+            Browse::More => skip += PAGE,
+            Browse::Type => {
+                let typed = g
+                    .face
+                    .ask("Repository folder", "", false, &|v: &str| {
+                        let path = typed_path(cwd, home, v);
+                        (!path.is_dir()).then(|| format!("{} is not a folder.", path.display()))
+                    })
+                    .await
+                    .map_err(|f| g.left_or(f))?;
+                return Ok(typed_path(cwd, home, &typed).to_string_lossy().into_owned());
+            }
         }
     }
 }
