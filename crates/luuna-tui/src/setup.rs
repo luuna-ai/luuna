@@ -223,6 +223,9 @@ pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::R
             serde_json::to_string(&[entry]).map_err(io::Error::other)?,
         );
     }
+    // Keep the generated token and the Pi binding even if the provider key is
+    // skipped below, so a rerun neither regenerates nor reinstalls them.
+    save(&private.join("environment.json"), vars)?;
     if !PROVIDER_KEYS.iter().any(|k| {
         current(k, vars).is_some()
             || std::env::var(format!("LUUNA_PI_{k}")).is_ok_and(|v| !v.is_empty())
@@ -243,7 +246,9 @@ pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::R
     Ok(())
 }
 
-pub async fn ensure_runtime(vars: &BTreeMap<String, String>) -> io::Result<()> {
+/// The service token and URL of the local runtime, starting the installed
+/// runtime with the private settings when nothing answers on the URL.
+pub async fn start_runtime(vars: &BTreeMap<String, String>) -> io::Result<Client> {
     let value = |name: &str| std::env::var(name).ok().or_else(|| vars.get(name).cloned());
     let token = value("LUUNA_API_TOKEN").unwrap_or_default();
     let url = value("LUUNA_URL").unwrap_or_else(|| crate::cli::DEFAULT_URL.into());
@@ -314,6 +319,33 @@ pub async fn ensure_runtime(vars: &BTreeMap<String, String>) -> io::Result<()> {
             return Err(io::Error::other("Runtime did not become ready; check the private log and whether another service owns the port"));
         }
     }
+    Ok(client)
+}
+
+/// `luuna-tui desktop-connection`: the desktop app's local start on macOS and
+/// Linux (ADR 0065). Starts the runtime from the private settings `lu init`
+/// saved and prints one JSON line with the URL and service token on stdout,
+/// which the desktop reads over an anonymous pipe. Nothing else is printed there.
+pub async fn desktop_connection() -> io::Result<String> {
+    let vars = load(&directory()?.join("environment.json"))?;
+    let token = std::env::var("LUUNA_API_TOKEN")
+        .ok()
+        .filter(|token| !token.is_empty())
+        .or_else(|| vars.get("LUUNA_API_TOKEN").cloned())
+        .ok_or_else(|| io::Error::other("No service token is saved; run lu init first"))?;
+    let url = std::env::var("LUUNA_URL").unwrap_or_else(|_| crate::cli::DEFAULT_URL.into());
+    if url != crate::cli::DEFAULT_URL {
+        return Err(io::Error::other(
+            "The desktop starts only the default local runtime; unset LUUNA_URL",
+        ));
+    }
+    start_runtime(&vars).await?;
+    serde_json::to_string(&serde_json::json!({"url": url, "token": token}))
+        .map_err(io::Error::other)
+}
+
+pub async fn ensure_runtime(vars: &BTreeMap<String, String>) -> io::Result<()> {
+    let client = start_runtime(vars).await?;
     let doctor = tokio::time::timeout(
         Duration::from_secs(35),
         client.get("/doctor", &Signal::never()),

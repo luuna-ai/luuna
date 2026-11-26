@@ -67,6 +67,19 @@ async fn main() -> std::process::ExitCode {
         }
         _ => {}
     }
+    // The desktop app's local start (ADR 0065): one JSON line on stdout, errors on stderr.
+    if argv.first().map(String::as_str) == Some("desktop-connection") && argv.len() == 1 {
+        return match luuna_tui::setup::desktop_connection().await {
+            Ok(line) => {
+                println!("{line}");
+                std::process::ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("Luuna desktop connection: {error}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     if argv.first().map(String::as_str) == Some("config") {
         let result = (|| {
             let path = luuna_tui::config::path()

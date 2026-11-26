@@ -9,12 +9,16 @@ adds a pinned Pi OAuth launcher for the explicitly selected OpenAI grant. It
 shares only credential storage and locked refresh; worker settings, resources
 and history remain isolated. API-key environment bindings remain the default.
 
-The configured macOS desktop profile connects through the fixed private
-`~/.config/luuna/launch.py` helper, sharing the terminal's runtime settings.
-The native command receives the URL and token through an anonymous pipe;
-tokens do not enter app launch arguments or bundled frontend assets. The
-local `script/build_and_run.sh` builds and opens a Tauri app bundle. This
-machine-local helper is not provisioned by the generic release installer.
+On macOS and Linux the desktop's local start runs the installed release's
+`luuna-tui desktop-connection`, found through the installer's `current`
+version file. It starts the runtime from the private settings `lu init`
+saved, so the desktop and the terminal share one runtime and one token
+([ADR 0065](decisions/0065-desktop-local-start-from-the-installed-release.md)).
+Without an installed release, macOS falls back to the older personal
+`~/.config/luuna/launch.py` helper when it exists. The native command receives
+the URL and token through an anonymous pipe; tokens do not enter app launch
+arguments or bundled frontend assets. The local `script/build_and_run.sh`
+builds and opens a Tauri app bundle.
 
 Windows native development startup invokes a fixed local bootstrap command,
 starts or authenticates/reuses the independent runtime and connects without

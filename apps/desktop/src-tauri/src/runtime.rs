@@ -109,23 +109,78 @@ fn install_root() -> Result<std::path::PathBuf, String> {
         .ok_or_else(|| "Cannot locate the development checkout.".to_owned())
 }
 
-#[cfg(target_os = "macos")]
+/// The installed Luuna release's terminal executable, from the installer's
+/// fixed layout (ADR 0048): `<home>/versions/<current>/bin/luuna-tui`. The
+/// home is `LUUNA_INSTALL_HOME`, else `${XDG_DATA_HOME:-$HOME/.local/share}/luuna-install`.
+#[cfg(unix)]
+fn installed_terminal(
+    home: &std::path::Path,
+    install_home: Option<std::ffi::OsString>,
+    data_home: Option<std::ffi::OsString>,
+) -> Option<std::path::PathBuf> {
+    let absolute = |value: std::ffi::OsString| {
+        let path = std::path::PathBuf::from(value);
+        path.is_absolute().then_some(path)
+    };
+    let root = install_home.and_then(absolute).unwrap_or_else(|| {
+        data_home
+            .and_then(absolute)
+            .unwrap_or_else(|| home.join(".local/share"))
+            .join("luuna-install")
+    });
+    let current = std::fs::read_to_string(root.join("current")).ok()?;
+    let version = current.trim();
+    // The installer writes a bare version; anything that could leave `versions/` is refused.
+    if version.is_empty()
+        || version.len() > 64
+        || !version
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'+'))
+        || version.starts_with('.')
+    {
+        return None;
+    }
+    let terminal = root.join("versions").join(version).join("bin/luuna-tui");
+    terminal.is_file().then_some(terminal)
+}
+
+/// The fixed local start on macOS and Linux (ADR 0065). The installed release's
+/// `luuna-tui desktop-connection` starts the runtime from the private settings
+/// `lu init` saved. A machine without an installed release may still have the
+/// older personal launcher at `~/.config/luuna/launch.py`. Either way the
+/// connection arrives on an anonymous pipe: no credential in argv, a URL, web
+/// storage, or a generated frontend asset. Nothing from the view chooses the helper.
+#[cfg(unix)]
 fn bootstrap() -> Result<LocalConnection, String> {
     use std::{
         io::Read,
         process::{Command, Stdio},
         time::{Duration, Instant},
     };
-    // Fixed local helper and an anonymous pipe: no credential in argv, a URL,
-    // web storage, or a generated frontend asset. The helper owns service setup.
-    let home = std::env::var_os("HOME").ok_or("Your home directory is unavailable.")?;
-    let helper = std::path::PathBuf::from(home).join(".config/luuna/launch.py");
-    if !helper.is_file() {
-        return Err("The local Luuna launcher is missing. Configure just lu, or use the manual connection form.".to_owned());
-    }
-    let mut child = Command::new("/usr/bin/python3")
-        .arg(helper)
-        .arg("connection")
+    let home = std::path::PathBuf::from(
+        std::env::var_os("HOME").ok_or("Your home directory is unavailable.")?,
+    );
+    let legacy = home.join(".config/luuna/launch.py");
+    let mut command = match installed_terminal(
+        &home,
+        std::env::var_os("LUUNA_INSTALL_HOME"),
+        std::env::var_os("XDG_DATA_HOME"),
+    ) {
+        Some(terminal) => {
+            let mut command = Command::new(terminal);
+            command.arg("desktop-connection");
+            command
+        }
+        None if cfg!(target_os = "macos") && legacy.is_file() => {
+            let mut command = Command::new("/usr/bin/python3");
+            command.arg(legacy).arg("connection");
+            command
+        }
+        None => {
+            return Err("Luuna is not installed for this user. Install a Luuna release and run lu init, or use the manual connection form.".to_owned())
+        }
+    };
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -135,16 +190,19 @@ fn bootstrap() -> Result<LocalConnection, String> {
     loop {
         match child.try_wait() {
             Ok(Some(status)) if status.success() => break,
-            Ok(Some(_)) => return Err(
-                "Local runtime startup failed. Run just lu-check or just lu-restart in a terminal."
-                    .to_owned(),
-            ),
+            Ok(Some(_)) => {
+                return Err(
+                    "Local runtime startup failed. Run lu init, then lu doctor, in a terminal."
+                        .to_owned(),
+                );
+            }
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(
-                    "Local runtime startup timed out. Check just lu-log, then retry.".to_owned(),
+                    "Local runtime startup timed out. Run lu doctor in a terminal, then retry."
+                        .to_owned(),
                 );
             }
         }
@@ -160,9 +218,9 @@ fn bootstrap() -> Result<LocalConnection, String> {
     validate_connection(&bytes)
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", unix)))]
 fn bootstrap() -> Result<LocalConnection, String> {
-    Err("Automatic runtime startup is currently available on Windows. Use the manual connection form.".to_owned())
+    Err("Automatic runtime startup is not available on this platform. Use the manual connection form.".to_owned())
 }
 
 #[tauri::command]
@@ -199,5 +257,43 @@ mod tests {
         assert!(
             validate_connection(br#"{"url":"http://127.0.0.1:4242","token":"short"}"#).is_err()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finds_the_installed_terminal_only_inside_the_installer_layout() {
+        let dir = std::env::temp_dir().join(format!("luuna-desktop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let root = dir.join("data/luuna-install");
+        std::fs::create_dir_all(root.join("versions/0.1.0/bin")).unwrap();
+        std::fs::write(root.join("versions/0.1.0/bin/luuna-tui"), "").unwrap();
+        // No `current` file: nothing is installed.
+        assert_eq!(
+            installed_terminal(&dir, None, Some(dir.join("data").into())),
+            None
+        );
+        std::fs::write(root.join("current"), "0.1.0\n").unwrap();
+        let found = installed_terminal(&dir, None, Some(dir.join("data").into())).unwrap();
+        assert_eq!(found, root.join("versions/0.1.0/bin/luuna-tui"));
+        // LUUNA_INSTALL_HOME wins, and the default sits under ~/.local/share.
+        assert_eq!(
+            installed_terminal(&dir, Some(root.clone().into()), None),
+            Some(found)
+        );
+        assert_eq!(installed_terminal(&dir, None, None), None);
+        // A relative override is ignored rather than resolved against the working folder.
+        assert_eq!(
+            installed_terminal(&dir, Some("relative".into()), None),
+            None
+        );
+        for bad in ["../../etc", ".hidden", "", "a/b"] {
+            std::fs::write(root.join("current"), bad).unwrap();
+            assert_eq!(
+                installed_terminal(&dir, Some(root.clone().into()), None),
+                None,
+                "{bad}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
