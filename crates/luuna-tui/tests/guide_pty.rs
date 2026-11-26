@@ -84,14 +84,20 @@ fn the_guide_runs_in_a_real_pty_and_answers_with_keys() {
         writer.flush().unwrap();
     };
     wait(
-        &|text| text.contains("INIT") && text.contains("Repository") && text.contains("root"),
+        &|text| text.contains("INIT") && text.contains("repository") && text.contains("folder"),
         "the first question",
     );
-    let root = if cfg!(windows) {
-        "C:\\work\\demo"
-    } else {
-        "/work/demo"
-    };
+    // Outside a checkout the choices are: browse folders, or type a path.
+    send(b"\x1b[B");
+    send(b"\r");
+    wait(
+        &|text| text.contains("Repository") && text.contains("folder"),
+        "the typed folder question",
+    );
+    let demo = tempfile::tempdir().unwrap();
+    let root = demo.path().join("demo");
+    std::fs::create_dir(&root).unwrap();
+    let root = root.to_string_lossy().into_owned();
     send(root.as_bytes());
     send(b"\r");
     wait(

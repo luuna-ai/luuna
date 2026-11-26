@@ -1,5 +1,5 @@
  Home  Setup  Projects  Orbit  Missions  Atlas  Beacon  Runs  Commands  Help
- LUUNA  / WORKBENCH connected
+ LUUNA  ▸ demo (F3 switch) / WORKBENCH connected
 ╔ LUUNA ══════════════════════╗╔ > Home / workspace health ════════════════════════════════════════════════════════════╗
 ║ 1 Home *                    ║║> Demo workspace [1/1]                                                                 ║
 ║ 2 Set up a project          ║║Up/Down project / Enter opens / PgUp/PgDn details                                      ║

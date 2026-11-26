@@ -282,7 +282,7 @@ fn exact_six_tones_and_monochrome_preserve_status_semantics() {
     .map(|v| format!("{:?}", t.tone(v).fg))
     .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(colors.len(), 6);
-    assert_eq!(t.base().bg, Some(Color::Rgb(0, 0, 170)));
+    assert_eq!(t.base().bg, Some(Color::Rgb(0x0d, 0x20, 0x3b)));
     assert_eq!(state_tone("completed"), "neutral");
     assert_eq!(state_tone("interrupted"), "interrupted");
     assert_eq!(state_tone("reviewed"), "success");
@@ -1293,4 +1293,42 @@ fn a_run_action_by_an_unloaded_reference_opens_the_run_it_acted_on() {
         json!(RUN),
         "the detail view reads the run that was cancelled"
     );
+}
+#[test]
+fn board_cards_name_the_next_step_and_act_without_leaving_the_board_first() {
+    let mut a = app();
+    a.workbench.screen = Screen::Missions;
+    let card = a.snapshots["board"]["columns"][0]["cards"][0].clone();
+    let painted = draw(&mut a, 120, 35, false);
+    assert!(
+        painted.contains(luuna_tui::projections::next_step(&card)),
+        "{painted}"
+    );
+    // g follows the card's run.
+    key(&mut a, KeyCode::Char('g'));
+    assert_eq!(a.workbench.screen, Screen::RunDetail);
+    assert_eq!(a.context["ticket"], text_of(&card, "ticket_id"));
+    // p opens the plan form for the card's ticket without sending anything.
+    let mut a = app();
+    a.workbench.screen = Screen::Missions;
+    a.queue.clear();
+    key(&mut a, KeyCode::Char('p'));
+    assert!(a.queue.is_empty());
+    assert_eq!(
+        a.form.as_ref().map(|f| f.command.name.as_str()),
+        Some("plan")
+    );
+    // A plan started from the board carries the context selected locally, as
+    // one started from the ticket screen does.
+    let mut a = app();
+    a.workbench.screen = Screen::Missions;
+    a.workbench.memory_ids.insert("mem-1".into());
+    a.workbench.prompt_selection = Some("review@2#abc".into());
+    key(&mut a, KeyCode::Char('p'));
+    let (_, flags) = a.form.as_ref().unwrap().input().unwrap();
+    assert_eq!(flags["memory"], json!(["mem-1"]));
+    assert_eq!(flags["prompt"], "review@2#abc");
+}
+fn text_of(value: &serde_json::Value, key: &str) -> String {
+    value[key].as_str().unwrap_or_default().to_string()
 }

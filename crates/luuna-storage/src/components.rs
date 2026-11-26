@@ -341,6 +341,7 @@ impl Store {
         let file_state =
             crate::project_index::write_project_file(&tx, self.data_dir.as_deref(), project_id)?;
         crate::project_index::commit_or_restore(tx, file_state)?;
+        self.mirror_logs(&[project_id]);
         Ok(policy.clone())
     }
 

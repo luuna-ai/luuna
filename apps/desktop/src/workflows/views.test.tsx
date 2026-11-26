@@ -4,6 +4,7 @@ import { ByteCount, EMPTY_CHECK_ROW, PlanReview, SetupChecksEditor, TEXT_LIMITS,
 import { planBudgetProblem, planRequestForTasks } from "@luuna/api-client";
 import type { PlanRevision, RunState, Ticket } from "@luuna/api-client";
 import { planBlocker, planSupersedes } from "../workflow-state";
+import { triageFields } from "./model";
 import { card, noActions, pendingEvidence, planOf, runOf, ticket } from "./fixtures.test-support";
 
 const planButton = (html: string) => html.match(/<button[^>]*>Plan r\d+<\/button>/)?.[0] ?? "";
@@ -116,6 +117,13 @@ test("a ticket edit sends only the changed fields at the displayed revision, and
   expect(ticketEditRequest(ticket, { title: ticket.title, intent: ticket.intent, criteria: "prints", repositoryIds: ["app"] })).toBeNull();
   expect(ticketEditRequest(ticket, { title: " Edited ", intent: ticket.intent, criteria: "prints", repositoryIds: ["app"] })).toEqual({ expected_revision: 1, title: "Edited" });
   expect(ticketEditRequest({ ...ticket, revision: 3 }, { title: ticket.title, intent: "Print it twice", criteria: "prints\n\n twice ", repositoryIds: ["app", "web"] })).toEqual({ expected_revision: 3, intent: "Print it twice", acceptance_criteria: ["prints", "twice"], repository_ids: ["app", "web"] });
+  // Type, priority and labels are sent only when they differ (ADR 0058); labels are lowercased and deduplicated.
+  const base = { title: ticket.title, intent: ticket.intent, criteria: ticket.acceptance_criteria.join("\n"), repositoryIds: ticket.repository_ids };
+  expect(ticketEditRequest(ticket, { ...base, type: "task", priority: 2, labels: "" })).toBeNull();
+  expect(ticketEditRequest(ticket, { ...base, type: "bug", priority: 0, labels: "UI, docs, ui" })).toEqual({ expected_revision: 1, type: "bug", priority: 0, labels: ["ui", "docs"] });
+  expect(ticketEditRequest({ ...ticket, labels: ["ui"] }, { ...base, labels: "" })).toEqual({ expected_revision: 1, labels: [] });
+  expect(triageFields("task", 2, " ")).toEqual({});
+  expect(triageFields("epic", 4, "a,b")).toEqual({ type: "epic", priority: 4, labels: ["a", "b"] });
   expect(ticketEditRequest(ticket, { title: "", intent: "", criteria: "", repositoryIds: [] })).toBeNull();
   const html = renderToStaticMarkup(<TicketEditor ticket={ticket} repositoryIds={["app", "web"]} busy={false} latestRevision={2} onSave={() => { throw new Error("no unchanged save"); }} />);
   expect(html).toContain("Edit ticket r1");

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import type { Ticket, UpdateTicketRequest } from "@luuna/api-client";
-import { Button, Disclosure, Form, FormFooter, Stack, TextArea, TextField, submitted } from "@luuna/ui";
-import { TEXT_LIMITS, ticketEditRequest, ticketTextSizes, tooLong } from "./model";
+import type { Ticket, TicketType, UpdateTicketRequest } from "@luuna/api-client";
+import { Button, Disclosure, Form, FormFooter, Inline, SelectField, Stack, TextArea, TextField, submitted } from "@luuna/ui";
+import { TEXT_LIMITS, TICKET_PRIORITIES, TICKET_TYPES, ticketEditRequest, ticketTextSizes, tooLong } from "./model";
 import type { TicketDraft } from "./model";
 import { ByteCount } from "./PlanReview";
 import { RepositoryScope } from "./RepositoryScope";
@@ -11,7 +11,7 @@ import { RepositoryScope } from "./RepositoryScope";
  * for the earlier revision is stale and must be re-planned; the form says so before saving.
  */
 export function TicketEditor({ ticket, repositoryIds, busy, latestRevision, onSave }: { ticket: Ticket; repositoryIds: string[]; busy: boolean; latestRevision?: number; onSave: (request: UpdateTicketRequest) => void }) {
-  const [draft, setDraft] = useState<TicketDraft>({ title: ticket.title, intent: ticket.intent, criteria: ticket.acceptance_criteria.join("\n"), repositoryIds: ticket.repository_ids });
+  const [draft, setDraft] = useState<TicketDraft>({ title: ticket.title, intent: ticket.intent, criteria: ticket.acceptance_criteria.join("\n"), repositoryIds: ticket.repository_ids, type: ticket.type ?? "task", priority: ticket.priority ?? 2, labels: (ticket.labels ?? []).join(", ") });
   const request = ticketEditRequest(ticket, draft);
   const sizes = ticketTextSizes(draft.title, draft.intent, draft.criteria.split("\n"));
   const blocked = tooLong(sizes);
@@ -33,6 +33,11 @@ export function TicketEditor({ ticket, repositoryIds, busy, latestRevision, onSa
         <TextArea label="Revised acceptance criteria (one per line)" value={draft.criteria} onChange={(event) => setDraft({ ...draft, criteria: event.target.value })} required rows={2} aria-describedby={`edit-criteria-bytes-${ticket.id}`} />
         <ByteCount id={`edit-criteria-bytes-${ticket.id}`} prefix="Longest criterion: " bytes={sizes.criterion} limit={TEXT_LIMITS.criterion} />
       </Stack>
+      <Inline wrap gap={2}>
+        <SelectField label="Type" aria-label="Revised ticket type" value={draft.type ?? "task"} onChange={(event) => setDraft({ ...draft, type: event.target.value as TicketType })} options={TICKET_TYPES} />
+        <SelectField label="Priority" aria-label="Revised ticket priority" value={String(draft.priority ?? 2)} onChange={(event) => setDraft({ ...draft, priority: Number(event.target.value) })} options={TICKET_PRIORITIES} />
+        <TextField label="Labels (comma-separated)" aria-label="Revised ticket labels" value={draft.labels ?? ""} onChange={(event) => setDraft({ ...draft, labels: event.target.value })} />
+      </Inline>
       {choices.length > 1 && <RepositoryScope choices={choices} selected={draft.repositoryIds} onChange={(repositoryIds) => setDraft({ ...draft, repositoryIds })} />}
       <FormFooter hint={hint}>
         <Button variant="primary" submit disabled={!request || blocked} data-capability="tickets.update">Save ticket r{ticket.revision + 1}</Button>

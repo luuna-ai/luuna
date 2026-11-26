@@ -101,6 +101,7 @@ pub const HELP_GROUPS: [(&str, &str, &[&str]); 11] = [
             "retention",
             "set-retention",
             "apply-retention",
+            "memory-starter",
             "export-user-memory",
         ],
     ),
@@ -120,6 +121,124 @@ pub const HELP_GROUPS: [(&str, &str, &[&str]); 11] = [
         &["start-session", "shutdown"],
     ),
 ];
+
+/// Command groups (migration step 6): `<group> <verb>` runs exactly the flat command it
+/// names, with the same arguments, flags and `--json` output; every flat name keeps working.
+/// `plan`, `run` and `memory` are also flat commands, so for those a group verb is recognised
+/// only as the first argument and anything else still reaches the flat command. The intent
+/// group predates this table and is dispatched from its own entry in the CLI.
+/// A group's word, its one-line description, and each verb with the flat command it runs.
+pub type CommandGroup = (
+    &'static str,
+    &'static str,
+    &'static [(&'static str, &'static str)],
+);
+
+pub const COMMAND_GROUPS: [CommandGroup; 5] = [
+    (
+        "ticket",
+        "Work items in the project's authoritative ticket source.",
+        &[
+            ("list", "tickets"),
+            ("create", "create-ticket"),
+            ("show", "show-ticket"),
+            ("edit", "edit-ticket"),
+            ("source", "ticket-source"),
+            ("reconcile", "reconcile-ticket"),
+        ],
+    ),
+    (
+        "plan",
+        "Immutable plan revisions; approval binds to one exact hash.",
+        &[
+            ("create", "plan"),
+            ("list", "plans"),
+            ("show", "show-plan"),
+            ("approve", "approve"),
+        ],
+    ),
+    (
+        "run",
+        "Implement, follow, validate and review a candidate.",
+        &[
+            ("list", "runs"),
+            ("show", "run"),
+            ("events", "events"),
+            ("follow", "follow"),
+            ("implement", "implement"),
+            ("candidate", "candidate"),
+            ("diff", "diff"),
+            ("validate", "validate"),
+            ("repair", "repair"),
+            ("tasks", "tasks"),
+            ("attempts", "attempts"),
+            ("worktrees", "worktrees"),
+            ("artifact", "artifact"),
+            ("cancel", "cancel"),
+        ],
+    ),
+    (
+        "memory",
+        "Scoped project knowledge (Atlas) with provenance.",
+        &[
+            ("list", "memory"),
+            ("add", "remember"),
+            ("correct", "correct-memory"),
+            ("promote", "promote"),
+            ("forget", "forget"),
+            ("retention", "retention"),
+            ("set-retention", "set-retention"),
+            ("apply-retention", "apply-retention"),
+            ("export", "export-user-memory"),
+        ],
+    ),
+    (
+        "prompt",
+        "Versioned prompts (Beacon) selected into plans.",
+        &[
+            ("list", "prompts"),
+            ("save", "save-prompt"),
+            ("render", "render-prompt"),
+        ],
+    ),
+];
+
+/// The group named `word`, if any.
+pub fn command_group(word: &str) -> Option<&'static CommandGroup> {
+    COMMAND_GROUPS.iter().find(|(name, _, _)| *name == word)
+}
+
+/// The flat command that `<group> <verb>` stands for.
+pub fn grouped_command(group: &str, verb: &str) -> Option<&'static str> {
+    command_group(group)?
+        .2
+        .iter()
+        .find(|(name, _)| *name == verb)
+        .map(|(_, flat)| *flat)
+}
+
+/// A group's local page: each verb, the flat name it stands for, and its usage. Needs no runtime.
+pub fn group_page(group: &str, options: &Options) -> Option<String> {
+    let (name, blurb, verbs) = command_group(group)?;
+    let lines = verbs
+        .iter()
+        .filter_map(|(verb, flat)| help_command(flat).map(|command| (verb, flat, command)))
+        .map(|(verb, flat, command)| {
+            let usage = commands::usage(command);
+            let arguments = usage.strip_prefix(flat).unwrap_or_default();
+            format!(
+                "  {} {name} {verb}{arguments}\n      same as {flat}",
+                options.name
+            )
+        })
+        .collect::<Vec<_>>();
+    Some(format!(
+        "{name}\n{blurb} {program} {name} <verb> and the flat name are the same command; \
+         {program} help {name} <verb> shows its page.\n\n{}\n",
+        lines.join("\n"),
+        program = options.name
+    ))
+}
 
 /// The local intent group page; it needs no runtime or token.
 pub fn intent_group(options: &Options) -> String {
