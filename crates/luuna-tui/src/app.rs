@@ -618,6 +618,18 @@ impl AppState {
             crate::views::guide::key(self, key);
             return;
         }
+        // Outside forms and prompts a Ctrl or Alt letter is never the plain letter: Ctrl+S
+        // must not start setup, nor Ctrl+U flip Atlas's user memory.
+        if self.mode != Mode::Form
+            && self.prompt.is_none()
+            && matches!(key.code, KeyCode::Char(_))
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            && !(self.text_entry() && crate::keys::is_text(&key))
+        {
+            return;
+        }
         if crate::views::key(self, key) {
             return;
         }
