@@ -123,7 +123,8 @@ const MAX_PROVENANCE_BYTES: usize = 1000;
 /// Most deliveries of one fact looked through before its key stops advancing.
 const MAX_DELIVERIES: usize = 1000;
 
-/// The key for the next delivery of `fact`: `starter-<key>-<content hash>`,
+/// The key for the next delivery of `fact`: `starter-<key>-<request hash>`
+/// (key, content and provenance),
 /// then `-2`, `-3`… past each delivery whose memory was kept and later
 /// deleted or corrected away from this content. A delivery that has not finished, or whose memory still exists,
 /// keeps its key, so a retry resumes or replays it.
@@ -137,6 +138,10 @@ fn delivery_key(
     hasher.update(fact.key.as_bytes());
     hasher.update([0]);
     hasher.update(fact.content.as_bytes());
+    // The provenance is part of the request too: a new manifest revision
+    // changes it, and must not meet a pending delivery of the old request.
+    hasher.update([0]);
+    hasher.update(fact.provenance.as_bytes());
     let hash: String = hasher.finalize()[..8]
         .iter()
         .map(|b| format!("{b:02x}"))
