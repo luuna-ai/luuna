@@ -216,7 +216,23 @@ pub async fn mint_service_token(
     let url = set("LUUNA_URL")
         .or_else(|| vars.get("LUUNA_URL").cloned())
         .unwrap_or_else(|| default_url.into());
-    if url != default_url || answers(&url).await {
+    if url != default_url {
+        return Ok(false);
+    }
+    if answers(&url).await {
+        // Possibly a runtime another launch just started with a token it
+        // saved: adopt the saved settings. Otherwise it is somebody else's.
+        if let Ok(private) = private() {
+            let saved = load(&private.join("environment.json")).unwrap_or_default();
+            if saved
+                .get("LUUNA_API_TOKEN")
+                .is_some_and(|v| !v.trim().is_empty())
+            {
+                for (name, value) in saved {
+                    vars.insert(name, value);
+                }
+            }
+        }
         return Ok(false);
     }
     let private = private()?;
@@ -315,16 +331,24 @@ pub async fn stop_owned_runtime(vars: &BTreeMap<String, String>, url: &str) -> i
     }
     let client = Client::new(&url, token)
         .map_err(|_| io::Error::other("Invalid runtime URL or service token"))?;
-    let stop = tokio::time::timeout(
+    // Only a runtime that accepts the saved token is Luuna's to stop.
+    let owned = tokio::time::timeout(
         Duration::from_secs(5),
-        client.post("/shutdown", None, &Signal::never()),
+        client.get("/projects", &Signal::never()),
     )
     .await;
-    if !matches!(stop, Ok(Ok(_))) {
+    if !matches!(owned, Ok(Ok(_))) {
         return Ok(());
     }
     eprintln!("Restarting the local runtime with the new settings…");
-    for _ in 0..100 {
+    // The answer may time out after the stop has begun, so the outcome is
+    // decided by whether the runtime stops answering, not by the reply.
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        client.post("/shutdown", None, &Signal::never()),
+    )
+    .await;
+    for _ in 0..200 {
         if !answers(&url).await {
             return Ok(());
         }

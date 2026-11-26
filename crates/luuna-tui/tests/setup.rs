@@ -269,11 +269,14 @@ async fn no_token_is_minted_over_a_set_token_another_url_or_a_running_runtime() 
         other => panic!("unexpected request: {other}"),
     });
     let running = server.url();
-    assert!(
-        !luuna_tui::setup::mint_service_token(&mut vars, |_| None, &running, unused)
-            .await
-            .unwrap()
-    );
+    assert!(!luuna_tui::setup::mint_service_token(
+        &mut vars,
+        |_| None,
+        &running,
+        || Ok(private.clone())
+    )
+    .await
+    .unwrap());
     assert!(vars.is_empty());
     assert!(!private.exists());
 }
@@ -339,6 +342,9 @@ async fn init_stops_the_runtime_it_started_so_new_settings_apply() {
         "/api/v1/health" | "/health" if !seen.load(Ordering::SeqCst) => {
             support::json(serde_json::json!({"status":"ok"}))
         }
+        "/api/v1/projects" if !seen.load(Ordering::SeqCst) => {
+            support::json(serde_json::json!({"projects":[]}))
+        }
         "/api/v1/shutdown" => {
             assert_eq!(
                 request.header("authorization"),
@@ -357,4 +363,49 @@ async fn init_stops_the_runtime_it_started_so_new_settings_apply() {
         .await
         .unwrap();
     assert!(stopped.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn a_runtime_another_launch_started_is_adopted_with_its_saved_settings() {
+    use std::collections::BTreeMap;
+    let dir = tempfile::tempdir().unwrap();
+    let private = dir.path().join("private");
+    let url = closed_url();
+    let mut first = BTreeMap::new();
+    luuna_tui::setup::mint_service_token(&mut first, |_| None, &url, || Ok(private.clone()))
+        .await
+        .unwrap();
+    // The first launch's runtime now answers.
+    let server = support::serve(|request| match request.path.as_str() {
+        "/api/v1/health" | "/health" => support::json(serde_json::json!({"status":"ok"})),
+        other => panic!("unexpected request: {other}"),
+    });
+    let mut second = BTreeMap::new();
+    let minted = luuna_tui::setup::mint_service_token(
+        &mut second,
+        |_| None,
+        &server.url(),
+        || Ok(private.clone()),
+    )
+    .await
+    .unwrap();
+    assert!(!minted);
+    assert_eq!(second, first);
+}
+
+#[tokio::test]
+async fn a_runtime_that_rejects_the_saved_token_is_not_stopped() {
+    use std::collections::BTreeMap;
+    let server = support::serve(|request| match request.path.as_str() {
+        "/api/v1/health" | "/health" => support::json(serde_json::json!({"status":"ok"})),
+        "/api/v1/projects" => support::status(401, "{\"error\":\"authentication required\"}"),
+        other => panic!("unexpected request: {other}"),
+    });
+    let vars = BTreeMap::from([(
+        "LUUNA_API_TOKEN".to_string(),
+        "saved-service-token-0123456789abcdef".to_string(),
+    )]);
+    luuna_tui::setup::stop_owned_runtime(&vars, &server.url())
+        .await
+        .unwrap();
 }
