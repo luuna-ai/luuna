@@ -268,6 +268,20 @@ fn render(document: &Document) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Whether a rendering fits what `parse` accepts.
+fn fits(bytes: &[u8]) -> bool {
+    bytes.len() as u64 <= MAX_BYTES
+}
+
+/// The file for `document`, or `None` when it would be larger than the reader
+/// accepts: such a project keeps its tickets in the database alone and its
+/// file is left as it is, because a file the next open refuses would stop the
+/// runtime from starting.
+fn snapshot(document: &Document) -> Result<Option<Vec<u8>>> {
+    let bytes = render(document)?;
+    Ok(fits(&bytes).then_some(bytes))
+}
+
 fn writable(data: &Path, id: &str) -> Result<bool> {
     let dir = folder(data, id)?;
     check(&data.join(PROJECT_RECORDS), true)?;
@@ -347,7 +361,9 @@ fn mirror_one(tx: &Transaction<'_>, data: &Path, id: &str) -> Result<()> {
         // lost database: leave the file for the next open to import.
         return Ok(());
     }
-    let bytes = render(&document)?;
+    let Some(bytes) = snapshot(&document)? else {
+        return Ok(());
+    };
     let current = match read(data, id) {
         Ok(found) => found.map(|(_, bytes)| bytes),
         // A file the open would refuse is left for the open to report.
@@ -463,10 +479,12 @@ pub(crate) fn plan(tx: &Transaction<'_>, data: &Path) -> Result<Vec<Plan>> {
         let db = database(tx, &id)?;
         let Some(file) = files.remove(&id) else {
             writable(data, &id)?;
-            plans.push(Plan {
-                project_id: id,
-                action: Action::Rewrite(render(&db)?),
-            });
+            if let Some(bytes) = snapshot(&db)? {
+                plans.push(Plan {
+                    project_id: id,
+                    action: Action::Rewrite(bytes),
+                });
+            }
             continue;
         };
         if !known.contains(&id) {
@@ -499,7 +517,10 @@ pub(crate) fn plan(tx: &Transaction<'_>, data: &Path) -> Result<Vec<Plan>> {
             continue;
         } else if covers(&file, &db) {
             writable(data, &id)?;
-            Action::Rewrite(render(&db)?)
+            match snapshot(&db)? {
+                Some(bytes) => Action::Rewrite(bytes),
+                None => continue,
+            }
         } else if covers(&db, &file) {
             let registered: BTreeSet<String> = crate::projects::repositories_in(tx, &id)?
                 .into_iter()
@@ -579,4 +600,22 @@ pub(crate) fn backfill(data: &Path, plans: &[Plan]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_writer_never_writes_a_file_the_reader_refuses() {
+        let limit = MAX_BYTES as usize;
+        assert!(fits(&vec![b' '; limit]));
+        let over = vec![b' '; limit + 1];
+        assert!(!fits(&over));
+        let refusal = parse(&over, "demo", Path::new("tickets.json"))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(refusal.contains("larger than 64 MiB"), "{refusal}");
+    }
 }
