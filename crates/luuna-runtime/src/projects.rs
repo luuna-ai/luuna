@@ -442,7 +442,8 @@ pub async fn register_project(
 /// `DELETE /api/v1/projects/{id}` (ADR 0063): take the project off every list
 /// and free its checkouts. Its tickets, runs, evidence, events and project file
 /// stay on disk, and registering the same repositories at the same folders
-/// brings it back. Refused while a run may be working in one of its checkouts.
+/// brings it back. Refused while a run or an Orbit command may be working in
+/// one of its checkouts.
 pub async fn remove_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -463,6 +464,12 @@ pub async fn remove_project(
         return Err(ApiError(
             StatusCode::CONFLICT,
             format!("run {run} of project {id} may be executing in a registered checkout; wait for it to finish or cancel it before removing the project"),
+        ));
+    }
+    if crate::orbit::in_flight(&state, &id) {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            format!("an Orbit command of project {id} is running in its checkouts; wait for it to finish before removing the project"),
         ));
     }
     store.remove_project(&id).map_err(storage_error)?;

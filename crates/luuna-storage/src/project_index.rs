@@ -1149,8 +1149,20 @@ mod tests {
             store.registration_at_path("/srv/alpha/app").unwrap(),
             Some(("alpha".into(), "app".into()))
         );
+        // A run that is not working in a checkout does not hold removal back.
+        store
+            .create_workflow_run("run-alpha", "alpha", serde_json::json!({}))
+            .unwrap();
         store.remove_project("alpha").unwrap();
         assert!(store.get_project("alpha").unwrap().is_none());
+        // Its runs leave the listings, and no new run is admitted.
+        assert!(store.runs().unwrap().is_empty());
+        assert!(store.runs_page(None, None, 10).unwrap().is_empty());
+        assert!(store.get_run("run-alpha").unwrap().is_some());
+        assert!(matches!(
+            store.create_run("run-late", "alpha", serde_json::json!({})),
+            Err(StorageError::NotFound(_))
+        ));
         assert!(store.projects().unwrap().is_empty());
         assert!(store.removed_project("alpha").unwrap().is_some());
         assert_eq!(store.registration_at_path("/srv/alpha/app").unwrap(), None);

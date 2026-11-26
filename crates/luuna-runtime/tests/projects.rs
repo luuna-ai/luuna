@@ -1009,6 +1009,22 @@ async fn removing_a_project_hides_it_frees_its_checkout_and_the_same_folder_brin
         body["error"].as_str().unwrap().contains("was removed"),
         "{body}"
     );
+    // Scaffolding refuses the reserved name before it creates anything.
+    let parent = tempfile::tempdir().unwrap();
+    let (status, body) = harness
+        .request(
+            "POST",
+            "/api/v1/projects/scaffold/propose",
+            Some(json!({"profile":"node","name":"fixture","parent_dir":parent.path().to_string_lossy()})),
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains("was removed"),
+        "{body}"
+    );
+    assert!(!parent.path().join("fixture").exists());
     // The same folder under its ID brings it back, with its event record.
     let (status, body) = harness
         .request(

@@ -257,6 +257,16 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // A removed project admits no run (ADR 0063), checked in the same
+        // transaction as the insert so removal and admission never both win.
+        let removed: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1 AND removed_at IS NOT NULL)",
+            [project_id],
+            |row| row.get(0),
+        )?;
+        if removed {
+            return Err(StorageError::NotFound(project_id.into()));
+        }
         tx.execute("INSERT INTO runs(id,project_id,state,revision,metadata,created_at,updated_at) VALUES (?1,?2,?3,1,?4,?5,?5)",
             params![id, project_id, state_json(state)?, serde_json::to_string(&metadata)?, now])?;
         append(&tx, id, "run.created", serde_json::json!({"state":state}))?;
@@ -303,9 +313,10 @@ impl Store {
         Ok(result)
     }
 
+    /// Every run, except those of a removed project (ADR 0063), newest first.
     pub fn runs(&self) -> Result<Vec<RunRecord>> {
         let mut query = self.connection.prepare(
-            "SELECT id,project_id,state,revision,metadata,created_at,updated_at FROM runs ORDER BY created_at DESC,id",
+            "SELECT id,project_id,state,revision,metadata,created_at,updated_at FROM runs WHERE NOT EXISTS (SELECT 1 FROM projects p WHERE p.id=runs.project_id AND p.removed_at IS NOT NULL) ORDER BY created_at DESC,id",
         )?;
         let rows = query.query_map([], run_row)?;
         rows.map(|row| decode_run(row?)).collect()
