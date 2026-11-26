@@ -15,18 +15,15 @@ pub(super) fn prefill(app: &mut AppState, name: &str, values: Vec<(&str, String)
             form.fields.push(FormField {
                 name: "@confirm".into(),
                 label: if name == "forget" {
-                    "Confirm deletion (yes/no)"
+                    "Delete this memory?"
                 } else {
-                    "Confirm wider memory scope (yes/no)"
+                    "Widen its scope?"
                 }
                 .into(),
-                hint: "Review the displayed record identity and exact hash. Type yes to continue."
-                    .into(),
-                value: String::new(),
-                argument: false,
-                boolean: false,
-                repeated: false,
+                hint: "Check the record and its hash, then pick yes.".into(),
                 choices: vec![("yes".into(), String::new()), ("no".into(), String::new())],
+                fixed: true,
+                ..Default::default()
             });
         }
     }
@@ -69,36 +66,36 @@ pub(super) fn prompt_form(app: &mut AppState, update: bool) {
     );
     if let Some(form) = &mut app.form {
         // A UI-only document field travels through the existing stdin_document channel.
-        form.fields.push(FormField {
-            name: "@document".into(),
-            label: "Prompt body".into(),
-            hint: "Alt+Enter newline · Ctrl+S submits the explicit versioned write".into(),
-            value: if update {
-                text(&v, "body")
-            } else {
-                String::new()
-            },
-            argument: false,
-            boolean: false,
-            repeated: false,
-            choices: Vec::new(),
-        });
-        form.fields.retain(|f| f.name != "body");
-        // Keep positional body argument in its original position but hide it only visually.
-        let position = form.fields.iter().filter(|f| f.argument).count();
+        let before_advanced = form
+            .fields
+            .iter()
+            .position(|f| f.advanced)
+            .unwrap_or(form.fields.len());
         form.fields.insert(
-            position,
+            before_advanced,
             FormField {
-                name: "body".into(),
-                label: "Body input (- uses form below)".into(),
-                hint: "Keep - to use the inline prompt body".into(),
-                value: "-".into(),
-                argument: true,
-                boolean: false,
-                repeated: false,
-                choices: Vec::new(),
+                name: "@document".into(),
+                label: "Prompt body".into(),
+                hint: "The prompt text. Alt+Enter adds a line; Ctrl+S saves a new version.".into(),
+                value: if update {
+                    text(&v, "body")
+                } else {
+                    String::new()
+                },
+                ..Default::default()
             },
         );
+        // The body argument stays "-" (read from the field above) and out of the way.
+        form.fields.retain(|f| f.name != "body");
+        form.fields.push(FormField {
+            name: "body".into(),
+            label: "Body source".into(),
+            hint: "- reads the Prompt body field above.".into(),
+            value: "-".into(),
+            argument: true,
+            advanced: true,
+            ..Default::default()
+        });
     }
 }
 pub fn key(app: &mut AppState, key: KeyEvent) -> bool {

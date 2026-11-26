@@ -947,7 +947,7 @@ fn forms_offer_known_records_and_values_as_choices() {
     assert_eq!(field(&a, "repository").value, "web");
     key(&mut a, KeyCode::Left);
     assert_eq!(field(&a, "repository").value, "api");
-    assert!(draw(&mut a, 120, 35, false).contains("←/→ choose (1 of 2): api, web"));
+    assert!(draw(&mut a, 120, 35, false).contains("◂ api ▸  /fixture/api"));
     a.form = None;
     a.mode = Mode::Workbench;
 
@@ -1065,11 +1065,11 @@ fn a_short_or_latest_run_in_a_form_keeps_the_exact_identity_as_context() {
     let form = a.form.as_mut().unwrap();
     form.cursor = form.fields.iter().position(|f| f.name == "run").unwrap();
     key(&mut a, KeyCode::Right);
-    assert!(draw(&mut a, 120, 35, false).contains("run ◂▸: latest  the newest run"));
+    assert!(draw(&mut a, 120, 35, false).contains("◂ latest ▸  the newest run"));
     key(&mut a, KeyCode::Right);
     let painted = draw(&mut a, 120, 35, false);
     assert!(
-        painted.contains("run ◂▸: 8b1e0000  workflow 8b1e0000"),
+        painted.contains("◂ 8b1e0000 ▸  workflow 8b1e0000"),
         "{painted}"
     );
 }

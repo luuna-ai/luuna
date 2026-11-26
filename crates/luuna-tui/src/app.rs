@@ -602,7 +602,7 @@ impl AppState {
                     }
                     _ => {
                         if let Some(field) = form.fields.get_mut(form.cursor) {
-                            edit(&mut field.value, key, true);
+                            field.press(key);
                         }
                     }
                 }

@@ -118,7 +118,23 @@ pub(super) fn known_choices(app: &AppState, command: &str, field: &str) -> Vec<(
             "android",
             "ios",
         ]),
-        "purpose" => fixed(&["feature", "testing_setup"]),
+        "purpose" => vec![
+            pair("feature".into(), "default".into()),
+            pair("testing_setup".into(), "testing prerequisite".into()),
+        ],
+        "type" if command.ends_with("ticket") => fixed(&["task", "bug", "feature", "epic"]),
+        "priority" if command.ends_with("ticket") => [
+            ("P0", "critical"),
+            ("P1", "high"),
+            ("P2", "normal"),
+            ("P3", "low"),
+            ("P4", "backlog"),
+        ]
+        .iter()
+        .map(|(v, l)| pair((*v).into(), (*l).into()))
+        .collect(),
+        "mode" if command == "set-store-mode" => fixed(&["runtime", "repository"]),
+        "network" if command == "sbx" => fixed(&["open", "none"]),
         "role" => fixed(&["implementer", "repository_lead", "project_orchestrator"]),
         "recipe" => {
             let mut out = Vec::new();
@@ -204,6 +220,10 @@ pub(super) fn newest_loaded_run(app: &AppState) -> Option<Value> {
         .into_iter()
         .max_by_key(|r| text(r, "created_at"))
 }
+/// Fields whose value is always one of their choices, so typing a letter picks one.
+const FIXED: &[&str] = &[
+    "scope", "to-scope", "profile", "purpose", "role", "type", "priority", "mode", "network",
+];
 /// Gives each field of a new form the choices the workbench already knows, and fills a required
 /// argument that has exactly one possible value (the only repository, the only project).
 pub fn offer_choices(app: &AppState, form: &mut crate::app::ActionForm) {
@@ -216,6 +236,7 @@ pub fn offer_choices(app: &AppState, form: &mut crate::app::ActionForm) {
             .into_iter()
             .filter(|(value, _)| !value.is_empty())
             .collect();
+        field.fixed = !field.choices.is_empty() && FIXED.contains(&field.name.as_str());
         let only_record = field.choices.len() == 1
             && !matches!(field.name.as_str(), "scope" | "to-scope" | "run");
         if field.argument && field.value.is_empty() && only_record {

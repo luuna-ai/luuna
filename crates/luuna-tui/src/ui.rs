@@ -118,7 +118,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState, theme: Theme) {
     } else if app.prompt.is_some() {
         " Enter answer · PgUp/PgDn plan · Esc abort".to_string()
     } else if app.mode == Mode::Form {
-        " Tab field · Alt+Enter/Ctrl+J line · Ctrl+S submit · Esc back".to_string()
+        " Tab next · ←→ pick · Ctrl+S submit · Alt+Enter new line · Esc cancel".to_string()
     } else if app.mode == Mode::Result {
         " ↑↓ PgUp/PgDn scroll · Esc back/abort · q quit".to_string()
     } else {
@@ -166,61 +166,146 @@ fn render_form(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) 
     let Some(form) = &app.form else {
         return;
     };
-    let title = format!(
-        " {} ({}) ",
-        safe_text(&form.command.action),
-        safe_text(&form.command.name)
-    );
-    let block = panel(title, theme);
+    let block = panel(format!(" {} ", safe_text(&form.command.action)), theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let current = form.fields.get(form.cursor);
+    let typing =
+        current.is_some_and(|f| !f.fixed || f.choice_index().is_none() && !f.value.is_empty());
     let [fields_area, edit_area, hint_area] = Layout::vertical([
         Constraint::Min(1),
-        Constraint::Length(if inner.height >= 12 { 6 } else { 2 }),
-        Constraint::Length(1),
+        Constraint::Length(match (typing, inner.height >= 12) {
+            (false, _) => 0,
+            (true, true) => 5,
+            (true, false) => 1,
+        }),
+        Constraint::Length(2.min(inner.height.saturating_sub(2))),
     ])
     .areas(inner);
-    let available = usize::from(fields_area.height).max(1);
-    let top = form.cursor.saturating_sub(available.saturating_sub(1));
-    let mut lines = Vec::new();
-    for (index, field) in form.fields.iter().enumerate().skip(top).take(available) {
-        let value = if field.value.is_empty() {
-            if field.argument {
-                "<required>"
-            } else {
-                "<optional>"
-            }
-            .to_string()
-        } else if field.choice_index().is_some() {
-            safe_text(&crate::refs::short_id(&field.value))
-        } else {
-            safe_text(&field.value).replace('\n', " ↵ ")
-        };
-        // A field with choices names the picked record beside its short id (ADR 0042).
-        let picked = match field.choice_index().map(|i| &field.choices[i].1) {
-            Some(label) if !label.is_empty() => format!("  {}", safe_text(label)),
-            _ => String::new(),
-        };
-        let marker = if field.choices.is_empty() {
-            ""
-        } else {
-            " ◂▸"
-        };
-        lines.push(Line::styled(
-            format!(
-                "{} {}{marker}: {}{picked}",
-                if index == form.cursor { "▸" } else { " " },
-                safe_text(&field.label),
-                value
+    // Labels in one column, as wide as the longest (capped), so values line up.
+    let column = form
+        .fields
+        .iter()
+        .map(|f| f.label.chars().count())
+        .max()
+        .unwrap_or(0)
+        .min(30)
+        .min(usize::from(inner.width) / 3)
+        + 2;
+    let mut rows: Vec<(Option<usize>, Line<'static>)> = Vec::new();
+    for (index, field) in form.fields.iter().enumerate() {
+        if field.advanced && !form.fields[..index].iter().any(|f| f.advanced) {
+            rows.push((None, Line::raw("")));
+            rows.push((None, Line::styled("  More options", theme.muted())));
+        }
+        let focused = index == form.cursor;
+        let label: String = safe_text(&field.label)
+            .chars()
+            .take(column.saturating_sub(2))
+            .collect();
+        let mut spans = vec![
+            Span::styled(
+                if focused { "▸ " } else { "  " },
+                if focused {
+                    theme.title()
+                } else {
+                    theme.panel()
+                },
             ),
-            if index == form.cursor {
-                theme.selected()
+            Span::styled(
+                format!("{label:<column$}"),
+                if focused {
+                    theme.title()
+                } else {
+                    theme.panel()
+                },
+            ),
+        ];
+        let inline = field.fixed
+            && field.choices.len() <= 6
+            && (field.value.is_empty() || field.choice_index().is_some());
+        if inline {
+            // A short fixed list shows every choice, the picked one bracketed.
+            let picked = field.choice_index();
+            for (i, (value, _)) in field.choices.iter().enumerate() {
+                let text = safe_text(value);
+                spans.push(if Some(i) == picked {
+                    Span::styled(format!("[{text}]"), theme.selected())
+                } else {
+                    Span::styled(format!(" {text} "), theme.muted())
+                });
+                spans.push(Span::raw(" "));
+            }
+        } else if field.value.is_empty() {
+            spans.push(Span::styled(
+                if field.argument {
+                    "required"
+                } else {
+                    "optional"
+                },
+                theme.muted(),
+            ));
+            if focused && !field.choices.is_empty() {
+                spans.push(Span::styled(
+                    format!("  ←→ {} to pick from", field.choices.len()),
+                    theme.muted(),
+                ));
+            }
+        } else {
+            let value = if field.choice_index().is_some() {
+                safe_text(&crate::refs::short_id(&field.value))
             } else {
-                theme.panel()
-            },
-        ));
+                safe_text(&field.value).replace('\n', " ↵ ")
+            };
+            let arrows = focused && field.choices.len() > 1;
+            spans.push(Span::styled(
+                if arrows {
+                    format!("◂ {value} ▸")
+                } else {
+                    value
+                },
+                theme.panel(),
+            ));
+            // A picked record shows its name beside its short id (ADR 0042).
+            if let Some(name) = field
+                .choice_index()
+                .map(|i| &field.choices[i].1)
+                .filter(|l| !l.is_empty())
+            {
+                spans.push(Span::styled(
+                    format!("  {}", safe_text(name)),
+                    theme.muted(),
+                ));
+            }
+        }
+        let style = if focused {
+            theme.selected()
+        } else {
+            theme.panel()
+        };
+        let mut line = Line::from(spans);
+        if focused && !inline {
+            line = line.style(style);
+        }
+        rows.push((Some(index), line));
     }
-    if let Some(field) = form.fields.get(form.cursor) {
+    let available = usize::from(fields_area.height).max(1);
+    let at = rows
+        .iter()
+        .position(|(i, _)| *i == Some(form.cursor))
+        .unwrap_or(0);
+    let top = at.saturating_sub(available.saturating_sub(1));
+    let lines: Vec<Line> = rows
+        .into_iter()
+        .skip(top)
+        .take(available)
+        .map(|(_, l)| l)
+        .collect();
+    frame.render_widget(Paragraph::new(lines).style(theme.panel()), fields_area);
+    let Some(field) = current else {
+        return;
+    };
+    if typing && edit_area.height > 0 {
         let value = wrapped_lines(
             &format!("> {}_", safe_text(&field.value)),
             edit_area.width.max(1),
@@ -237,27 +322,20 @@ fn render_form(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) 
             .style(theme.title()),
             edit_area,
         );
-        let hint = if field.choices.is_empty() {
-            safe_text(&field.hint)
-        } else {
-            let position = field
-                .choice_index()
-                .map(|i| format!("{} of {}", i + 1, field.choices.len()))
-                .unwrap_or_else(|| format!("{} choices", field.choices.len()));
-            let names = field
-                .choices
-                .iter()
-                .map(|(value, _)| crate::refs::short_id(value))
-                .collect::<Vec<_>>()
-                .join(", ");
-            safe_text(&format!(
-                "←/→ choose ({position}): {names} · or type · {}",
-                field.hint
-            ))
-        };
-        frame.render_widget(Paragraph::new(hint).style(theme.muted()), hint_area);
     }
-    frame.render_widget(Paragraph::new(lines), fields_area);
+    let how = if field.fixed {
+        "←→ or a letter picks. "
+    } else if !field.choices.is_empty() {
+        "←→ picks, or type. "
+    } else {
+        ""
+    };
+    frame.render_widget(
+        Paragraph::new(safe_text(&format!("{how}{}", field.hint)))
+            .style(theme.muted())
+            .wrap(ratatui::widgets::Wrap { trim: true }),
+        hint_area,
+    );
 }
 
 fn render_result(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) {
