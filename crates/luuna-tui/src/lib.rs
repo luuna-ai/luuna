@@ -6,6 +6,7 @@ pub mod client;
 pub mod commands;
 pub mod components;
 pub mod config;
+pub mod detect;
 pub mod failures;
 pub mod format;
 pub mod frame;
