@@ -30,6 +30,9 @@ const NOT_RECORDS: [&str; 4] = ["config.yaml", "README.md", ".gitignore", ".gita
 /// is treated as holding records.
 const MAX_DEPTH: usize = 8;
 const MAX_ENTRIES: usize = 10_000;
+/// Most bytes read from a store's files before it is treated as holding
+/// records.
+const MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 fn conflict(message: impl Into<String>) -> ApiError {
     ApiError(StatusCode::CONFLICT, message.into())
@@ -147,6 +150,16 @@ pub async fn set(
                 .map_err(internal)?
                 .is_some();
         }
+        let mut uncertain = store
+            .uncertain_component_operations(&id)
+            .map_err(internal)?;
+        uncertain.dedup();
+        if !uncertain.is_empty() {
+            return Err(conflict(format!(
+                "An earlier component write for this project ({}) may have reached its current store without being recorded; retry it with the same idempotency key so Luuna can reconcile it, then change the store mode",
+                uncertain.join(", ")
+            )));
+        }
         (checkout, tracked)
     };
     let current = luuna_storage::read_project_store_mode(&state.config.data_dir, &id).ok();
@@ -207,7 +220,7 @@ pub async fn set(
 /// ignore files that has a non-blank byte. A link, an unreadable entry or a
 /// store too large to look through counts as holding records.
 fn holds_records(store: &FsPath) -> bool {
-    fn walk(dir: &FsPath, top: bool, depth: usize, seen: &mut usize) -> bool {
+    fn walk(dir: &FsPath, top: bool, depth: usize, seen: &mut usize, budget: &mut u64) -> bool {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return true;
         };
@@ -222,13 +235,16 @@ fn holds_records(store: &FsPath) -> bool {
             }
             let name = entry.file_name();
             if metadata.is_dir() {
-                if depth >= MAX_DEPTH || walk(&entry.path(), false, depth + 1, seen) {
+                if depth >= MAX_DEPTH || walk(&entry.path(), false, depth + 1, seen, budget) {
                     return true;
                 }
-            } else if !(top && NOT_RECORDS.iter().any(|n| name == *n)) {
-                match std::fs::read(entry.path()) {
-                    Ok(bytes) if bytes.iter().all(u8::is_ascii_whitespace) => {}
-                    _ => return true,
+            } else if !metadata.is_file() {
+                // A FIFO, socket or device is never read.
+                return true;
+            } else {
+                let exempt = top && NOT_RECORDS.iter().any(|n| name == *n);
+                if !exempt && !blank_file(&entry.path(), budget) {
+                    return true;
                 }
             }
         }
@@ -237,15 +253,61 @@ fn holds_records(store: &FsPath) -> bool {
     match std::fs::symlink_metadata(store) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-            walk(store, true, 0, &mut 0)
+            let mut budget = MAX_BYTES;
+            walk(store, true, 0, &mut 0, &mut budget)
         }
         _ => true,
     }
 }
 
+/// Whether the regular file at `path` holds only whitespace, reading at most
+/// `budget` bytes from the start of the scan. A link or special file, or one
+/// swapped in after the walk looked, is never opened as a file: it, an
+/// unreadable file and a spent budget all count as holding records.
+fn blank_file(path: &FsPath, budget: &mut u64) -> bool {
+    use std::io::Read;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_FLAG_OPEN_REPARSE_POINT: open a reparse point itself.
+        options.custom_flags(0x0020_0000);
+    }
+    let Ok(file) = options.open(path) else {
+        return false;
+    };
+    if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
+        return false;
+    }
+    let mut chunk = [0u8; 8192];
+    let mut reader = file.take(*budget + 1);
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => return true,
+            Ok(read) => {
+                if read as u64 > *budget {
+                    return false;
+                }
+                *budget -= read as u64;
+                if !chunk[..read].iter().all(u8::is_ascii_whitespace) {
+                    return false;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::holds_records;
+    use super::{blank_file, holds_records};
     use std::fs;
 
     #[test]
@@ -270,5 +332,26 @@ mod tests {
         fs::create_dir_all(store.join("human")).unwrap();
         fs::write(store.join("human/README.md"), "a note").unwrap();
         assert!(holds_records(&store), "a note below the top level");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_special_file_counts_as_records_and_is_never_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join("atlas");
+        fs::create_dir_all(&store).unwrap();
+        let fifo = std::ffi::CString::new(store.join("pipe").to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        // Returns at once instead of blocking on the FIFO.
+        assert!(holds_records(&store));
+    }
+
+    #[test]
+    fn reading_stops_at_the_byte_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("blank.jsonl");
+        fs::write(&file, vec![b' '; 100]).unwrap();
+        assert!(blank_file(&file, &mut 100));
+        assert!(!blank_file(&file, &mut 99));
     }
 }

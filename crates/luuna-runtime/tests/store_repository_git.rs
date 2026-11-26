@@ -653,3 +653,42 @@ async fn a_link_inside_a_component_store_is_refused_before_it_is_read() {
         "outside: true\n"
     );
 }
+
+#[tokio::test]
+async fn a_component_write_with_no_recorded_outcome_holds_the_store_mode() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Ignored, &STORES).await;
+    register_only(data.path(), &checkout);
+    {
+        // A memory write that reached Atlas before the runtime stopped.
+        let store = Store::open(data.path().join("luuna.sqlite3")).unwrap();
+        store
+            .begin_component_operation(
+                "app",
+                "memory-cut-short",
+                "memory.create",
+                &json!({"scope": "project", "content": "x", "provenance": "test"}),
+                "mem-cut-short",
+            )
+            .unwrap();
+        store
+            .mark_component_operation_attempted("app", "memory-cut-short")
+            .unwrap();
+    }
+    let app = serve(data.path());
+    let (status, body) = request(
+        &app,
+        "PUT",
+        "/api/v1/projects/app/store-mode",
+        Some(json!({"mode": "repository", "repository": "api"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let text = body["error"].as_str().unwrap();
+    assert!(
+        text.contains("memory.create") && text.contains("retry it"),
+        "{text}"
+    );
+    assert_eq!(store_file(data.path()), None);
+}

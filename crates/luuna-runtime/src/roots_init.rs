@@ -84,6 +84,9 @@ fn create(path: &Path, bytes: &[u8]) -> Result<(), ApiError> {
     file.sync_all().map_err(internal)
 }
 pub(crate) async fn init(state: &AppState, id: &str, human: &HumanActor) -> Result<(), ApiError> {
+    // The store is resolved under the component lock, so a store-mode change
+    // that runs first is seen and no queued init writes to the old store.
+    let _guard = state.component_locks.lock().await;
     let workspace = crate::stores::project_store(state, id)?;
     // A repository store is never set up by the runtime (ADR 0061).
     if workspace.is_checkout() {
@@ -93,7 +96,6 @@ pub(crate) async fn init(state: &AppState, id: &str, human: &HumanActor) -> Resu
         ));
     }
     let workspace = workspace.path().to_owned();
-    let _guard = state.component_locks.lock().await;
     let data = state.config.data_dir.clone();
     let id = id.to_owned();
     let by = human.as_str().to_owned();
