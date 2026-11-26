@@ -4,6 +4,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 
+/// The most text one form field or prompt answer holds (the paste limit too).
+pub const MAX_INPUT: usize = 256 * 1024;
+
 #[derive(Clone, Debug, Default)]
 pub struct FormField {
     pub name: String,
@@ -138,7 +141,7 @@ impl ActionForm {
     }
 }
 pub(crate) fn edit(text: &mut String, key: KeyEvent, multiline: bool) {
-    if text.len() >= 256 * 1024 && key.code != KeyCode::Backspace {
+    if text.len() >= MAX_INPUT && key.code != KeyCode::Backspace {
         return;
     }
     match key.code {

@@ -1142,7 +1142,7 @@ fn the_approval_question_shows_what_to_type_and_how_to_cancel_at_eighty_columns(
     a.prompt = Some(luuna_tui::app::PendingPrompt {
         request_id: "r".into(),
         prompt_id: "p".into(),
-        kind: "hash".into(),
+        kind: luuna_tui::app::PromptKind::Hash,
         question: luuna_tui::commands::approval_question(
             "plan-ticket-3f2a91c0-1b2c-4d5e-8f90-0123456789ab",
             "12",
