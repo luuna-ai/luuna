@@ -233,7 +233,7 @@ async fn the_guide_runs_every_step_with_the_commands_bodies() {
         runs: Mutex::new(Vec::new()),
     };
     let ui = Scripted::new(vec![
-        Answer::Default,
+        Answer::Pick("This checkout"),
         Answer::Default,
         Answer::Default,
         Answer::Pick("No, one"),
@@ -359,7 +359,7 @@ async fn skipping_runs_nothing_optional_and_leaving_returns_130() {
         runs: Mutex::new(Vec::new()),
     };
     let ui = Scripted::new(vec![
-        Answer::Default,
+        Answer::Pick("This checkout"),
         Answer::Default,
         Answer::Default,
         Answer::Pick("No, one"),
@@ -379,7 +379,7 @@ async fn skipping_runs_nothing_optional_and_leaving_returns_130() {
         || (r.method == "POST" && r.path.ends_with("/components"))));
     assert!(ui.lines().contains("A baseline needs a confirmed manifest"));
     let leave = Scripted::new(vec![
-        Answer::Default,
+        Answer::Pick("This checkout"),
         Answer::Default,
         Answer::Default,
         Answer::Leave,
@@ -397,7 +397,7 @@ async fn missing_component_clis_skip_the_agents_step_with_the_install_hint() {
         runs: Mutex::new(Vec::new()),
     };
     let ui = Scripted::new(vec![
-        Answer::Default,
+        Answer::Pick("This checkout"),
         Answer::Default,
         Answer::Default,
         Answer::Pick("No, one"),

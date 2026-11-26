@@ -316,6 +316,60 @@ pub fn basename(value: &str) -> String {
     name.to_string()
 }
 
+/// A path as a person types, pastes or drops it into a terminal: surrounding quotes,
+/// backslash-escaped spaces (macOS Terminal drops), `~` and relative paths are accepted.
+pub fn typed_path(cwd: &Path, home: Option<&Path>, value: &str) -> PathBuf {
+    let mut text = value.trim().to_string();
+    for quote in ['\'', '"'] {
+        if text.len() >= 2 && text.starts_with(quote) && text.ends_with(quote) {
+            text = text[1..text.len() - 1].to_string();
+        }
+    }
+    if !cfg!(windows) {
+        let mut out = String::new();
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                    continue;
+                }
+            }
+            out.push(c);
+        }
+        text = out;
+    }
+    if let (Some(home), Some(rest)) = (home, text.strip_prefix('~')) {
+        if rest.is_empty() || rest.starts_with(['/', '\\']) {
+            return resolve(home, rest.trim_start_matches(['/', '\\']));
+        }
+    }
+    resolve(cwd, &text)
+}
+
+/// The folders below `dir` a person may want to open: visible, real directories, sorted,
+/// each marked when it is a Git checkout. Links are not listed.
+pub fn child_folders(dir: &Path) -> Vec<(String, bool)> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(String, bool)> = entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter_map(|e| e.file_name().to_str().map(str::to_owned))
+        .filter(|name| !name.starts_with('.'))
+        .map(|name| {
+            let git = dir.join(&name).join(".git").exists();
+            (name, git)
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+    });
+    out
+}
+
 fn same_path(a: &str, b: &Path) -> bool {
     let normal = |p: &Path| {
         p.to_string_lossy()
@@ -521,6 +575,82 @@ impl Guide<'_> {
 }
 
 /// Runs the guide over `ui` with `client`; `runner` runs the component CLIs.
+/// Asks for a repository folder: this checkout, a folder picked by browsing, or a typed,
+/// pasted or dropped path (owner feedback C1). Returns an absolute path.
+async fn pick_folder(
+    g: &mut Guide<'_>,
+    cwd: &Path,
+    home: Option<&Path>,
+    checkout: Option<&str>,
+) -> Result<String, Exit> {
+    let mut options: Vec<(String, String, &str)> = Vec::new();
+    if let Some(root) = checkout {
+        options.push(("This checkout".into(), root.to_string(), "here"));
+    }
+    options.push((
+        "Browse folders…".into(),
+        "pick it from a list".into(),
+        "browse",
+    ));
+    options.push((
+        "Type or paste a path".into(),
+        "you can also drag the folder into this window".into(),
+        "type",
+    ));
+    match g
+        .face
+        .choose("Which repository folder?", &options, 0)
+        .await
+        .map_err(|f| g.left_or(f))?
+    {
+        "here" => return Ok(checkout.unwrap_or_default().to_string()),
+        "type" => {
+            let typed = g
+                .face
+                .ask("Repository folder", "", false, &|v: &str| {
+                    let path = typed_path(cwd, home, v);
+                    (!path.is_dir()).then(|| format!("{} is not a folder.", path.display()))
+                })
+                .await
+                .map_err(|f| g.left_or(f))?;
+            return Ok(typed_path(cwd, home, &typed).to_string_lossy().into_owned());
+        }
+        _ => {}
+    }
+    let mut dir = checkout
+        .map(PathBuf::from)
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .or_else(|| home.map(Path::to_path_buf))
+        .unwrap_or_else(|| resolve(cwd, ""));
+    loop {
+        let here = dir.to_string_lossy().into_owned();
+        let mut choices: Vec<(String, String, Option<PathBuf>)> =
+            vec![("Use this folder".into(), here.clone(), Some(PathBuf::new()))];
+        if let Some(parent) = dir.parent() {
+            choices.push((
+                "..".into(),
+                "up one folder".into(),
+                Some(parent.to_path_buf()),
+            ));
+        }
+        for (name, git) in child_folders(&dir).into_iter().take(60) {
+            let hint = if git { "Git checkout" } else { "" };
+            choices.push((format!("{name}/"), hint.into(), Some(dir.join(name))));
+        }
+        let initial = usize::from(choices.len() > 2) * 2;
+        match g
+            .face
+            .choose(&format!("Browsing {here}"), &choices, initial)
+            .await
+            .map_err(|f| g.left_or(f))?
+        {
+            Some(next) if next.as_os_str().is_empty() => return Ok(here),
+            Some(next) => dir = next,
+            None => return Ok(here),
+        }
+    }
+}
+
 pub async fn prime(
     client: &Client,
     ui: &dyn GuideUi,
@@ -607,16 +737,15 @@ async fn run(
     };
     g.face.spin_stop(None);
     let status = health.get("status").js();
-    let build = health.get("build_identity");
+    // The build fingerprint means nothing to a person here (owner feedback B1); the
+    // `health` command still prints it for scripts and support.
     g.ok(&format!(
-        "Runtime {} · Pi {}{}",
-        tone(&status, if status == "ok" { "success" } else { "danger" }),
+        "Luuna's runtime is {} and uses Pi {}",
+        tone(
+            if status == "ok" { "running" } else { &status },
+            if status == "ok" { "success" } else { "danger" }
+        ),
         health.get("pi_version").js(),
-        if build.truthy() {
-            s::dim(&format!(" · build {}", short_hash(build)))
-        } else {
-            String::new()
-        }
     ));
     if health.get("native_execution").truthy() {
         g.warn("Approved writers and checks run natively with your host permissions. Prompts restrict tools; they are not a sandbox.");
@@ -717,21 +846,13 @@ async fn run(
             if let Some(root) = &root_text {
                 g.note(&format!("Found a Git checkout at {root}."));
             }
-            let absolute = |value: &str| {
-                (!is_absolute(value))
-                    .then(|| "Give the absolute path of the repository root.".to_string())
-            };
-            let repository_root = g
-                .face
-                .ask(
-                    "Repository root",
-                    root_text.as_deref().unwrap_or(""),
-                    false,
-                    &absolute,
-                )
-                .await
-                .map_err(|f| g.left_or(f))?;
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(PathBuf::from);
+            let repository_root =
+                pick_folder(g, cwd, home.as_deref(), root_text.as_deref()).await?;
             let base = basename(&repository_root);
+            g.note("The project name is what Luuna shows you. The repository id is the short name you type in commands and that Luuna's branches carry. Both come from the folder name, so Enter keeps them.");
             let project_name = g
                 .face
                 .ask("Project name", &base, false, &|v: &str| {
@@ -763,11 +884,7 @@ async fn run(
                 {
                     break;
                 }
-                let other_root = g
-                    .face
-                    .ask("Its repository root", "", false, &absolute)
-                    .await
-                    .map_err(|f| g.left_or(f))?;
+                let other_root = pick_folder(g, cwd, home.as_deref(), None).await?;
                 let taken = extra.clone();
                 let first = repository_id.clone();
                 let other_id = g
@@ -864,9 +981,8 @@ async fn run(
     if view.get("manifest").truthy() {
         let manifest = view.get("manifest");
         g.ok(&format!(
-            "Manifest r{} is already confirmed {}",
+            "Manifest revision {} is already confirmed",
             manifest.get("revision").js(),
-            s::dim(&short_hash(manifest.get("hash")))
         ));
         let options = [
             (
@@ -1078,7 +1194,33 @@ async fn run(
                                 _ => None,
                             })
                             .unwrap_or("");
-                        let line = g.face.ask("Command that runs the tests", suggested, false, &|v: &str| js_trim(v).is_empty().then(|| "Give the command, for example python -m unittest -v.".to_string())).await.map_err(|f| g.left_or(f))?;
+                        g.note("A required check is the command that proves a change didn't break anything. Luuna runs it on your checkout first (the baseline), then on every change it proposes, and never hands you a change that fails it.");
+                        let repository_id = repository.get("id").js();
+                        let detected = view
+                            .get("repositories")
+                            .items()
+                            .iter()
+                            .find(|r| r.get("repository_id").js() == repository_id)
+                            .and_then(|r| r.get("local_path").as_str().map(PathBuf::from))
+                            .map(|root| crate::detect::test_commands(&root))
+                            .unwrap_or_default();
+                        let picked = if detected.is_empty() {
+                            None
+                        } else {
+                            let mut choices: Vec<(String, String, Option<String>)> = detected
+                                .iter()
+                                .map(|d| (d.command.clone(), format!("found: {}", d.because), Some(d.command.clone())))
+                                .collect();
+                            choices.push(("Other…".into(), "type the command yourself".into(), None));
+                            g.face.choose("Which command runs the tests?", &choices, 0).await.map_err(|f| g.left_or(f))?
+                        };
+                        let line = match picked {
+                            Some(command) => command,
+                            None => {
+                                let initial = if detected.is_empty() { suggested } else { "" };
+                                g.face.ask("Command that runs the tests", initial, false, &|v: &str| js_trim(v).is_empty().then(|| "Give the command that runs this repository's tests, for example npm test or cargo test.".to_string())).await.map_err(|f| g.left_or(f))?
+                            }
+                        };
                         let words: Vec<String> = js_trim(&line).split_whitespace().map(str::to_string).collect();
                         let existing = repository.get("checks").items().to_vec();
                         let id = if existing.iter().any(|c| c.get("id").as_str() == Some("tests")) { format!("tests-{}", existing.len() + 1) } else { "tests".to_string() };
@@ -2050,6 +2192,45 @@ mod tests {
             "demo"
         );
         assert!(is_absolute(if cfg!(windows) { r"C:\x" } else { "/x" }));
+        #[cfg(unix)]
+        {
+            let (cwd, home) = (Path::new("/work"), Some(Path::new("/home/me")));
+            assert_eq!(
+                typed_path(cwd, home, "  demo "),
+                PathBuf::from("/work/demo")
+            );
+            assert_eq!(
+                typed_path(cwd, home, "~/src/app"),
+                PathBuf::from("/home/me/src/app")
+            );
+            assert_eq!(typed_path(cwd, home, "~"), PathBuf::from("/home/me"));
+            assert_eq!(
+                typed_path(cwd, home, "'/Users/me/My Repo'"),
+                PathBuf::from("/Users/me/My Repo")
+            );
+            assert_eq!(
+                typed_path(cwd, home, "/Users/me/My\\ Repo "),
+                PathBuf::from("/Users/me/My Repo")
+            );
+            assert_eq!(
+                typed_path(cwd, home, "~other"),
+                PathBuf::from("/work/~other")
+            );
+        }
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["zeta", "Alpha", ".hidden", "repo"] {
+            std::fs::create_dir(dir.path().join(name)).unwrap();
+        }
+        std::fs::create_dir(dir.path().join("repo/.git")).unwrap();
+        std::fs::write(dir.path().join("file.txt"), "").unwrap();
+        assert_eq!(
+            child_folders(dir.path()),
+            [
+                ("repo".to_string(), true),
+                ("Alpha".into(), false),
+                ("zeta".into(), false)
+            ]
+        );
         assert!(!is_absolute("x"));
         assert_eq!(unmarked("a\u{E000}b\u{E001}c\u{E002}"), "abc");
         assert_eq!(s::green("ok"), "\u{E000}green\u{E001}ok\u{E002}");
