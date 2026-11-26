@@ -349,6 +349,15 @@ pub fn wrapped_lines(text: &str, width: u16) -> Vec<String> {
     rows
 }
 
+/// The project the workbench is scoped to, and the key that switches it (owner feedback D1).
+pub fn project_switcher(app: &AppState) -> String {
+    let key = crate::keys::keymap().first("projects");
+    match app.context.get("project").filter(|id| !id.is_empty()) {
+        Some(id) => format!(" ▸ {} ({key} switch)", safe_text(id)),
+        None => format!(" ▸ no project ({key} pick one)"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,14 +452,5 @@ mod tests {
             );
             app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         }
-    }
-}
-
-/// The project the workbench is scoped to, and the key that switches it (owner feedback D1).
-pub fn project_switcher(app: &AppState) -> String {
-    let key = crate::keys::keymap().first("projects");
-    match app.context.get("project").filter(|id| !id.is_empty()) {
-        Some(id) => format!(" ▸ {} ({key} switch)", safe_text(id)),
-        None => format!(" ▸ no project ({key} pick one)"),
     }
 }
