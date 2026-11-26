@@ -136,6 +136,8 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
         KeyCode::F(6) => Some(Screen::Memory),
         KeyCode::F(7) => Some(Screen::Prompts),
         KeyCode::F(8) => Some(Screen::Runs),
+        KeyCode::F(9) => Some(Screen::Home),
+        KeyCode::F(11) => Some(Screen::Orbit),
         _ => None,
     };
     if let Some(screen) = shortcut {
@@ -171,7 +173,7 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
         return true;
     }
     let screen = app.workbench.screen;
-    if screen == Screen::Help && matches!(key.code, KeyCode::Char('c' | 'k')) {
+    if screen == Screen::Help && matches!(key.code, KeyCode::Char('t' | 'e')) {
         let result = (|| {
             let path = crate::config::path()
                 .ok_or_else(|| std::io::Error::other("Set HOME or LUUNA_TUI_CONFIG"))?;
@@ -184,7 +186,7 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
             if !warnings.is_empty() {
                 return Err(std::io::Error::other(warnings.join("; ")));
             }
-            let (name, value) = if key.code == KeyCode::Char('k') {
+            let (name, value) = if key.code == KeyCode::Char('e') {
                 (
                     "keyboard_enhancement",
                     serde_json::json!(!config.keyboard_enhancement.unwrap_or(true)),

@@ -39,7 +39,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState, theme: Theme) {
         Paragraph::new(Line::from(vec![
             Span::styled(" LUUNA ", theme.selected()),
             Span::styled(project_switcher(app), theme.accent()),
-            Span::raw(" / WORKBENCH "),
+            Span::raw("  "),
             Span::styled(
                 safe_text(&app.connection),
                 theme.tone(state_tone(&app.connection)),
@@ -48,24 +48,25 @@ pub fn render(frame: &mut Frame, app: &mut AppState, theme: Theme) {
         .style(theme.base()),
         header,
     );
-    let menu_text = if area.width < 78 {
-        " F10 Menu  F2 Commands  F1 Help"
-    } else {
-        " Home  Setup  Projects  Orbit  Missions  Atlas  Beacon  Runs  Commands  Help"
-    };
-    let menu_line = Line::from(
-        menu_text
-            .split_inclusive(' ')
-            .flat_map(|word| {
-                let mut chars = word.chars();
-                let first = chars.next().unwrap_or(' ');
-                vec![
-                    Span::styled(first.to_string(), theme.mnemonic()),
-                    Span::styled(chars.collect::<String>(), theme.chrome()),
-                ]
-            })
-            .collect::<Vec<_>>(),
-    );
+    // The section bar shows the key that opens each section, so it never promises a key that
+    // does nothing; it drops the rarer sections first when the terminal is narrow.
+    let keymap = crate::keys::keymap();
+    let mut menu_spans = Vec::new();
+    let mut used = 0;
+    for (label, _, action) in crate::views::NAV {
+        if action.is_empty() {
+            continue;
+        }
+        let key = keymap.hint(action);
+        let width = key.chars().count() + label.chars().count() + 3;
+        if used + width > usize::from(area.width) {
+            break;
+        }
+        used += width;
+        menu_spans.push(Span::styled(format!(" {key}"), theme.mnemonic()));
+        menu_spans.push(Span::styled(format!(" {label} "), theme.chrome()));
+    }
+    let menu_line = Line::from(menu_spans);
     frame.render_widget(Paragraph::new(menu_line).style(theme.chrome()), menu);
     let content = if app.prompt.is_some() {
         let [result, prompt] = Layout::vertical([
@@ -100,30 +101,28 @@ pub fn render(frame: &mut Frame, app: &mut AppState, theme: Theme) {
     );
     let hint = if app.mode == Mode::Workbench {
         if app.workbench.nav {
-            " ↑↓ section  Enter open  Tab pane  q quit"
-        } else if area.width < 55 {
-            " F10 menu Enter open Esc back q quit"
+            " ↑↓ section  Enter open  Esc close  q quit".to_string()
         } else {
-            crate::views::hints(app.workbench.screen)
+            format!(" {}", crate::views::hints(app.workbench.screen))
         }
     } else if area.width < 55 {
         if app.prompt.is_some() {
-            " Enter answer PgUp/Dn Esc"
+            " Enter answer PgUp/Dn Esc".to_string()
         } else if app.mode == Mode::Form {
-            " Tab field ^S submit Esc"
+            " Tab field ^S submit Esc".to_string()
         } else if app.mode == Mode::Result {
-            " ↑↓ PgUp/Dn Esc q"
+            " ↑↓ PgUp/Dn Esc q".to_string()
         } else {
-            " ↑↓ Enter Tab q"
+            " ↑↓ Enter Tab q".to_string()
         }
     } else if app.prompt.is_some() {
-        " Enter answer · PgUp/PgDn plan · Esc abort"
+        " Enter answer · PgUp/PgDn plan · Esc abort".to_string()
     } else if app.mode == Mode::Form {
-        " Tab field · Alt+Enter/Ctrl+J line · Ctrl+S submit · Esc back"
+        " Tab field · Alt+Enter/Ctrl+J line · Ctrl+S submit · Esc back".to_string()
     } else if app.mode == Mode::Result {
-        " ↑↓ PgUp/PgDn scroll · Esc back/abort · q quit"
+        " ↑↓ PgUp/PgDn scroll · Esc back/abort · q quit".to_string()
     } else {
-        " ↑↓ select · Enter open · Tab context · q quit"
+        " ↑↓ select · Enter open · Tab context · q quit".to_string()
     };
     frame.render_widget(Paragraph::new(hint).style(theme.chrome()), footer);
 }
@@ -351,7 +350,7 @@ pub fn wrapped_lines(text: &str, width: u16) -> Vec<String> {
 
 /// The project the workbench is scoped to, and the key that switches it (owner feedback D1).
 pub fn project_switcher(app: &AppState) -> String {
-    let key = crate::keys::keymap().first("projects");
+    let key = crate::keys::keymap().hint("projects");
     match app.context.get("project").filter(|id| !id.is_empty()) {
         Some(id) => format!(" ▸ {} ({key} switch)", safe_text(id)),
         None => format!(" ▸ no project ({key} pick one)"),
