@@ -767,6 +767,30 @@
       "confirm": "Delete every project and process memory record older than the retention policy allows? Each deletion is reconciled through the adapter and recorded; user memory is never touched."
     },
     {
+      "id": "memory.starter",
+      "name": "memory-starter",
+      "action": "Starter memory",
+      "context": "project",
+      "args": [
+        {
+          "name": "project",
+          "context": true
+        }
+      ],
+      "flags": {
+        "keep": {
+          "repeat": true,
+          "description": "the key of a proposed fact to keep (repeatable), or all; without it the workbench asks about each fact and the command line only lists them"
+        }
+      },
+      "example": {
+        "args": [
+          "walkthrough"
+        ],
+        "flags": {}
+      }
+    },
+    {
       "id": "prompts.list",
       "name": "prompts",
       "action": "Prompt listing",

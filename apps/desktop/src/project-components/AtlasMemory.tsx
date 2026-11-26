@@ -1,15 +1,20 @@
+import { useState } from "react";
 import type { MemoryScope } from "@luuna/api-client";
 import { Actions, Button, Checkbox, CodeBlock, Disclosure, DownloadLink, EmptyState, Form, Hint, Inline, Meta, Section, SearchField, SelectField, submitted, TextArea, TextField } from "@luuna/ui";
 import { jsonDataUrl } from "../projects/project-model";
 import { MemorySelection } from "./MemoryList";
 import { MEMORY_SCOPES } from "./model";
 import { MemoryRetention } from "./Retention";
+import { StarterMemory } from "./StarterMemory";
 import type { ComponentsState } from "./useComponents";
 
 /** Atlas memory: search, save, select, correct, promote, delete and export knowledge, and its retention. */
 export function AtlasMemory({ state }: { state: ComponentsState }) {
   const { client, projectId, busy, loading, guarded } = state;
   const drop = (id: string) => state.setSelectedMemory((ids) => ids.filter((item) => item !== id));
+  // The starter set is offered while the project has no memory, and a review once begun stays
+  // open until the developer finishes it, though keeping the first fact gives the project memory.
+  const [reviewingStarter, setReviewingStarter] = useState(false);
   return <Section id="memory-heading" level={4} variant="plain" title="Atlas memory">
     <Checkbox className="checkbox" label="Include private user memory" checked={state.includeUser} disabled={busy} onChange={(event) => state.toggleUserMemory(event.target.checked)} />
     <Form onSubmit={submitted(() => state.setAppliedQuery(state.query.trim()))} className="component-search">
@@ -41,6 +46,7 @@ export function AtlasMemory({ state }: { state: ComponentsState }) {
         drop(record.id);
       })} />
     {!state.records.length && <EmptyState>No memory records in this view.</EmptyState>}
+    {(reviewingStarter || (!state.records.length && !state.appliedQuery)) && <StarterMemory state={state} onReview={setReviewingStarter} />}
     <Actions className="user-memory-export">
       <Button disabled={busy} data-capability="memory.user.export" onClick={() => void guarded("User memory export", async (signal) => {
         const exported = await client!.exportUserMemory(signal);

@@ -1481,6 +1481,34 @@ pub fn format(id: &str, value: &J, colour: bool) -> R<String> {
                 days(f(v, "project_max_age_days")?)
             )
         }
+        "memory.starter" => {
+            // ADR 0059: each proposal with whether it is kept, already recorded or still open.
+            let kept: Vec<String> = map(f(v, "kept")?, |m| Ok(s(f(m, "content")?)))?;
+            let facts = map(f(v, "facts")?, |fact| {
+                let content = s(f(fact, "content")?);
+                let mark = if kept.contains(&content) {
+                    "kept"
+                } else if f(fact, "recorded")?.truthy() {
+                    "recorded"
+                } else {
+                    "proposed"
+                };
+                Ok(format!("{mark:<9} {}\n          {content}", s(f(fact, "key")?)))
+            })?;
+            let mut lines = vec![if f(v, "memory_empty")?.truthy() && kept.is_empty() {
+                "This project has no memory yet. Starter facts from the confirmed manifest and the checkouts' files:".to_string()
+            } else {
+                format!("Starter facts ({} kept now):", kept.len())
+            }];
+            if facts.is_empty() {
+                lines.push("No facts to propose.".into());
+            }
+            lines.extend(facts);
+            if kept.is_empty() {
+                lines.push("Keep one with --keep <key> (repeatable, or all); nothing is recorded otherwise.".into());
+            }
+            lines.join("\n")
+        }
         "memory.retention.apply" => {
             let deleted = f(v, "deleted")?;
             if len(deleted)?.truthy() {

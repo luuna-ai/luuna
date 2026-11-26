@@ -1563,3 +1563,216 @@ async fn components_real_retention_deletes_only_expired_process_memory_under_the
         .any(|event| event.event_type == "memory.retention_applied"
             && event.payload["deleted"][0]["id"] == old.id));
 }
+
+/// ADR 0059: an empty project's starter set is proposed from the confirmed
+/// manifest and the checkout's files, records nothing by itself, and a fact
+/// the developer keeps becomes an ordinary project memory through the route.
+#[tokio::test]
+async fn components_real_starter_memory_proposes_and_records_only_what_is_kept() {
+    use crate::memory_starter::starter_memory;
+    use crate::projects::{
+        confirm_manifest, discover, register_project, ConfirmManifest, RegisterProject,
+        RegisterRepository,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let fixture = root.path().join("fixture");
+    std::fs::create_dir_all(&fixture).unwrap();
+    git(&fixture, &["init", "-q", "-b", "main"]);
+    git(&fixture, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(fixture.join("README.md"), "fixture\n").unwrap();
+    std::fs::write(
+        fixture.join("Cargo.toml"),
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(fixture.join("Cargo.lock"), "# synthetic\n").unwrap();
+    git(&fixture, &["add", "."]);
+    git(&fixture, &["commit", "-q", "-m", "initial"]);
+    let state = real_runtime(&root.path().join("private"));
+    let _ = register_project(
+        State(state.clone()),
+        Json(RegisterProject {
+            id: Some("starter".into()),
+            name: "Starter".into(),
+            repositories: vec![RegisterRepository {
+                id: "app".into(),
+                path: fixture.to_string_lossy().into_owned(),
+            }],
+        }),
+    )
+    .await
+    .unwrap();
+    // Before a manifest is confirmed there is nothing to propose from.
+    let refused = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.0, StatusCode::CONFLICT);
+    let discovery = discover(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .1
+         .0;
+    let _ = confirm_manifest(
+        State(state.clone()),
+        Path("starter".into()),
+        Json(ConfirmManifest {
+            expected_revision: 0,
+            manifest: discovery.proposed_manifest.clone(),
+        }),
+    )
+    .await
+    .map_err(|e| e.1)
+    .unwrap();
+    let _ = enable(State(state.clone()), Path("starter".into()))
+        .await
+        .map_err(|e| e.1)
+        .unwrap();
+    let set = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    assert!(set.memory_empty);
+    let keys: Vec<&str> = set.facts.iter().map(|f| f.key.as_str()).collect();
+    for key in [
+        "branch:app",
+        "lockfile:app:Cargo.lock",
+        "guide:app:README.md",
+    ] {
+        assert!(keys.contains(&key), "{keys:?}");
+    }
+    assert!(set.facts.iter().all(|f| !f.recorded));
+    // Proposing wrote nothing.
+    assert!(list_memory(
+        State(state.clone()),
+        Path("starter".into()),
+        Query(MemoryQuery {
+            include_user: false,
+            q: None
+        })
+    )
+    .await
+    .unwrap()
+    .0
+    .is_empty());
+    let kept = set
+        .facts
+        .iter()
+        .find(|f| f.key == "lockfile:app:Cargo.lock")
+        .unwrap();
+    let recorded = create_memory(
+        State(state.clone()),
+        Path("starter".into()),
+        Json(CreateMemory {
+            idempotency_key: kept.idempotency_key.clone(),
+            scope: "project".into(),
+            content: kept.content.clone(),
+            provenance: kept.provenance.clone(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(recorded.scope, "project");
+    assert_eq!(recorded.provenance, kept.provenance);
+    let again = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    assert!(!again.memory_empty);
+    for fact in &again.facts {
+        assert_eq!(fact.recorded, fact.key == kept.key, "{}", fact.key);
+    }
+    // While the kept memory exists its key stays, so a retry replays it.
+    let same = again.facts.iter().find(|f| f.key == kept.key).unwrap();
+    assert_eq!(same.idempotency_key, kept.idempotency_key);
+    // A new manifest revision changes no unchanged fact's request, so its key
+    // and provenance stay and a pending delivery is retried, not duplicated.
+    let _ = confirm_manifest(
+        State(state.clone()),
+        Path("starter".into()),
+        Json(ConfirmManifest {
+            expected_revision: 1,
+            manifest: luuna_domain::ProjectManifest {
+                revision: 2,
+                ..discovery.proposed_manifest.clone()
+            },
+        }),
+    )
+    .await
+    .map_err(|e| e.1)
+    .unwrap();
+    let revised = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    for fact in &set.facts {
+        let now = revised.facts.iter().find(|f| f.key == fact.key).unwrap();
+        assert_eq!(now.provenance, fact.provenance, "{}", fact.key);
+        assert_eq!(now.idempotency_key, fact.idempotency_key, "{}", fact.key);
+    }
+    let branch = revised
+        .facts
+        .iter()
+        .find(|f| f.key == "branch:app")
+        .unwrap();
+    assert_eq!(branch.evidence, ["manifest revision 2"]);
+    // Once it is deleted, the fact is offered under a fresh key and keeping it
+    // records a new memory instead of replaying the deleted one.
+    let _ = delete_memory(
+        State(state.clone()),
+        Path(("starter".into(), recorded.id.clone())),
+        Query(DeleteMemoryQuery {
+            expected_hash: recorded.hash.clone(),
+        }),
+    )
+    .await
+    .unwrap();
+    let after = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    let offered = after.facts.iter().find(|f| f.key == kept.key).unwrap();
+    assert!(!offered.recorded);
+    assert_ne!(offered.idempotency_key, kept.idempotency_key);
+    let renewed = create_memory(
+        State(state.clone()),
+        Path("starter".into()),
+        Json(CreateMemory {
+            idempotency_key: offered.idempotency_key.clone(),
+            scope: "project".into(),
+            content: offered.content.clone(),
+            provenance: offered.provenance.clone(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_ne!(renewed.id, recorded.id);
+    let last = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    let current = last.facts.iter().find(|f| f.key == kept.key).unwrap();
+    assert!(current.recorded);
+    // Correcting the kept memory away from the fact spends that delivery too.
+    let corrected = update_memory(
+        State(state.clone()),
+        Path(("starter".into(), renewed.id.clone())),
+        Json(UpdateMemory {
+            idempotency_key: "correct-starter".into(),
+            expected_hash: renewed.hash.clone(),
+            content: "In app, build with care.".into(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(corrected.content, "In app, build with care.");
+    let reoffered = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    let reoffered = reoffered.facts.iter().find(|f| f.key == kept.key).unwrap();
+    assert!(!reoffered.recorded);
+    assert_ne!(reoffered.idempotency_key, current.idempotency_key);
+}

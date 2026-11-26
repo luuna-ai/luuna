@@ -348,6 +348,20 @@ async fn memory_records(
     }
     Ok(records)
 }
+/// The content of every project and process memory of a project, for the
+/// starter set's `recorded` marks. Empty, without an Atlas call, when the
+/// project has no memory bindings (including before components are enabled).
+pub(crate) async fn project_memory_contents(
+    state: &AppState,
+    project_id: &str,
+) -> Result<Vec<String>, ApiError> {
+    let _guard = state.component_locks.lock().await;
+    Ok(memory_records(state, project_id, false)
+        .await?
+        .into_iter()
+        .map(|record| record.content)
+        .collect())
+}
 pub async fn list_memory(
     State(state): State<AppState>,
     Path(id): Path<String>,

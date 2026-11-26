@@ -22,6 +22,8 @@ A developer can move an export between computers. Automatic sync is deferred. Ru
 
 Project knowledge includes architecture rationale, conventions, verified failure/resolution pairs, and references to important code. Attach evidence, scope, and freshness markers. A record can be superseded without erasing its historical evidence.
 
+A project with no memory yet is offered a starter set ([ADR 0059](decisions/0059-starter-memory.md)). The runtime proposes a few facts from the confirmed manifest and from which well-known files exist in each checkout; it never reads their text and runs no agent. The developer keeps or skips each fact one at a time. A kept fact is recorded as an ordinary project memory with its provenance.
+
 Process lessons describe how to investigate a class of changes. A lesson can reference a project-specific example without becoming a universal rule. Promotion removes confidential implementation details and requires an explicit developer action.
 
 Mulch's typed records and scoped retrieval are useful foundations. Luuna adds host/project boundaries, provenance checks, and context budgets. Canopy remains the source for executable process instructions; a learned suggestion does not automatically edit approved agent prompts.

@@ -380,6 +380,27 @@ export interface MemoryRecord {
   created_at?: string;
 }
 
+/** One proposed starter fact (ADR 0059); recording it is the developer's choice. */
+export interface StarterFact {
+  /** Stable for the same fact of the same repository. */
+  key: string;
+  repository_id: string;
+  content: string;
+  provenance: string;
+  /** Repository-relative paths, or `manifest`, the fact rests on. */
+  evidence: string[];
+  /** An existing memory already holds exactly this content. */
+  recorded: boolean;
+  /** The key to keep this fact with now: a retry replays the same request, and a fact kept and later deleted gets a fresh key. */
+  idempotency_key: string;
+}
+
+export interface StarterMemorySet {
+  /** No project or process memory exists yet. */
+  memory_empty: boolean;
+  facts: StarterFact[];
+}
+
 export interface CreateMemoryRequest {
   idempotency_key: string;
   scope: MemoryScope;
@@ -1692,6 +1713,16 @@ export class LuunaClient {
     const parameters = [options.query ? `q=${encodeURIComponent(options.query)}` : "", options.includeUser ? "include_user=true" : ""].filter(Boolean);
     const search = parameters.length ? `?${parameters.join("&")}` : "";
     return this.request(`/projects/${encodeURIComponent(projectId)}/memory${search}`, { signal });
+  }
+
+  /** A starter set of project memory proposed from the confirmed manifest and the checkouts' files; records nothing. */
+  starterMemory(projectId: string, signal?: AbortSignal): Promise<StarterMemorySet> {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/memory/starter`, { signal });
+  }
+
+  /** Records one starter fact the developer kept, as an ordinary project memory with the fact's provenance. */
+  keepStarterFact(projectId: string, fact: StarterFact, signal?: AbortSignal): Promise<MemoryRecord> {
+    return this.createMemory(projectId, { idempotency_key: fact.idempotency_key, scope: "project", content: fact.content, provenance: fact.provenance }, signal);
   }
 
   createMemory(projectId: string, request: CreateMemoryRequest, signal?: AbortSignal): Promise<MemoryRecord> {

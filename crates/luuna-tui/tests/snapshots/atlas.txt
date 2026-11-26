@@ -29,7 +29,7 @@
 ║UNSENT PLAN CONTEXT          ║║                                   ║                                                   ║
 ║0 memory selection(s)        ║║                                   ║                                                   ║
 ║No prompt selected           ║║                                   ║                                                   ║
-║F10 menu / Tab focus         ║║Enter inspect  n new  / search  u user memory                                          ║
+║F10 menu / Tab focus         ║║Enter inspect  n new  s starter set  / search  u user memory                           ║
 ╚═════════════════════════════╝╚═══════════════════════════════════════════════════════════════════════════════════════╝
 Connecting to the local runtime…
-Enter inspect  n new  / search  u user memory
+Enter inspect  n new  s starter set  / search  u user memory
