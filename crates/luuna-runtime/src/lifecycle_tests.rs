@@ -482,7 +482,9 @@ async fn a_panicked_writer_reserves_the_remaining_budget_and_abandons_its_lease(
 async fn a_panicked_review_fails_its_candidate_and_reserves_the_remaining_cost() {
     let workflow = Workflow::new().await;
     let id = workflow.implementing("review_hold").await;
-    workflow.until_state(&id, &["validating", "failed"]).await;
+    let run = workflow.until_state(&id, &["validating", "failed"]).await;
+    assert_eq!(run["state"], "validating", "{run}");
+    until(|| !workflow.state.active.lock().unwrap().contains_key(&id)).await;
     let (_, candidate) = workflow
         .request("GET", &format!("/api/v1/runs/{id}/candidate"), None)
         .await;
