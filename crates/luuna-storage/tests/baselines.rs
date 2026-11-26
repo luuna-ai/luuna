@@ -82,6 +82,9 @@ fn approved_workflow() -> Fixture {
         acceptance_criteria: vec!["The fixture test passes.".into()],
         repository_ids: vec!["app".into()],
         purpose: luuna_domain::TicketPurpose::Feature,
+        ticket_type: Default::default(),
+        priority: luuna_domain::DEFAULT_TICKET_PRIORITY,
+        labels: vec![],
         created_at: "2026-10-17T00:00:00.000Z".into(),
         updated_at: "2026-10-17T00:00:00.000Z".into(),
     };

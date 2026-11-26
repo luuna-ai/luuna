@@ -775,6 +775,30 @@ fn find_in(search: &OsStr, name: &str) -> Option<PathBuf> {
         .map(|path| path.join(&name))
         .find(|path| path.is_file())
 }
+/// Whether `path` is a link that belongs to the operating system's own layout
+/// rather than to anything a user or project controls: a root-owned link
+/// directly below a root-owned `/` that only root may change. macOS ships
+/// `/var`, `/tmp` and `/etc` as such aliases for `/private/...`, and every
+/// temporary and per-user folder sits below one of them. Every other link stays
+/// refused.
+pub fn is_system_alias(path: &Path, metadata: &std::fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if !metadata.file_type().is_symlink() || metadata.uid() != 0 {
+            return false;
+        }
+        let root = Path::new("/");
+        path.parent() == Some(root)
+            && std::fs::symlink_metadata(root)
+                .is_ok_and(|root| root.is_dir() && root.uid() == 0 && root.mode() & 0o022 == 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, metadata);
+        false
+    }
+}
 fn linked(metadata: &std::fs::Metadata) -> bool {
     #[cfg(windows)]
     {
@@ -810,7 +834,9 @@ fn prepare_workspace(path: &Path) -> Result<PathBuf> {
             return Err(ComponentError::Workspace);
         }
         current.push(part);
-        if std::fs::symlink_metadata(&current).is_ok_and(|metadata| linked(&metadata)) {
+        if std::fs::symlink_metadata(&current)
+            .is_ok_and(|metadata| linked(&metadata) && !is_system_alias(&current, &metadata))
+        {
             return Err(ComponentError::Workspace);
         }
     }
@@ -1243,6 +1269,31 @@ mod tests {
         }
     }
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn only_root_owned_links_directly_below_the_filesystem_root_are_system_aliases() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("alias");
+        std::os::unix::fs::symlink(dir.path(), &link).unwrap();
+        let metadata = std::fs::symlink_metadata(&link).unwrap();
+        assert!(!is_system_alias(&link, &metadata));
+        let plain = std::fs::symlink_metadata(dir.path()).unwrap();
+        assert!(!is_system_alias(dir.path(), &plain));
+        assert!(prepare_workspace(&link.join("workspace")).is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_private_aliases_do_not_refuse_temporary_workspaces() {
+        let var = Path::new("/var");
+        assert!(is_system_alias(
+            var,
+            &std::fs::symlink_metadata(var).unwrap()
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        prepare_workspace(&dir.path().join("workspace")).unwrap();
+    }
 
     #[test]
     fn legacy_stores_move_to_the_luuna_layout_idempotently() {

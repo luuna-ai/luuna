@@ -1,5 +1,5 @@
  Home  Setup  Projects  Orbit  Missions  Atlas  Beacon  Runs  Commands  Help
- LUUNA  / WORKBENCH connected
+ LUUNA  ▸ demo (F3 switch) / WORKBENCH connected
 ╔ LUUNA ══════════════════════╗╔ > Atlas / scoped memory ══════════════════════════════════════════════════════════════╗
 ║ 1 Home                      ║║Search:                                                                                ║
 ║ 2 Set up a project          ║║User memory: excluded (explicit choice)                                                ║
@@ -29,7 +29,7 @@
 ║UNSENT PLAN CONTEXT          ║║                                   ║                                                   ║
 ║0 memory selection(s)        ║║                                   ║                                                   ║
 ║No prompt selected           ║║                                   ║                                                   ║
-║F10 menu / Tab focus         ║║Enter inspect  n new  / search  u user memory                                          ║
+║F10 menu / Tab focus         ║║Enter inspect  n new  s starter set  / search  u user memory                           ║
 ╚═════════════════════════════╝╚═══════════════════════════════════════════════════════════════════════════════════════╝
 Connecting to the local runtime…
-Enter inspect  n new  / search  u user memory
+Enter inspect  n new  s starter set  / search  u user memory

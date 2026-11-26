@@ -57,7 +57,7 @@ async fn catalog_reads_and_redaction() {
     bridge.send(&request("c1", "catalog", json!({}))).unwrap();
     let catalog = next(&mut bridge, "c1").await;
     let commands = catalog.fields["commands"].as_array().unwrap();
-    assert_eq!(commands.len(), 76, "74 actions and 2 projections");
+    assert_eq!(commands.len(), 77, "75 actions and 2 projections");
     // Orbit (ADR 0036): status and the sandbox plan are reads; exec, run and sync are mutations.
     for (name, read_only) in [
         ("orbit", true),

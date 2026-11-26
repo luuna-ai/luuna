@@ -29,3 +29,7 @@
 /* Advisory result: findings, proposed tasks and risks are body text in tight rows, not row titles at the label weight with a row-height floor. */
 .advisory-result .list-row-title { color: var(--ink-body); font-weight: var(--weight-regular); }
 .advisory-result .list-row-body { min-height: 0; padding-block: var(--space-1-5); }
+
+/* The ticket form's live preview: the ticket as the runtime will receive it. */
+.ticket-preview-intent { white-space: pre-wrap; margin: 0; }
+.ticket-preview-title { overflow-wrap: anywhere; }

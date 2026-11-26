@@ -14,7 +14,7 @@ use crate::{
 };
 use luuna_domain::{
     AdvisoryResult, AttemptState, DependencyOverride, DomainError, LeaseState, PlanRevision,
-    RunState, TaskRole, TaskState, Ticket, WorktreeLease,
+    RunState, TaskRole, TaskState, Ticket, TicketType, WorktreeLease,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,12 @@ pub struct TicketRevision {
     pub intent: Option<String>,
     pub acceptance_criteria: Option<Vec<String>>,
     pub repository_ids: Option<Vec<String>>,
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub ticket_type: Option<TicketType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 impl TicketRevision {
@@ -37,6 +43,9 @@ impl TicketRevision {
             && self.intent.is_none()
             && self.acceptance_criteria.is_none()
             && self.repository_ids.is_none()
+            && self.ticket_type.is_none()
+            && self.priority.is_none()
+            && self.labels.is_none()
     }
     /// The names of the fields this revision changes, for the durable event.
     pub fn named(&self) -> Vec<&'static str> {
@@ -53,6 +62,15 @@ impl TicketRevision {
         if self.repository_ids.is_some() {
             fields.push("repository_ids");
         }
+        if self.ticket_type.is_some() {
+            fields.push("type");
+        }
+        if self.priority.is_some() {
+            fields.push("priority");
+        }
+        if self.labels.is_some() {
+            fields.push("labels");
+        }
         fields
     }
     /// Apply the named fields to a ticket (revision and timestamps untouched).
@@ -68,6 +86,15 @@ impl TicketRevision {
         }
         if let Some(ids) = &self.repository_ids {
             ticket.repository_ids = ids.clone();
+        }
+        if let Some(kind) = self.ticket_type {
+            ticket.ticket_type = kind;
+        }
+        if let Some(priority) = self.priority {
+            ticket.priority = priority;
+        }
+        if let Some(labels) = &self.labels {
+            ticket.labels = labels.clone();
         }
     }
 }
@@ -205,11 +232,7 @@ impl Store {
             let original = crate::missions::binding_in(&tx, &existing.id)?
                 .map(|binding| binding.original)
                 .unwrap_or_else(|| existing.clone());
-            let same = original.title == ticket.title
-                && original.intent == ticket.intent
-                && original.acceptance_criteria == ticket.acceptance_criteria
-                && original.repository_ids == ticket.repository_ids;
-            if !same {
+            if !original.same_content(ticket) {
                 return Err(StorageError::AlreadyExists(format!(
                     "idempotency key {idempotency_key} was already used for different ticket content"
                 )));
@@ -248,6 +271,8 @@ impl Store {
             json!({"ticket_id": ticket.id, "revision": ticket.revision, "source": ticket.source, "title": ticket.title, "repository_ids": ticket.repository_ids}),
         )?;
         tx.commit()?;
+        self.mirror_logs(&[&ticket.project_id]);
+        self.mirror_tickets(&[&ticket.project_id]);
         Ok((ticket.clone(), true))
     }
 
@@ -268,7 +293,7 @@ impl Store {
                 title: Some(title.to_owned()),
                 intent: Some(intent.to_owned()),
                 acceptance_criteria: Some(acceptance_criteria.to_vec()),
-                repository_ids: None,
+                ..TicketRevision::default()
             },
         )
     }
@@ -336,6 +361,8 @@ impl Store {
             json!({"ticket_id": ticket.id, "revision": ticket.revision, "previous_revision": expected_revision, "source": ticket.source, "fields": changes.named()}),
         )?;
         tx.commit()?;
+        self.mirror_logs(&[&ticket.project_id]);
+        self.mirror_tickets(&[&ticket.project_id]);
         Ok(ticket)
     }
 
@@ -534,6 +561,7 @@ impl Store {
             )?;
         }
         tx.commit()?;
+        self.mirror_logs(&[&plan.project_id]);
         Ok(PlanOpening {
             plan: plan.clone(),
             run: self

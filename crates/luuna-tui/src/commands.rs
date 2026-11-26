@@ -85,6 +85,81 @@ impl Command {
     }
 }
 
+/// The ticket types Missions accepts, and so the runtime (ADR 0058).
+const TICKET_TYPES: [&str; 4] = ["task", "bug", "feature", "epic"];
+
+/// `0`..`4` or `P0`..`P4`.
+pub(crate) fn ticket_priority(value: &str) -> Option<u8> {
+    let value = js_trim(value);
+    let digits = value.strip_prefix(['P', 'p']).unwrap_or(&value);
+    (digits.len() == 1)
+        .then(|| digits.parse::<u8>().ok())
+        .flatten()
+        .filter(|p| *p <= 4)
+}
+
+/// `--type`, `--priority` and `--label` (and `--clear-labels` on an edit) as
+/// the runtime's `type`, `priority` and `labels` (ADR 0058). Empty values keep
+/// the default on a create and the current value on an edit. Labels are
+/// lowercased, as Missions stores them.
+fn ticket_triage(input: &Input, create: bool) -> Result<Vec<(&'static str, J)>, Failure> {
+    let mut fields = Vec::new();
+    if let Some(kind) = input.text_if("type").filter(|k| !js_trim(k).is_empty()) {
+        let kind = js_trim(&kind).to_lowercase();
+        if !TICKET_TYPES.contains(&kind.as_str()) {
+            return Err(usage_error("--type is task, bug, feature or epic."));
+        }
+        if !(create && kind == "task") {
+            fields.push(("type", J::str(kind)));
+        }
+    }
+    if let Some(priority) = input.text_if("priority").filter(|p| !js_trim(p).is_empty()) {
+        let Some(priority) = ticket_priority(&priority) else {
+            return Err(usage_error(
+                "--priority is P0 (critical) to P4 (backlog), or 0 to 4.",
+            ));
+        };
+        if !(create && priority == 2) {
+            fields.push(("priority", J::Num(f64::from(priority))));
+        }
+    }
+    let labels: Vec<String> = input
+        .list("label")
+        .iter()
+        .flat_map(|item| item.split(','))
+        .map(|label| js_trim(label).to_lowercase())
+        .filter(|label| !label.is_empty())
+        .fold(Vec::new(), |mut seen, label| {
+            if !seen.contains(&label) {
+                seen.push(label);
+            }
+            seen
+        });
+    if let Some(bad) = labels.iter().find(|l| {
+        l.len() > 64
+            || l.chars().any(|c| c.is_whitespace() || c.is_control())
+            || l.starts_with("luuna-ticket-")
+    }) {
+        return Err(usage_error(format!(
+            "The label {bad:?} is not allowed: use at most 64 bytes without spaces, and not the luuna-ticket- prefix."
+        )));
+    }
+    if labels.len() > 16 {
+        return Err(usage_error("A ticket takes at most 16 labels."));
+    }
+    if !create && input.truthy("clear-labels") {
+        if !labels.is_empty() {
+            return Err(usage_error(
+                "--clear-labels and --label cannot be combined.",
+            ));
+        }
+        fields.push(("labels", J::Arr(vec![])));
+    } else if !labels.is_empty() {
+        fields.push(("labels", J::Arr(labels.into_iter().map(J::Str).collect())));
+    }
+    Ok(fields)
+}
+
 fn strings(value: &J) -> Vec<String> {
     value.items().iter().map(J::js).collect()
 }
@@ -193,8 +268,15 @@ pub fn capability(id: &str) -> &'static J {
 
 /// A read: a projection, or an action whose route is a GET.
 pub fn read_only(command: &Command) -> bool {
-    command.is_projection() || capability(&command.id).get("method").as_str() == Some("GET")
+    // memory-starter lists with GET but `--keep` saves facts with POST, so it
+    // is admitted, limited and never replayed as a mutation.
+    command.is_projection()
+        || (capability(&command.id).get("method").as_str() == Some("GET")
+            && !COMPOSITE_WRITES.contains(&command.id.as_str()))
 }
+
+/// Commands whose catalog capability reads but that can also write.
+const COMPOSITE_WRITES: [&str; 1] = ["memory.starter"];
 
 /// The positional usage line of a command.
 pub fn usage(command: &Command) -> String {
@@ -1201,6 +1283,71 @@ pub async fn run(
             }
             Ok(exported)
         }
+        "memory.starter" => {
+            // ADR 0059: the runtime proposes; only the facts the developer keeps are recorded,
+            // each as an ordinary project memory with the fact's own provenance.
+            let mut set = client
+                .get(&format!("/projects/{}/memory/starter", e(0)), s)
+                .await?;
+            let facts = set.get("facts").items().to_vec();
+            let proposed = |key: &str| facts.iter().any(|f| f.get("key").as_str() == Some(key));
+            // A fact key can hold a comma (a relationship contract may), so an
+            // argument that names a whole proposed key is kept as written and
+            // only other arguments are read as comma-separated lists.
+            let wanted: Vec<String> = input
+                .list("keep")
+                .iter()
+                .flat_map(|item| {
+                    let whole = js_trim(item);
+                    if proposed(&whole) {
+                        vec![whole]
+                    } else {
+                        item.split(',').map(js_trim).collect()
+                    }
+                })
+                .filter(|key| !key.is_empty())
+                .collect();
+            if let Some(unknown) = wanted
+                .iter()
+                .find(|key| key.as_str() != "all" && !proposed(key))
+            {
+                return Err(usage_error(format!(
+                    "No proposed fact has the key {unknown}; run memory-starter without --keep to list them."
+                )));
+            }
+            let mut kept = Vec::new();
+            for fact in facts.iter().filter(|f| f.get("recorded") != &J::Bool(true)) {
+                let key = fact.get("key").js();
+                let keep = if wanted.is_empty() {
+                    io.interactive()
+                        && io
+                            .confirm(format!(
+                                "Keep this fact as project memory?\n  {}\n  ({})",
+                                fact.get("content").js(),
+                                fact.get("provenance").js()
+                            ))
+                            .await?
+                } else {
+                    wanted.iter().any(|w| w == "all" || *w == key)
+                };
+                if !keep {
+                    continue;
+                }
+                let body = obj![
+                    ("idempotency_key", fact.get("idempotency_key").clone()),
+                    ("scope", "project"),
+                    ("content", fact.get("content").clone()),
+                    ("provenance", fact.get("provenance").clone())
+                ];
+                kept.push(
+                    client
+                        .post(&format!("/projects/{}/memory", e(0)), Some(&body), s)
+                        .await?,
+                );
+            }
+            set.set("kept", J::Arr(kept));
+            Ok(set)
+        }
         "memory.retention.show" => {
             client
                 .get(&format!("/projects/{}/memory/retention", e(0)), s)
@@ -1416,6 +1563,9 @@ pub async fn run(
             if purpose != "feature" {
                 body.set("purpose", J::str(purpose));
             }
+            for (key, value) in ticket_triage(input, true)? {
+                body.set(key, value);
+            }
             if js_trim(&key).is_empty() {
                 return Err(Failure::error("An idempotency key is required."));
             }
@@ -1520,6 +1670,9 @@ pub async fn run(
                     "repository_ids",
                     J::Arr(repositories.into_iter().map(J::Str).collect()),
                 );
+            }
+            for (key, value) in ticket_triage(input, false)? {
+                body.set(key, value);
             }
             client
                 .request("PUT", &format!("/tickets/{}", e(0)), Some(&body), s)
@@ -2173,6 +2326,68 @@ fn parse_task_spec(text: &str) -> Option<(String, String, Option<String>, String
 mod tests {
     use super::*;
 
+    fn input(flags: &[(&str, FlagValue)]) -> Input {
+        Input {
+            args: vec![],
+            flags: flags
+                .iter()
+                .map(|(n, v)| ((*n).to_owned(), v.clone()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn ticket_triage_flags_become_missions_shaped_fields() {
+        let s = |v: &str| FlagValue::Str(v.into());
+        let fields = ticket_triage(
+            &input(&[
+                ("type", s("Bug")),
+                ("priority", s("P1")),
+                (
+                    "label",
+                    FlagValue::List(vec!["UI, docs".into(), "ui".into()]),
+                ),
+            ]),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            fields,
+            vec![
+                ("type", J::str("bug")),
+                ("priority", J::Num(1.0)),
+                ("labels", J::Arr(vec![J::str("ui"), J::str("docs")])),
+            ]
+        );
+        // Defaults stay out of a create, but an edit sends them.
+        let defaults = input(&[("type", s("task")), ("priority", s("2"))]);
+        assert!(ticket_triage(&defaults, true).unwrap().is_empty());
+        assert_eq!(ticket_triage(&defaults, false).unwrap().len(), 2);
+        let clear = input(&[("clear-labels", FlagValue::Bool(true))]);
+        assert_eq!(
+            ticket_triage(&clear, false).unwrap(),
+            vec![("labels", J::Arr(vec![]))]
+        );
+        for bad in [
+            input(&[("type", s("story"))]),
+            input(&[("priority", s("P5"))]),
+            input(&[("priority", s("urgent"))]),
+            input(&[("label", s("luuna-ticket-x"))]),
+            input(&[("label", s("two words"))]),
+        ] {
+            assert!(ticket_triage(&bad, true).is_err(), "{bad:?}");
+        }
+        assert_eq!(ticket_priority("p0"), Some(0));
+        assert_eq!(ticket_priority("4"), Some(4));
+        assert_eq!(ticket_priority("P10"), None);
+    }
+
+    #[test]
+    fn starter_memory_can_save_so_it_is_never_a_replayed_read() {
+        assert!(!read_only(by_name("memory-starter").unwrap()));
+        assert!(read_only(by_name("memory").unwrap()));
+    }
+
     #[test]
     fn orbit_command_lines_split_like_the_regular_expression() {
         let split = |line: &str| orbit_command(line).unwrap();
@@ -2221,7 +2436,7 @@ mod tests {
     #[test]
     fn the_table_matches_the_catalog_and_parses_specs_like_the_regular_expressions() {
         let table = table();
-        assert_eq!(table.commands.len(), 74);
+        assert_eq!(table.commands.len(), 75);
         assert_eq!(table.projections.len(), 2);
         for command in &table.commands {
             assert_eq!(
