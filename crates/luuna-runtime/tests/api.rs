@@ -798,6 +798,21 @@ async fn the_shared_slots_refuse_a_fifth_run_and_listing_can_be_limited() {
         .await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(body["error"], "four runs are already active");
+    // The two list reads below must not straddle a run moving from `queued` to `running`.
+    for run in &runs {
+        let mut running = false;
+        for _ in 0..400 {
+            let (_, current) = harness
+                .request("GET", &format!("/api/v1/runs/{}", run.id), None, true)
+                .await;
+            if current["state"] == "running" {
+                running = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(running, "run {} never started running", run.id);
+    }
     let (status, listed) = harness
         .request("GET", "/api/v1/runs?limit=2", None, true)
         .await;
