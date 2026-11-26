@@ -79,8 +79,7 @@ try {
         if (!(Test-Path -LiteralPath $pi)) { throw 'Install the pinned tools/pi dependencies first.' }
         $keyName = 'LUUNA_PI_' + $record.provider.ToUpperInvariant() + '_API_KEY'
         $settings = @{}
-        $names = @($keyName,'LUUNA_API_TOKEN','LUUNA_DATA_DIR','LUUNA_PORT','LUUNA_PI_COMMAND','LUUNA_PI_ARGS_JSON','LUUNA_PI_PROVIDER','LUUNA_PI_MODEL','LUUNA_COMPONENTS_ROOT','LUUNA_BUN')
-        $packagedComponents = Get-LuunaPackagedComponents $root
+        $names = @($keyName,'LUUNA_API_TOKEN','LUUNA_DATA_DIR','LUUNA_PORT','LUUNA_PI_COMMAND','LUUNA_PI_ARGS_JSON','LUUNA_PI_PROVIDER','LUUNA_PI_MODEL')
         foreach ($name in $names) { $settings[$name] = [Environment]::GetEnvironmentVariable($name,'Process') }
         $secret = $null
         $pointer = [IntPtr]::Zero
@@ -95,11 +94,6 @@ try {
             $env:LUUNA_PI_ARGS_JSON = ConvertTo-Json -InputObject @($pi) -Compress
             $env:LUUNA_PI_PROVIDER = $record.provider
             $env:LUUNA_PI_MODEL = switch ($record.provider) { 'openrouter' {'openai/gpt-4.1-mini'} 'openai' {'gpt-4.1-mini'} default {'claude-sonnet-4-5'} }
-            # The packaged layout carries the verified component trees and Bun; a checkout keeps its defaults.
-            if ($packagedComponents) {
-                $env:LUUNA_COMPONENTS_ROOT = $packagedComponents.Root
-                $env:LUUNA_BUN = $packagedComponents.Bun
-            }
             # Persist the encrypted identity first; authenticate/adopt after an uncertain spawn.
             Save-Connection 0
             $service = Start-Process -FilePath $runtime -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardError (Join-Path $paths.Logs 'runtime.log') -RedirectStandardOutput (Join-Path $paths.Logs 'runtime-stdout.log') -PassThru

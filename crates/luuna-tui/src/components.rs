@@ -75,47 +75,6 @@ pub fn install_root() -> PathBuf {
     directory
 }
 
-/// The Bun executable itself, never a shell shim: `LUUNA_BUN`, a `bun`/`bun.exe` on PATH, the
-/// executable behind npm's `bun.cmd` shim (node_modules/bun/bin), or ~/.bun/bin.
-#[cfg(test)]
-pub fn resolve_bun(
-    env: &dyn Fn(&str) -> Option<String>,
-    exists: &dyn Fn(&Path) -> bool,
-) -> PathBuf {
-    if let Some(bun) = env("LUUNA_BUN").filter(|b| !b.is_empty()) {
-        return PathBuf::from(bun);
-    }
-    let exe = if cfg!(windows) { "bun.exe" } else { "bun" };
-    let path = env("PATH").or_else(|| env("Path")).unwrap_or_default();
-    let directories: Vec<PathBuf> = std::env::split_paths(&path)
-        .filter(|p| !p.as_os_str().is_empty())
-        .collect();
-    for directory in &directories {
-        if exists(&directory.join(exe)) {
-            return directory.join(exe);
-        }
-    }
-    for directory in &directories {
-        let behind = directory
-            .join("node_modules")
-            .join("bun")
-            .join("bin")
-            .join(exe);
-        if exists(&behind) {
-            return behind;
-        }
-    }
-    let home = env("USERPROFILE")
-        .or_else(|| env("HOME"))
-        .unwrap_or_default();
-    let candidate = Path::new(&home).join(".bun").join("bin").join(exe);
-    if exists(&candidate) {
-        candidate
-    } else {
-        PathBuf::from(exe)
-    }
-}
-
 /// The result of one component run.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Outcome {
@@ -249,20 +208,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bun_resolves_to_the_executable_never_a_shim() {
-        let exe = if cfg!(windows) { "bun.exe" } else { "bun" };
-        let shim_dir = if cfg!(windows) { r"C:\npm" } else { "/npm" };
-        let path_env = shim_dir.to_string();
-        let env = |name: &str| (name == "PATH").then(|| path_env.clone());
-        let behind = Path::new(shim_dir)
-            .join("node_modules")
-            .join("bun")
-            .join("bin")
-            .join(exe);
-        let found = resolve_bun(&env, &|p: &Path| p == behind);
-        assert_eq!(found, behind);
-        let none = resolve_bun(&|_: &str| None, &|_: &Path| false);
-        assert_eq!(none, PathBuf::from(exe));
+    fn ansi_colour_codes_are_stripped() {
         assert_eq!(strip_ansi("\u{1b}[32mok\u{1b}[0m"), "ok");
     }
 }

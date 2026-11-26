@@ -29,15 +29,14 @@ repositories' documented development-checkout setup.
 
 Before changing the machine, report the OS/version, CPU architecture, available
 disk space, and detected toolchains. Identify prerequisites from current repo
-instructions (including Rust, Node/npm, Bun, Go, Git, and platform-native GUI
-libraries as applicable). Give a concise plan with the exact commands and
+instructions (including Rust, Node/npm, Git, and platform-native GUI libraries as
+applicable). Give a concise plan with the exact commands and
 expected disk/build impact. Do not install packages or change system settings
 until the user approves that plan.
 
 After approval, create one clearly named workspace directory and clone the
-organization repositories there. For `luuna`, initialize recursive
-submodules and verify every component checkout matches `components/manifest.json`
-and the recorded public organization repository/commit. Keep each checkout on
+organization repositories there. `luuna` has no submodules: Missions, Atlas and
+Beacon are native Rust inside it. Keep each checkout on
 the intended documented branch/revision; do not silently upgrade pins or edit
 dependency manifests to work around incomplete installs. Keep the application
 repository and the desktop app repository separate.
