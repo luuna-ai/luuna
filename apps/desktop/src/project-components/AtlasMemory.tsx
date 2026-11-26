@@ -4,6 +4,7 @@ import { jsonDataUrl } from "../projects/project-model";
 import { MemorySelection } from "./MemoryList";
 import { MEMORY_SCOPES } from "./model";
 import { MemoryRetention } from "./Retention";
+import { StarterMemory } from "./StarterMemory";
 import type { ComponentsState } from "./useComponents";
 
 /** Atlas memory: search, save, select, correct, promote, delete and export knowledge, and its retention. */
@@ -41,6 +42,7 @@ export function AtlasMemory({ state }: { state: ComponentsState }) {
         drop(record.id);
       })} />
     {!state.records.length && <EmptyState>No memory records in this view.</EmptyState>}
+    {!state.records.length && !state.appliedQuery && <StarterMemory state={state} />}
     <Actions className="user-memory-export">
       <Button disabled={busy} data-capability="memory.user.export" onClick={() => void guarded("User memory export", async (signal) => {
         const exported = await client!.exportUserMemory(signal);

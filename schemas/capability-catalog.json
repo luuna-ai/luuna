@@ -588,6 +588,28 @@
       ]
     },
     {
+      "id": "memory.starter",
+      "title": "Propose starter project memory from the manifest and checkout files, to keep or skip one fact at a time",
+      "method": "GET",
+      "route": "/api/v1/projects/{id}/memory/starter",
+      "client_method": "starterMemory",
+      "desktop": "memory.starter",
+      "tui": "memory-starter",
+      "failure_modes": [
+        "unreachable",
+        "aborted",
+        "rejected_token",
+        "not_found",
+        "refused",
+        "internal"
+      ],
+      "required_by": [
+        "R14",
+        "docs/06-memory.md#project-knowledge-and-process-lessons",
+        "docs/decisions/0059-starter-memory.md"
+      ]
+    },
+    {
       "id": "prompts.list",
       "title": "List Beacon prompts and versions",
       "method": "GET",

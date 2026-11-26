@@ -1163,6 +1163,63 @@ pub async fn run(
             }
             Ok(exported)
         }
+        "memory.starter" => {
+            // ADR 0059: the runtime proposes; only the facts the developer keeps are recorded,
+            // each as an ordinary project memory with the fact's own provenance.
+            let mut set = client
+                .get(&format!("/projects/{}/memory/starter", e(0)), s)
+                .await?;
+            let wanted: Vec<String> = input
+                .list("keep")
+                .iter()
+                .flat_map(|item| item.split(','))
+                .map(js_trim)
+                .filter(|key| !key.is_empty())
+                .collect();
+            let facts = set.get("facts").items().to_vec();
+            if let Some(unknown) = wanted.iter().find(|key| {
+                key.as_str() != "all"
+                    && !facts
+                        .iter()
+                        .any(|f| f.get("key").as_str() == Some(key.as_str()))
+            }) {
+                return Err(usage_error(format!(
+                    "No proposed fact has the key {unknown}; run memory-starter without --keep to list them."
+                )));
+            }
+            let mut kept = Vec::new();
+            for fact in facts.iter().filter(|f| f.get("recorded") != &J::Bool(true)) {
+                let key = fact.get("key").js();
+                let keep = if wanted.is_empty() {
+                    io.interactive()
+                        && io
+                            .confirm(format!(
+                                "Keep this fact as project memory?\n  {}\n  ({})",
+                                fact.get("content").js(),
+                                fact.get("provenance").js()
+                            ))
+                            .await?
+                } else {
+                    wanted.iter().any(|w| w == "all" || *w == key)
+                };
+                if !keep {
+                    continue;
+                }
+                let body = obj![
+                    ("idempotency_key", format!("starter-{key}")),
+                    ("scope", "project"),
+                    ("content", fact.get("content").clone()),
+                    ("provenance", fact.get("provenance").clone())
+                ];
+                kept.push(
+                    client
+                        .post(&format!("/projects/{}/memory", e(0)), Some(&body), s)
+                        .await?,
+                );
+            }
+            set.set("kept", J::Arr(kept));
+            Ok(set)
+        }
         "memory.retention.show" => {
             client
                 .get(&format!("/projects/{}/memory/retention", e(0)), s)
@@ -2183,7 +2240,7 @@ mod tests {
     #[test]
     fn the_table_matches_the_catalog_and_parses_specs_like_the_regular_expressions() {
         let table = table();
-        assert_eq!(table.commands.len(), 72);
+        assert_eq!(table.commands.len(), 73);
         assert_eq!(table.projections.len(), 2);
         for command in &table.commands {
             assert_eq!(

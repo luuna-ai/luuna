@@ -101,6 +101,7 @@ pub const HELP_GROUPS: [(&str, &str, &[&str]); 11] = [
             "retention",
             "set-retention",
             "apply-retention",
+            "memory-starter",
             "export-user-memory",
         ],
     ),

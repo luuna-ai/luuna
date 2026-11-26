@@ -199,7 +199,7 @@ pub fn hints(screen: Screen) -> &'static str {
         Screen::Project => "b baseline  d discover  c confirm  x components  y activate",
         Screen::Missions => "←→ columns  Enter ticket  n new  r refresh",
         Screen::Ticket => "e edit  p plan  g run  o source  c reconcile",
-        Screen::Memory => "Enter inspect  n new  / search  u user memory",
+        Screen::Memory => "Enter inspect  n new  s starter set  / search  u user memory",
         Screen::MemoryDetail => "e correct  d delete  p promote  s select context",
         Screen::Prompts => "Enter preview  n new  / search",
         Screen::PromptDetail => "e update  s select exact prompt",
@@ -751,6 +751,8 @@ pub fn key(app: &mut AppState, key: KeyEvent) -> bool {
         KeyCode::Char('s') if matches!(screen, Screen::Home | Screen::Projects) => {
             guide::begin(app, "init", Map::new())
         }
+        // ADR 0059: review a starter set, keeping or skipping each proposed fact.
+        KeyCode::Char('s') if screen == Screen::Memory => app.begin("memory-starter"),
         KeyCode::Char('s') => {
             let v = selected(app);
             match screen {

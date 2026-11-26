@@ -1550,3 +1550,123 @@ async fn components_real_retention_deletes_only_expired_process_memory_under_the
         .any(|event| event.event_type == "memory.retention_applied"
             && event.payload["deleted"][0]["id"] == old.id));
 }
+
+/// ADR 0059: an empty project's starter set is proposed from the confirmed
+/// manifest and the checkout's files, records nothing by itself, and a fact
+/// the developer keeps becomes an ordinary project memory through the route.
+#[tokio::test]
+async fn components_real_starter_memory_proposes_and_records_only_what_is_kept() {
+    use crate::memory_starter::starter_memory;
+    use crate::projects::{
+        confirm_manifest, discover, register_project, ConfirmManifest, RegisterProject,
+        RegisterRepository,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let fixture = root.path().join("fixture");
+    std::fs::create_dir_all(&fixture).unwrap();
+    git(&fixture, &["init", "-q", "-b", "main"]);
+    git(&fixture, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(fixture.join("README.md"), "fixture\n").unwrap();
+    std::fs::write(
+        fixture.join("Cargo.toml"),
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(fixture.join("Cargo.lock"), "# synthetic\n").unwrap();
+    git(&fixture, &["add", "."]);
+    git(&fixture, &["commit", "-q", "-m", "initial"]);
+    let state = real_runtime(&root.path().join("private"));
+    let _ = register_project(
+        State(state.clone()),
+        Json(RegisterProject {
+            id: Some("starter".into()),
+            name: "Starter".into(),
+            repositories: vec![RegisterRepository {
+                id: "app".into(),
+                path: fixture.to_string_lossy().into_owned(),
+            }],
+        }),
+    )
+    .await
+    .unwrap();
+    // Before a manifest is confirmed there is nothing to propose from.
+    let refused = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.0, StatusCode::CONFLICT);
+    let discovery = discover(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .1
+         .0;
+    let _ = confirm_manifest(
+        State(state.clone()),
+        Path("starter".into()),
+        Json(ConfirmManifest {
+            expected_revision: 0,
+            manifest: discovery.proposed_manifest.clone(),
+        }),
+    )
+    .await
+    .map_err(|e| e.1)
+    .unwrap();
+    let _ = enable(State(state.clone()), Path("starter".into()))
+        .await
+        .map_err(|e| e.1)
+        .unwrap();
+    let set = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    assert!(set.memory_empty);
+    let keys: Vec<&str> = set.facts.iter().map(|f| f.key.as_str()).collect();
+    for key in [
+        "branch:app",
+        "lockfile:app:Cargo.lock",
+        "guide:app:README.md",
+    ] {
+        assert!(keys.contains(&key), "{keys:?}");
+    }
+    assert!(set.facts.iter().all(|f| !f.recorded));
+    // Proposing wrote nothing.
+    assert!(list_memory(
+        State(state.clone()),
+        Path("starter".into()),
+        Query(MemoryQuery {
+            include_user: false,
+            q: None
+        })
+    )
+    .await
+    .unwrap()
+    .0
+    .is_empty());
+    let kept = set
+        .facts
+        .iter()
+        .find(|f| f.key == "lockfile:app:Cargo.lock")
+        .unwrap();
+    let recorded = create_memory(
+        State(state.clone()),
+        Path("starter".into()),
+        Json(CreateMemory {
+            idempotency_key: format!("starter-{}", kept.key),
+            scope: "project".into(),
+            content: kept.content.clone(),
+            provenance: kept.provenance.clone(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(recorded.scope, "project");
+    assert_eq!(recorded.provenance, kept.provenance);
+    let again = starter_memory(State(state.clone()), Path("starter".into()))
+        .await
+        .unwrap()
+        .0;
+    assert!(!again.memory_empty);
+    for fact in &again.facts {
+        assert_eq!(fact.recorded, fact.key == kept.key, "{}", fact.key);
+    }
+}

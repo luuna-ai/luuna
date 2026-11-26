@@ -218,6 +218,7 @@ mod dispatch;
 pub mod doctor;
 mod graph;
 mod integrations;
+mod memory_starter;
 mod missions;
 mod orbit;
 mod policy;
@@ -645,6 +646,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/projects/{id}/memory/retention",
             get(integrations::memory_retention).put(integrations::set_memory_retention),
+        )
+        .route(
+            "/api/v1/projects/{id}/memory/starter",
+            get(memory_starter::starter_memory),
         )
         .route(
             "/api/v1/projects/{id}/memory/retention/apply",

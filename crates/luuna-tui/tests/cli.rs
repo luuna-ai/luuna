@@ -59,6 +59,13 @@ fn records(request: &Request) -> Reply {
                 json!({"project":{"id":"walkthrough","name":"Walkthrough","revision":0},"repositories":[{"repository_id":"app","local_path":"/srv/app","observation":{"identity":{},"dirty":{}}}],"manifest":null,"discovery":null}),
             )
         }
+        ["projects", _, "memory", "starter"] => {
+            return json(json!({"memory_empty":true,"facts":[
+                {"key":"branch:app","repository_id":"app","content":"In app, base every change on `main`.","provenance":"Luuna's starter scan of the confirmed manifest (revision 1), repository app","evidence":["manifest"],"recorded":false},
+                {"key":"lockfile:app:Cargo.lock","repository_id":"app","content":"In app, build and test with `--locked`.","provenance":"Luuna's starter scan of repository app: Cargo.lock is present","evidence":["Cargo.lock"],"recorded":false},
+                {"key":"guide:app:README.md","repository_id":"app","content":"In app, read `README.md`.","provenance":"scan","evidence":["README.md"],"recorded":true}
+            ]}))
+        }
         ["tickets", _] if request.method == "GET" => {
             return json(
                 json!({"id":"ticket-1","revision":1,"source":"luuna_sqlite_temporary","title":"t","intent":"i","acceptance_criteria":[],"repository_ids":["app"]}),
@@ -230,6 +237,69 @@ fn bodies_match_the_shared_builders() {
     );
     // Key order is part of the body: it is the order the original builder wrote.
     assert!(posted.body.starts_with(r#"{"tasks":[{"id":"api","repository_id":"api","paths":["src"],"operations":["read","write"],"depends_on":["lib"]}"#), "{}", posted.body);
+}
+
+#[test]
+fn memory_starter_records_only_the_facts_named_to_keep() {
+    let directory = tempfile::tempdir().unwrap();
+    let mock = serve(records);
+    // Without --keep and without a terminal, the set is only listed.
+    let (code, out, err) = run_client(
+        &["memory-starter", "walkthrough"],
+        &mock.url(),
+        Some(TOKEN),
+        "",
+        directory.path(),
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(mock.take().iter().all(|r| r.method == "GET"));
+    assert!(out.contains("proposed  lockfile:app:Cargo.lock"), "{out}");
+    assert!(out.contains("recorded  guide:app:README.md"), "{out}");
+    let (code, out, err) = run_client(
+        &[
+            "memory-starter",
+            "walkthrough",
+            "--keep",
+            "lockfile:app:Cargo.lock",
+        ],
+        &mock.url(),
+        Some(TOKEN),
+        "",
+        directory.path(),
+    );
+    assert_eq!(code, 0, "{err}");
+    let posted: Vec<_> = mock
+        .take()
+        .into_iter()
+        .filter(|r| r.method == "POST")
+        .collect();
+    assert_eq!(posted.len(), 1);
+    assert_eq!(posted[0].path, "/api/v1/projects/walkthrough/memory");
+    assert_eq!(
+        posted[0].json(),
+        json!({"idempotency_key":"starter-lockfile:app:Cargo.lock","scope":"project","content":"In app, build and test with `--locked`.","provenance":"Luuna's starter scan of repository app: Cargo.lock is present"})
+    );
+    assert!(out.contains("kept"), "{out}");
+    // `all` keeps every fact not yet recorded; an unknown key sends nothing.
+    let (code, _, err) = run_client(
+        &["memory-starter", "walkthrough", "--keep", "all"],
+        &mock.url(),
+        Some(TOKEN),
+        "",
+        directory.path(),
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(mock.take().iter().filter(|r| r.method == "POST").count(), 2);
+    let (code, _, err) = run_client(
+        &["memory-starter", "walkthrough", "--keep", "nope"],
+        &mock.url(),
+        Some(TOKEN),
+        "",
+        directory.path(),
+    );
+    assert_ne!(code, 0);
+    assert!(err.contains("No proposed fact has the key nope"), "{err}");
+    assert!(mock.take().iter().all(|r| r.method == "GET"));
 }
 
 #[test]
