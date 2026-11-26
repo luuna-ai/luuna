@@ -299,3 +299,61 @@ fn help_never_mints_a_token() {
     // Nothing is created: no private folder, token or settings file.
     assert!(!dir.path().join("config").exists());
 }
+
+#[tokio::test]
+async fn concurrent_first_launches_share_one_token() {
+    use std::collections::BTreeMap;
+    let dir = tempfile::tempdir().unwrap();
+    let private = dir.path().join("private");
+    let url = closed_url();
+    let launch = || {
+        let private = private.clone();
+        let url = url.clone();
+        async move {
+            let mut vars = BTreeMap::new();
+            luuna_tui::setup::mint_service_token(&mut vars, |_| None, &url, || Ok(private))
+                .await
+                .unwrap();
+            vars["LUUNA_API_TOKEN"].clone()
+        }
+    };
+    let tokens = tokio::join!(launch(), launch(), launch());
+    let saved = luuna_tui::setup::load(&private.join("environment.json")).unwrap();
+    for token in [&tokens.0, &tokens.1, &tokens.2] {
+        assert_eq!(Some(token), saved.get("LUUNA_API_TOKEN"));
+    }
+    assert!(!private.join(".mint.lock").exists());
+}
+
+#[tokio::test]
+async fn init_stops_the_runtime_it_started_so_new_settings_apply() {
+    use std::collections::BTreeMap;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    let stopped = Arc::new(AtomicBool::new(false));
+    let seen = stopped.clone();
+    let server = support::serve(move |request| match request.path.as_str() {
+        "/api/v1/health" | "/health" if !seen.load(Ordering::SeqCst) => {
+            support::json(serde_json::json!({"status":"ok"}))
+        }
+        "/api/v1/shutdown" => {
+            assert_eq!(
+                request.header("authorization"),
+                Some("Bearer saved-service-token-0123456789abcdef")
+            );
+            seen.store(true, Ordering::SeqCst);
+            support::json(serde_json::json!({"status":"shutting_down"}))
+        }
+        _ => support::status(503, "{\"error\":\"stopped\"}"),
+    });
+    let vars = BTreeMap::from([(
+        "LUUNA_API_TOKEN".to_string(),
+        "saved-service-token-0123456789abcdef".to_string(),
+    )]);
+    luuna_tui::setup::stop_owned_runtime(&vars, &server.url())
+        .await
+        .unwrap();
+    assert!(stopped.load(Ordering::SeqCst));
+}

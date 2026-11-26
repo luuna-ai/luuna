@@ -120,8 +120,14 @@ async fn main() -> std::process::ExitCode {
                 Err(_) => std::collections::BTreeMap::new(),
             };
             if init {
+                let before = vars.clone();
                 luuna_tui::setup::prepare(&luuna_tui::components::install_root(), &mut vars)
                     .await?;
+                // A runtime started on an earlier launch keeps the settings
+                // it started with; restart it when init changed them.
+                if vars != before {
+                    luuna_tui::setup::restart_owned_runtime(&vars).await?;
+                }
                 luuna_tui::setup::ensure_runtime(&vars).await?;
             } else if offline(&argv) {
                 // Help and version never mint a token or start the runtime.
@@ -150,7 +156,7 @@ async fn main() -> std::process::ExitCode {
                     .args(&argv)
                     .env("LUUNA_PRIVATE_SETTINGS_LOADED", "1");
                 for (name, value) in vars {
-                    if std::env::var_os(&name).is_none() {
+                    if luuna_tui::setup::unset(&name) {
                         command.env(name, value);
                     }
                 }
