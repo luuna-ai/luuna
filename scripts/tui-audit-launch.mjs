@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 
 import path from "node:path";
 import { stageTerminal } from "./stage-terminal.mjs";
-import { clientBinary } from "./tui-client.mjs";
+import { clientBinary, formTitle } from "./tui-client.mjs";
 import { waitUntil } from "./tui-audit-runtime.mjs";
 const sameExecutable = (left, right) => { try { return realpathSync.native(left).toLowerCase() === realpathSync.native(right).toLowerCase(); } catch { return false; } };
 
@@ -51,7 +51,7 @@ export async function auditLaunchRoutes({ fixture, clientRoot, out, open, quit, 
   await waitUntil(async () => !(await following.capture()).lines.join("\n").includes("waiting for the runtime"));
   await following.send("\r"); await screenContains(following, /> Run ═/);
   await waitUntil(async () => !(await following.capture()).lines.join("\n").includes("waiting for the runtime"));
-  await following.send("f"); await screenContains(following, /\(follow\)/); await following.send("\x15" + fixture.run.id); await following.send("\x13");
+  await following.send("f"); await screenContains(following, formTitle("follow")); await following.send("\x15" + fixture.run.id); await following.send("\x13");
   await screenContains(following, /sequence|Runtime \/ working/); await capture(following, "event-follow-live");
   await fixture.kill(); await screenContains(following, /replay resumes after sequence/, 20000); await capture(following, "event-follow-outage");
   await fixture.start();
