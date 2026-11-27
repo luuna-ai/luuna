@@ -29,7 +29,7 @@ export async function auditWorkflows({ terminal, fixture, capture, screenContain
       await send("Home");
       for (let row = 0; row < 8; row++) {
         await send("Enter"); const state = await terminal.capture();
-        if (state.lines.join("\n").includes("Missions / ticket")) {
+        if (state.lines.join("\n").includes("> Ticket ═")) {
           await sleep(250); const detail = await terminal.capture();
           if (detail.lines.join("\n").includes(title)) return;
           await send("Escape"); await sleep(150);
