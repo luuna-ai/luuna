@@ -148,6 +148,22 @@ fn ticket_type_and_priority_are_picked_not_typed() {
 }
 
 #[test]
+fn typing_a_whole_choice_picks_it() {
+    let mut app = open("remember");
+    focus(&mut app, "scope");
+    for c in "process".chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+    assert_eq!(value(&app, "scope"), "process");
+    let mut app = open("create-ticket");
+    focus(&mut app, "priority");
+    for c in "P3".chars() {
+        press(&mut app, KeyCode::Char(c));
+    }
+    assert_eq!(value(&app, "priority"), "P3");
+}
+
+#[test]
 fn scopes_and_yes_no_are_picked_with_a_letter() {
     let mut app = open("remember");
     focus(&mut app, "scope");

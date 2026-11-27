@@ -22,6 +22,9 @@ pub struct FormField {
     pub fixed: bool,
     /// Rarely needed (idempotency keys, revisions, budgets): listed last, under "More options".
     pub advanced: bool,
+    /// Letters typed into a fixed field since its last pick, so "process" picks process
+    /// while a repeated "p" steps through the p choices.
+    pub typed: String,
 }
 impl FormField {
     /// What a key does to this field: a fixed choice field jumps to the next choice that
@@ -34,19 +37,38 @@ impl FormField {
         match key.code {
             KeyCode::Char(c) if crate::keys::is_text(&key) => {
                 let c = c.to_ascii_lowercase();
+                let starts = |(value, label): &(String, String), prefix: &str| {
+                    value.to_ascii_lowercase().starts_with(prefix)
+                        || label.to_ascii_lowercase().starts_with(prefix)
+                };
+                // Extend what was typed while a choice still starts with it; otherwise step to
+                // the next choice starting with this letter.
+                let longer = format!("{}{c}", self.typed);
+                if let Some(at) = self.choices.iter().position(|ch| starts(ch, &longer)) {
+                    if longer.len() > 1 || self.choice_index() != Some(at) {
+                        self.value = self.choices[at].0.clone();
+                        self.typed = longer;
+                        return;
+                    }
+                }
                 let n = self.choices.len();
                 let from = self.choice_index().map_or(0, |i| i + 1);
-                if let Some(next) = (0..n).map(|step| (from + step) % n).find(|&i| {
-                    let (value, label) = &self.choices[i];
-                    value.to_ascii_lowercase().starts_with(c)
-                        || label.to_ascii_lowercase().starts_with(c)
-                }) {
+                let letter = c.to_string();
+                if let Some(next) = (0..n)
+                    .map(|step| (from + step) % n)
+                    .find(|&i| starts(&self.choices[i], &letter))
+                {
                     self.value = self.choices[next].0.clone();
+                    self.typed = letter;
                 }
             }
-            KeyCode::Backspace => self.value.clear(),
+            KeyCode::Backspace => {
+                self.value.clear();
+                self.typed.clear();
+            }
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.value.clear()
+                self.value.clear();
+                self.typed.clear();
             }
             _ => {}
         }
@@ -64,6 +86,7 @@ impl FormField {
             None => n - 1,
         };
         self.value = self.choices[next].0.clone();
+        self.typed.clear();
         true
     }
     /// The position of the current value among the choices.
