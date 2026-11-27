@@ -1,21 +1,21 @@
  1 Home  2 Projects  3 Orbit  4 Missions  5 Atlas  6 Beacon  7 Runs  : Commands  ? Help
  LUUNA  ▸ demo (2 switch)  connected
-╔ LUUNA ══════════════════════╗╔ > Atlas / scoped memory ══════════════════════════════════════════════════════════════╗
+╔ LUUNA ══════════════════════╗╔ > Atlas ══════════════════════════════════════════════════════════════════════════════╗
 ║   1 Home                    ║║Search:                                                                                ║
-║   2 Projects                ║║User memory: excluded (explicit choice)                                                ║
+║   2 Projects                ║║User memory: excluded (u switches)                                                     ║
 ║   3 Orbit                   ║║> [project] Use structured errors  ║mem-1                                              ║
-║   4 Missions                ║║  id: mem-1                        ║Short id: mem-1                                    ║
+║   4 Missions                ║║  id: mem-1                        ║Full id: mem-1                                     ║
 ║   5 Atlas *                 ║║                                   ║Scope: project                                     ║
 ║   6 Beacon                  ║║                                   ║Provenance: Maintainer notes                       ║
-║   7 Runs                    ║║                                   ║Exact hash:                                        ║
+║   7 Runs                    ║║                                   ║Hash:                                              ║
 ║     Set up a project        ║║                                   ║sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa║
 ║   : Commands                ║║                                   ║aaaaaaaaaaaaaaaaaaaa                               ║
 ║   ? Help                    ║║                                   ║                                                   ║
 ║                             ║║                                   ║CONTENT                                            ║
 ║                             ║║                                   ║Use structured errors                              ║
 ║                             ║║                                   ║                                                   ║
-║                             ║║                                   ║Context selection is unsent until you submit a     ║
-║                             ║║                                   ║plan.                                              ║
+║                             ║║                                   ║                                                   ║
+║                             ║║                                   ║                                                   ║
 ║                             ║║                                   ║                                                   ║
 ║                             ║║                                   ║                                                   ║
 ║                             ║║                                   ║                                                   ║

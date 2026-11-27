@@ -24,7 +24,7 @@ export async function auditWorkflows({ terminal, fixture, capture, screenContain
   }
   const submit = () => send("\x13");
   async function missionTicket(title) {
-    await send("F4"); await screenContains(terminal, /Missions \/ workflow board/); await sleep(300);
+    await send("F4"); await screenContains(terminal, /> Missions ═/); await sleep(300);
     // Walk the actual selected column; Enter opens the selected record, and the
     // API-backed detail identifies it. Every column remains keyboard-reachable.
     for (let column = 0; column < 8; column++) {
@@ -43,55 +43,55 @@ export async function auditWorkflows({ terminal, fixture, capture, screenContain
     throw new Error(`Could not open ticket ${title} through Missions`);
   }
 
-  await screenContains(terminal, /Home \/ workspace health/); await capture(terminal, "home-populated");
+  await screenContains(terminal, /> Home ═/); await capture(terminal, "home-populated");
   await view("F3", /Native Audit/, "projects-populated"); await send("Enter");
-  await screenContains(terminal, /Project \/ recorded identity/); await capture(terminal, "project-detail");
+  await screenContains(terminal, /> Project ═/); await capture(terminal, "project-detail");
   record("Home and Projects use the real confirmed project", true);
 
   await view("F6", /Native fixture knowledge/, "atlas-populated"); await send("Enter");
-  await screenContains(terminal, /Atlas \/ record/); await send("s");
-  await screenContains(terminal, /selected \/ s removes/); await capture(terminal, "atlas-context-selected");
+  await screenContains(terminal, /> Memory ═/); await send("s");
+  await screenContains(terminal, /uses it \(s removes\)/); await capture(terminal, "atlas-context-selected");
   await view("F7", /native-guidance/, "beacon-populated"); await send("Enter");
   await screenContains(terminal, /Preserve exact approval and candidate identity/); await send("s");
-  await screenContains(terminal, /selected \/ s removes/); await capture(terminal, "beacon-context-selected");
+  await screenContains(terminal, /uses it \(s removes\)/); await capture(terminal, "beacon-context-selected");
   record("Atlas and exact Beacon preview can select unsent plan context", true);
 
-  await send("F4"); await screenContains(terminal, /Missions \/ workflow board/);
+  await send("F4"); await screenContains(terminal, /> Missions ═/);
   const columnNames = ["Backlog", "Testing prerequisite", "Discovery / plan", "Approval", "Implementation", "Checks", "Review", "PRs"];
   for (const [index, name] of columnNames.entries()) { await screenContains(terminal, new RegExp(`> ${name.replaceAll("/", "\\/")}`)); await capture(terminal, `missions-column-${index + 1}`); await send("Right"); }
   record("all eight Missions columns are keyboard reachable", true);
   await send("n"); await fill("create-ticket", { title: "UI native ticket", intent: "Created through a real terminal form", criterion: "native form evidence", repository: "app" }); await submit();
   const created = await changed(async () => (await apiRows(`/projects/${fixture.projectId}/tickets`))?.find((ticket) => ticket.title === "UI native ticket"), "UI ticket was not created");
-  await screenContains(terminal, /Missions \/ workflow board/);
+  await screenContains(terminal, /> Missions ═/);
   await missionTicket("UI native ticket"); await capture(terminal, "ticket-detail-created");
   await send("e"); await fill("edit-ticket", { title: "UI native ticket edited" }); await submit();
   await changed(async () => (await apiRows(`/tickets/${created.id}`))?.title === "UI native ticket edited", "UI ticket edit not recorded");
   record("ticket create/edit forms persist through the real runtime", true);
 
-  await send("F6"); await screenContains(terminal, /Atlas \/ scoped memory/); await send("n");
+  await send("F6"); await screenContains(terminal, /> Atlas ═/); await send("n");
   await submit(); await screenContains(terminal, /required/); await capture(terminal, "memory-invalid-input");
   await fill("remember", { scope: "process", content: "UI native knowledge", provenance: "ConPTY form evidence" });
   // Printable q stays inside the form; resize while the unsent value exists.
   await terminal.resize(40, 12); await sleep(200); await capture(terminal, "memory-form-narrow"); await terminal.resize(120, 40); await sleep(200);
   await submit();
   const memory = await changed(async () => (await apiRows(`/projects/${fixture.projectId}/memory`))?.find((row) => row.content === "UI native knowledge"), "UI memory not recorded");
-  await screenContains(terminal, /UI native knowledge/); await send("Enter"); await screenContains(terminal, /Atlas \/ record/);
+  await screenContains(terminal, /UI native knowledge/); await send("Enter"); await screenContains(terminal, /> Memory ═/);
   await send("e"); await fill("correct-memory", { content: "UI native knowledge corrected" }); await submit();
   await changed(async () => (await apiRows(`/projects/${fixture.projectId}/memory`))?.some((row) => row.id === memory.id && row.content === "UI native knowledge corrected"), "Memory correction not recorded");
-  await screenContains(terminal, /UI native knowledge corrected/); await send("Enter"); await screenContains(terminal, /Atlas \/ record/);
+  await screenContains(terminal, /UI native knowledge corrected/); await send("Enter"); await screenContains(terminal, /> Memory ═/);
   await send("p"); await fill("promote", { "to-scope": "project", "@confirm": "yes" }, ["@confirm"]); await submit();
   const promoted = await changed(async () => (await apiRows(`/projects/${fixture.projectId}/memory`))?.find((row) => row.content === "UI native knowledge corrected" && row.scope === "project"), "Memory promotion not recorded");
-  await screenContains(terminal, /UI native knowledge corrected/); await send("Enter"); await screenContains(terminal, /Atlas \/ record/);
+  await screenContains(terminal, /UI native knowledge corrected/); await send("Enter"); await screenContains(terminal, /> Memory ═/);
   await send("d"); await fill("forget", { "@confirm": "yes" }, ["@confirm"]); await submit();
   await changed(async () => !(await apiRows(`/projects/${fixture.projectId}/memory`))?.some((row) => row.id === promoted.id), "Exact-hash memory deletion not recorded");
   record("Atlas invalid/create/correct/promote/delete forms enforce runtime identity", true);
   await send("F6"); await screenContains(terminal, /User memory: excluded/); await send("u"); await screenContains(terminal, /User memory: included/); await capture(terminal, "atlas-explicit-user-memory"); await send("u");
   record("user-memory inclusion is an explicit UI choice", true);
 
-  await send("F7"); await screenContains(terminal, /Beacon \/ versioned prompts/); await send("n");
+  await send("F7"); await screenContains(terminal, /> Beacon ═/); await send("n");
   await fill("save-prompt", { name: "ui-native-prompt", "@document": "Keep exact identities.\nq remains prompt text." }, ["@document"]); await submit();
   const prompt = await changed(async () => (await apiRows(`/projects/${fixture.projectId}/prompts`))?.find((row) => row.name === "ui-native-prompt"), "UI prompt not saved");
-  await screenContains(terminal, /ui-native-prompt/); await send("Enter"); await screenContains(terminal, /Beacon \/ exact preview/);
+  await screenContains(terminal, /ui-native-prompt/); await send("Enter"); await screenContains(terminal, /> Prompt ═/);
   await send("e"); await fill("save-prompt", { "@document": "Updated exact prompt body.\nSecond line." }, ["@document"]); await submit();
   const updated = await changed(async () => (await apiRows(`/projects/${fixture.projectId}/prompts`))?.find((row) => row.name === prompt.name && row.version > prompt.version), "Versioned prompt update not recorded");
   await screenContains(terminal, /ui-native-prompt/); await send("Enter"); await screenContains(terminal, /Updated exact prompt body/); await capture(terminal, "beacon-updated-preview");
@@ -99,7 +99,7 @@ export async function auditWorkflows({ terminal, fixture, capture, screenContain
 
   await missionTicket("UI native ticket edited"); await send("p"); await fill("plan", { repository: "app", path: "src" }); await submit();
   const plans = await changed(async () => { const values = await apiRows(`/tickets/${created.id}/plans`); return values?.length && values; }, "UI plan not recorded");
-  const plan = plans.at(-1); await screenContains(terminal, /Plan \/ immutable snapshot/); await capture(terminal, "plan-full-context");
+  const plan = plans.at(-1); await screenContains(terminal, /> Plan ═/); await capture(terminal, "plan-full-context");
   const serialized = JSON.stringify(plan);
   record("explicit plan records selected memory and exact prompt context", serialized.includes(fixture.memory.id) && serialized.includes("native-guidance"));
   await send("a"); await fill("approve", {}); await submit(); await screenContains(terminal, /Type approve \(or 8\+ hash digits\) to approve plan/); await capture(terminal, "approval-blank-hash");
@@ -120,15 +120,15 @@ export async function auditWorkflows({ terminal, fixture, capture, screenContain
   await capture(terminal, "approval-typed-complete");
   record("typed approval after the displayed plan persists against the same immutable plan", true);
   // Return through the plan route rather than assuming a cancelled prompt's mode.
-  await send("F8"); await screenContains(terminal, /Runs \/ recorded workflows/); await capture(terminal, "runs-list");
-  await send("Enter"); await screenContains(terminal, /Run \/ evidence/);
+  await send("F8"); await screenContains(terminal, /> Runs ═/); await capture(terminal, "runs-list");
+  await send("Enter"); await screenContains(terminal, /> Run ═/);
   for (const [index, name] of ["Overview", "Candidate", "Diff", "Tasks", "Worktrees", "Attempts", "Events", "Publication"].entries()) {
     await screenContains(terminal, new RegExp(`${index + 1} / 8: ${name}`));
     await waitUntil(async () => !/waiting for the runtime/.test((await terminal.capture()).lines.join("\n")), { timeout: 60000 });
     await capture(terminal, `run-evidence-${index + 1}`); await send("Right");
   }
   record("Runs exposes all eight real evidence tabs", true);
-  await view("F1", /Help \/ keyboard reference/, "help");
+  await view("F1", /> Help ═/, "help");
   await view("F2", /Actions \/|Commands/, "commands-catalog");
   await send("/"); await send("doctor"); await send("Enter"); await capture(terminal, "commands-doctor-search"); await send("Enter");
   await screenContains(terminal, /doctor|Diagnostics/i); await capture(terminal, "settings-doctor");

@@ -1,8 +1,8 @@
  1 Home  2 Projects  3 Orbit  4 Missions  5 Atlas  6 Beacon  7 Runs  : Commands  ? Help
  LUUNA  ▸ demo (2 switch)  connected
-╔ LUUNA ══════════════════════╗╔ > Missions / workflow board ══════════════════════════════════════════════════════════╗
-║   1 Home                    ║║Read-only runtime projection / columns 1-3 of 8                                        ║
-║   2 Projects                ║║Left/Right changes column; Enter inspects the card                                     ║
+╔ LUUNA ══════════════════════╗╔ > Missions ═══════════════════════════════════════════════════════════════════════════╗
+║   1 Home                    ║║Columns 1-3 of 8 · ←→ moves                                                            ║
+║   2 Projects                ║║                                                                                       ║
 ║   3 Orbit                   ║║╔ > Backlog (1) ════════════╗╔ Testing prerequisite (0) ═╗╔ Discovery / plan (0) ═════╗║
 ║   4 Missions *              ║║║>Greeting ticket           ║║                           ║║                           ║║
 ║   5 Atlas                   ║║║ Ticket: ticket-1          ║║ No cards                  ║║ No cards                  ║║

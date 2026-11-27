@@ -47,9 +47,9 @@ export async function auditLaunchRoutes({ fixture, clientRoot, out, open, quit, 
 
 
   const following = await open("event-follow");
-  await following.send("\x1b[19~"); await screenContains(following, /Runs \/ recorded workflows/);
+  await following.send("\x1b[19~"); await screenContains(following, /> Runs ═/);
   await waitUntil(async () => !(await following.capture()).lines.join("\n").includes("waiting for the runtime"));
-  await following.send("\r"); await screenContains(following, /Run \/ evidence/);
+  await following.send("\r"); await screenContains(following, /> Run ═/);
   await waitUntil(async () => !(await following.capture()).lines.join("\n").includes("waiting for the runtime"));
   await following.send("f"); await screenContains(following, /\(follow\)/); await following.send("\x15" + fixture.run.id); await following.send("\x13");
   await screenContains(following, /sequence|Runtime \/ working/); await capture(following, "event-follow-live");
