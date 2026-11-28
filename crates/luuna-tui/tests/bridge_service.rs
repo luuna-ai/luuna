@@ -92,7 +92,7 @@ async fn catalog_reads_and_redaction() {
         ))
         .unwrap();
     let result = next(&mut bridge, "r1").await;
-    assert_eq!(result.event, "result");
+    assert_eq!(result.event.as_str(), "result");
     assert_eq!(
         result.fields["formatted"],
         "runtime ok · Pi 1.3.0 · native execution no · build [redacted]"
@@ -191,9 +191,9 @@ async fn approval_prompts_for_a_typed_acknowledgment_and_validates_replies() {
             json!({"request_id":"a1","prompt_id":prompt_id,"value":"approve"}),
         ))
         .unwrap();
-    assert_eq!(next(&mut bridge, "x3").await.event, "result");
+    assert_eq!(next(&mut bridge, "x3").await.event.as_str(), "result");
     let done = next(&mut bridge, "a1").await;
-    assert_eq!(done.event, "result", "{:?}", done.fields);
+    assert_eq!(done.event.as_str(), "result", "{:?}", done.fields);
     assert!(done.fields["formatted"]
         .as_str()
         .unwrap()

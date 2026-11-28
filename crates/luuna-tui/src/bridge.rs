@@ -11,7 +11,7 @@ use crate::failures::{describe_failure, Failure};
 use crate::format::{format, plain};
 use crate::js::J;
 use crate::prime::GuideUi;
-use crate::protocol::{BridgeEvent, ClientCommand, VERSION};
+use crate::protocol::{BridgeEvent, ClientCommand, EventKind, VERSION};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -88,7 +88,7 @@ impl Service {
             other => other,
         }
     }
-    fn emit(&self, id: &str, event: &str, fields: Value) {
+    fn emit(&self, id: &str, event: EventKind, fields: Value) {
         let fields = match self.redact(fields) {
             Value::Object(map) => map,
             _ => Map::new(),
@@ -96,12 +96,12 @@ impl Service {
         let _ = self.events.send(Ok(BridgeEvent {
             v: VERSION,
             id: self.redact_text(id),
-            event: event.into(),
+            event,
             fields,
         }));
     }
     fn error(&self, id: &str, code: &str, message: &str, outcome: &str, exit_code: u8) {
-        self.emit(id, "error", json!({"code": code, "message": plain(message), "outcome": outcome, "exit_code": exit_code}));
+        self.emit(id, EventKind::Error, json!({"code": code, "message": plain(message), "outcome": outcome, "exit_code": exit_code}));
     }
     fn client(&self) -> Result<Client, Failure> {
         let url = self
@@ -128,7 +128,7 @@ impl Service {
         self: &Arc<Self>,
         request: &str,
         kind: &'static str,
-        event: &str,
+        event: EventKind,
         mut frame: Value,
         choices: Option<usize>,
         signal: &Signal,
@@ -197,14 +197,14 @@ impl Service {
             Ok(()) => {
                 if state.connection != Some("connected") {
                     drop(state);
-                    self.emit("connection", "connection", json!({"state": "connected", "message": "Runtime connected. Reload authoritative views."}));
+                    self.emit("connection", EventKind::Connection, json!({"state": "connected", "message": "Runtime connected. Reload authoritative views."}));
                     self.state.lock().unwrap().connection = Some("connected");
                 }
             }
             Err(failure) => {
                 if state.connection != Some("disconnected") {
                     drop(state);
-                    self.emit("connection", "connection", json!({"state": "disconnected", "message": plain(&describe_failure(&failure))}));
+                    self.emit("connection", EventKind::Connection, json!({"state": "disconnected", "message": plain(&describe_failure(&failure))}));
                     self.state.lock().unwrap().connection = Some("disconnected");
                 }
             }
@@ -295,7 +295,7 @@ impl Service {
             return;
         }
         match request.op.as_str() {
-            "catalog" => self.emit(&id, "catalog", self.catalog()),
+            "catalog" => self.emit(&id, EventKind::Catalog, self.catalog()),
             "reply" => {
                 let target = request
                     .fields
@@ -355,7 +355,7 @@ impl Service {
                         let _ = pending.answer.send(value);
                         self.emit(
                             &id,
-                            "result",
+                            EventKind::Result,
                             json!({"value": {"replied": true}, "formatted": "", "code": 0}),
                         );
                     }
@@ -379,7 +379,7 @@ impl Service {
                 if found {
                     self.emit(
                         &id,
-                        "result",
+                        EventKind::Result,
                         json!({"value": {"aborted": target}, "formatted": "", "code": 0}),
                     );
                 } else {
@@ -396,7 +396,7 @@ impl Service {
                 self.close();
                 self.emit(
                     &id,
-                    "result",
+                    EventKind::Result,
                     json!({"value": {"closed": true}, "formatted": "", "code": 0}),
                 );
             }
@@ -578,7 +578,7 @@ impl Service {
         match result {
             Ok((value, formatted)) => self.emit(
                 &id,
-                "result",
+                EventKind::Result,
                 json!({"value": value, "formatted": formatted, "code": 0}),
             ),
             Err((failure, stderr)) => {
@@ -685,7 +685,7 @@ impl Service {
         match result {
             Ok(value) => self.emit(
                 &id,
-                "result",
+                EventKind::Result,
                 json!({"value": value, "formatted": "", "code": 0}),
             ),
             Err(failure) => {
@@ -766,7 +766,7 @@ impl Io for BridgeIo {
                 .question(
                     &self.request,
                     "confirm",
-                    "prompt",
+                    EventKind::Prompt,
                     json!({"kind": "confirm", "question": plain(&question)}),
                     None,
                     &self.signal,
@@ -785,7 +785,7 @@ impl Io for BridgeIo {
         }
         self.service.emit(
             &self.request,
-            "output",
+            EventKind::Output,
             json!({"kind": "plan", "text": clean}),
         );
         Ok(())
@@ -794,13 +794,16 @@ impl Io for BridgeIo {
         let clean = self.service.redact_text(&plain(text));
         self.service.emit(
             &self.request,
-            "output",
+            EventKind::Output,
             json!({"kind": "note", "text": clean}),
         );
     }
     fn emit(&self, event: &J) {
-        self.service
-            .emit(&self.request, "event", json!({"record": event.to_serde()}));
+        self.service.emit(
+            &self.request,
+            EventKind::Event,
+            json!({"record": event.to_serde()}),
+        );
     }
 }
 
@@ -811,7 +814,7 @@ impl BridgeIo {
             .question(
                 &self.request,
                 kind,
-                "prompt",
+                EventKind::Prompt,
                 json!({"kind": kind, "question": plain(question)}),
                 None,
                 &self.signal,
@@ -830,13 +833,20 @@ struct BridgeGuide {
 
 impl GuideUi for BridgeGuide {
     fn send(&self, frame: Value) {
-        self.service.emit(&self.request, "guide", frame);
+        self.service.emit(&self.request, EventKind::Guide, frame);
     }
     fn ask(&self, kind: &'static str, frame: Value) -> Fut<'_, Result<Value, Failure>> {
         Box::pin(async move {
             let choices = frame.get("options").and_then(Value::as_array).map(Vec::len);
             self.service
-                .question(&self.request, kind, "guide", frame, choices, &self.signal)
+                .question(
+                    &self.request,
+                    kind,
+                    EventKind::Guide,
+                    frame,
+                    choices,
+                    &self.signal,
+                )
                 .await
         })
     }
