@@ -118,7 +118,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState, theme: Theme) {
     } else if app.prompt.is_some() {
         " Enter answer · PgUp/PgDn plan · Esc abort".to_string()
     } else if app.mode == Mode::Form {
-        " Tab next · ←→ pick · Ctrl+S submit · Alt+Enter new line · Esc cancel".to_string()
+        " Tab next · ←→ pick · Ctrl+S submit · Ctrl+J new line · Esc cancel".to_string()
     } else if app.mode == Mode::Result {
         " ↑↓ PgUp/PgDn scroll · Esc back/abort · q quit".to_string()
     } else {
@@ -373,12 +373,12 @@ fn render_prompt(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme) {
     let Some(prompt) = &app.prompt else {
         return;
     };
-    let title = if prompt.kind == "hash" {
+    let title = if prompt.kind == crate::app::PromptKind::Hash {
         " Exact plan approval · review above "
     } else {
         " Runtime question "
     };
-    let suffix = if prompt.kind == "document" {
+    let suffix = if prompt.kind == crate::app::PromptKind::Document {
         "^S submit"
     } else {
         "Enter submit"
@@ -507,7 +507,7 @@ mod tests {
         app.prompt = Some(PendingPrompt {
             request_id: "p".into(),
             prompt_id: "h".into(),
-            kind: "hash".into(),
+            kind: crate::app::PromptKind::Hash,
             question: "Type the complete hash".into(),
             value: String::new(),
         });
