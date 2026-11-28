@@ -21,7 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = ServiceSettings::from_env(|name| std::env::var_os(name))?;
     let state = AppState::open(settings.runtime)
         .map_err(|error| StartupError(error.to_string()))?
-        .with_publication(settings.publication);
+        .with_publication(settings.publication)
+        .with_default_store(settings.default_store);
     let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, settings.port);
     let listener = tokio::net::TcpListener::bind(address)
         .await

@@ -122,6 +122,25 @@ pub fn check_checkout(checkout: &Path, data_dir: &Path) -> Result<(), StoreRefus
     Ok(())
 }
 
+/// Store folders of the components' upstream tools (Seeds, Mulch, Canopy).
+/// A component's own `init` moves such a folder to `.luuna/<component>` and
+/// rewrites ignore files, so the runtime never initialises a checkout store
+/// while one is present, and a new project does not default to that checkout
+/// (ADR 0067).
+pub(crate) const LEGACY_STORES: [(&str, &str); 3] = [
+    ("missions", ".seeds"),
+    ("atlas", ".mulch"),
+    ("beacon", ".canopy"),
+];
+
+/// The first upstream store folder present in `checkout`, as (component,
+/// folder). Anything at that path counts, even a link.
+pub(crate) fn legacy_store(checkout: &Path) -> Option<(&'static str, &'static str)> {
+    LEGACY_STORES
+        .into_iter()
+        .find(|(_, folder)| std::fs::symlink_metadata(checkout.join(folder)).is_ok())
+}
+
 /// Most entries and folder depth looked through in a checkout component store.
 const TREE_MAX_ENTRIES: usize = 100_000;
 const TREE_MAX_DEPTH: usize = 32;

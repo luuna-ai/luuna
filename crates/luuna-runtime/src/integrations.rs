@@ -89,6 +89,15 @@ pub(crate) fn require_store(store: &StoreRoot, component: &str) -> Result<(), Ap
     }
     Ok(())
 }
+/// Whether a checkout has no `.luuna/<component>` entry at all, so the
+/// component's own `init` may create it (ADR 0067). Anything already there,
+/// even a broken link, is not absent.
+fn checkout_store_absent(checkout: &FsPath, component: &str) -> bool {
+    matches!(
+        std::fs::symlink_metadata(checkout.join(".luuna").join(component)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    )
+}
 fn require_enabled(state: &AppState, id: &str) -> Result<(), ApiError> {
     require_beacon_enabled(state, id)?;
     available(state)?;
@@ -154,7 +163,11 @@ async fn call(
     store: &StoreRoot,
     args: Vec<String>,
 ) -> Result<Value, ApiError> {
-    require_store(store, component)?;
+    // A missing checkout store may be initialised (ADR 0067); every other
+    // call needs a usable one.
+    if args.first().map(String::as_str) != Some("init") {
+        require_store(store, component)?;
+    }
     let result = if component == "beacon" {
         luuna_components::call_beacon_in(store, &args).await
     } else if component == "missions" {
@@ -211,9 +224,22 @@ pub async fn enable(
 pub(crate) async fn enable_project(state: &AppState, id: &str) -> Result<(), ApiError> {
     let directory = workspace(state, id)?;
     available(state)?;
-    // A repository store is used as the developer initialised it, never
-    // initialised here: refuse before the project is frozen.
+    // ADR 0067: a checkout store that does not exist yet is initialised
+    // below, inside `.luuna/<component>`; one that exists must be usable as it
+    // is. Refuse before the project is frozen.
+    // A checkout still holding an upstream tool's store is refused: that
+    // component's init would move it and rewrite ignore files.
+    if directory.is_checkout() {
+        if let Some((component, folder)) = crate::stores::legacy_store(directory.path()) {
+            return Err(conflict(format!(
+                "This project's store mode is 'repository' and the repository still has a {folder} store; move it to .luuna/{component} with that component's own command, then retry. No component data was read or written"
+            )));
+        }
+    }
     for component in ["missions", "atlas", "beacon"] {
+        if directory.is_checkout() && checkout_store_absent(directory.path(), component) {
+            continue;
+        }
         require_store(&directory, component)?;
     }
     state

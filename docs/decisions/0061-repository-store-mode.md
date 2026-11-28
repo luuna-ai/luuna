@@ -1,6 +1,6 @@
 # ADR 0061: Repository store mode
 
-Date: 2026-11-26. Status: accepted under the owner's migration charter, step 1, slice 4b. Builds on [ADR 0045](0045-per-project-store-mode.md) decisions 4 and 6 and on [ADR 0028](0028-luuna-project-component-layout.md). It adds no route, action, client method, table or stored format.
+Date: 2026-11-26. Status: accepted under the owner's migration charter, step 1, slice 4b. Builds on [ADR 0045](0045-per-project-store-mode.md) decisions 4 and 6 and on [ADR 0028](0028-luuna-project-component-layout.md). Decision 3 is superseded, and decision 4 narrowed, by [ADR 0067](0067-repository-store-by-default.md): the runtime now initialises a missing checkout store, and new projects default to their checkout. It adds no route, action, client method, table or stored format.
 
 ## Decision
 
