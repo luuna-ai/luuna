@@ -295,12 +295,12 @@ fn render_prompt(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme) {
     let Some(prompt) = &app.prompt else {
         return;
     };
-    let title = if prompt.kind == "hash" {
+    let title = if prompt.kind == crate::app::PromptKind::Hash {
         " Exact plan approval · review above "
     } else {
         " Runtime question "
     };
-    let suffix = if prompt.kind == "document" {
+    let suffix = if prompt.kind == crate::app::PromptKind::Document {
         "^S submit"
     } else {
         "Enter submit"
@@ -429,7 +429,7 @@ mod tests {
         app.prompt = Some(PendingPrompt {
             request_id: "p".into(),
             prompt_id: "h".into(),
-            kind: "hash".into(),
+            kind: crate::app::PromptKind::Hash,
             question: "Type the complete hash".into(),
             value: String::new(),
         });

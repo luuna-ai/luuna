@@ -5,7 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::form::edit;
+use crate::form::{edit, MAX_INPUT};
 pub use crate::form::{ActionForm, FormField};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,11 +18,36 @@ pub enum Mode {
     Guide,
 }
 
+/// What a runtime question asks for, which decides how it is answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PromptKind {
+    /// Exact plan approval: the plan scrolls above and Enter needs the plan fully visible.
+    Hash,
+    /// A multi-line document: Enter adds a line, Ctrl+S (or Ctrl+Enter) submits.
+    Document,
+    /// Yes or no, answered as a boolean.
+    Confirm,
+    /// Any other single-line text answer.
+    Text,
+}
+
+impl PromptKind {
+    /// The kind a bridge `prompt` event names; unknown kinds are single-line text.
+    pub fn from_wire(kind: &str) -> Self {
+        match kind {
+            "hash" => Self::Hash,
+            "document" => Self::Document,
+            "confirm" => Self::Confirm,
+            _ => Self::Text,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PendingPrompt {
     pub request_id: String,
     pub prompt_id: String,
-    pub kind: String,
+    pub kind: PromptKind,
     pub question: String,
     pub value: String,
 }
@@ -136,10 +161,16 @@ impl AppState {
     pub fn append(&mut self, text: &str) {
         self.output_omitted |= bounded_append(&mut self.output, text);
     }
-    pub fn begin(&mut self, name: &str) {
+    /// True (with the status saying so) once the bridge has stopped: nothing more can be sent.
+    fn refuse_when_transport_stopped(&mut self) -> bool {
         if self.bridge_failed {
             self.status =
                 "Transport stopped. Restart the terminal to reconnect; no action was sent.".into();
+        }
+        self.bridge_failed
+    }
+    pub fn begin(&mut self, name: &str) {
+        if self.refuse_when_transport_stopped() {
             return;
         }
         if self.active_request.is_some() {
@@ -164,9 +195,7 @@ impl AppState {
         flags: Map<String, Value>,
         read_only: bool,
     ) {
-        if self.bridge_failed {
-            self.status =
-                "Transport stopped. Restart the terminal to reconnect; no action was sent.".into();
+        if self.refuse_when_transport_stopped() {
             return;
         }
         if self.active_request.is_some() {
@@ -376,7 +405,7 @@ impl AppState {
                 self.prompt = Some(PendingPrompt {
                     request_id: event.id.clone(),
                     prompt_id: event.text("prompt_id").into(),
-                    kind: event.text("kind").into(),
+                    kind: PromptKind::from_wire(event.text("kind")),
                     question: safe_text(event.text("question")),
                     value: String::new(),
                 });
@@ -518,97 +547,112 @@ impl AppState {
             }
             return;
         }
-        if let Some(prompt) = &mut self.prompt {
-            if prompt.kind == "hash" {
-                match key.code {
-                    KeyCode::Up => {
-                        self.scroll.scroll_up(1);
-                        return;
-                    }
-                    KeyCode::Down => {
-                        self.scroll.scroll_down(1);
-                        return;
-                    }
-                    KeyCode::Home => {
-                        self.scroll.to_top();
-                        return;
-                    }
-                    KeyCode::End => {
-                        self.scroll.to_bottom();
-                        return;
-                    }
-                    _ => {}
-                }
-            }
-            let submit_document = prompt.kind == "document"
-                && key.modifiers.contains(KeyModifiers::CONTROL)
-                && matches!(key.code, KeyCode::Char('s') | KeyCode::Enter);
-            if submit_document || key.code == KeyCode::Enter && prompt.kind != "document" {
-                if prompt.kind == "hash" && !self.approval_visible {
-                    self.status = "Enlarge the terminal to review the plan before approval.".into();
+        if self.prompt.is_some() {
+            self.prompt_key(key);
+        } else if self.mode == Mode::Form {
+            self.form_key(key);
+        } else {
+            self.catalog_key(key);
+        }
+    }
+    /// Keys while a runtime question is open: scroll a plan under review, edit or send the answer.
+    fn prompt_key(&mut self, key: KeyEvent) {
+        let Some(prompt) = &mut self.prompt else {
+            return;
+        };
+        if prompt.kind == PromptKind::Hash {
+            match key.code {
+                KeyCode::Up => {
+                    self.scroll.scroll_up(1);
                     return;
                 }
-                let value = if prompt.kind == "confirm" {
-                    match prompt.value.to_lowercase().trim() {
-                        "yes" | "y" => Value::Bool(true),
-                        "no" | "n" | "" => Value::Bool(false),
-                        _ => {
-                            self.status = "Type yes to confirm, or no to decline.".into();
-                            return;
-                        }
-                    }
-                } else {
-                    Value::String(prompt.value.clone())
-                };
-                let prompt = self.prompt.take().expect("present");
-                let id = self.id();
-                self.queue.push_back(ClientCommand::new(id, "reply", json!({"request_id":prompt.request_id,"prompt_id":prompt.prompt_id,"value":value})));
-            } else {
-                edit(&mut prompt.value, key, prompt.kind == "document");
+                KeyCode::Down => {
+                    self.scroll.scroll_down(1);
+                    return;
+                }
+                KeyCode::Home => {
+                    self.scroll.to_top();
+                    return;
+                }
+                KeyCode::End => {
+                    self.scroll.to_bottom();
+                    return;
+                }
+                _ => {}
             }
-            return;
         }
-        if self.mode == Mode::Form {
-            if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
-                self.submit();
+        let submit_document = prompt.kind == PromptKind::Document
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('s') | KeyCode::Enter);
+        if submit_document || key.code == KeyCode::Enter && prompt.kind != PromptKind::Document {
+            if prompt.kind == PromptKind::Hash && !self.approval_visible {
+                self.status = "Enlarge the terminal to review the plan before approval.".into();
                 return;
             }
-            if let Some(form) = &mut self.form {
-                let count = form.fields.len();
-                if count == 0 {
-                    return;
-                }
-                match key.code {
-                    KeyCode::Tab | KeyCode::Down => form.cursor = (form.cursor + 1) % count,
-                    KeyCode::BackTab | KeyCode::Up => {
-                        form.cursor = (form.cursor + count - 1) % count
-                    }
-                    KeyCode::Left | KeyCode::Right
-                        if form
-                            .fields
-                            .get(form.cursor)
-                            .is_some_and(|f| !f.choices.is_empty()) =>
-                    {
-                        if let Some(field) = form.fields.get_mut(form.cursor) {
-                            field.cycle(key.code == KeyCode::Right);
-                        }
-                    }
-                    KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
-                        if form.cursor + 1 == count {
-                            self.submit();
-                        } else {
-                            form.cursor += 1;
-                        }
-                    }
+            let value = if prompt.kind == PromptKind::Confirm {
+                match prompt.value.to_lowercase().trim() {
+                    "yes" | "y" => Value::Bool(true),
+                    "no" | "n" | "" => Value::Bool(false),
                     _ => {
-                        if let Some(field) = form.fields.get_mut(form.cursor) {
-                            edit(&mut field.value, key, true);
-                        }
+                        self.status = "Type yes to confirm, or no to decline.".into();
+                        return;
+                    }
+                }
+            } else {
+                Value::String(prompt.value.clone())
+            };
+            let prompt = self.prompt.take().expect("present");
+            let id = self.id();
+            self.queue.push_back(ClientCommand::new(
+                id,
+                "reply",
+                json!({"request_id":prompt.request_id,"prompt_id":prompt.prompt_id,"value":value}),
+            ));
+        } else {
+            edit(&mut prompt.value, key, prompt.kind == PromptKind::Document);
+        }
+    }
+    /// Keys in an action form: move between fields, pick a choice, edit, submit.
+    fn form_key(&mut self, key: KeyEvent) {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+            self.submit();
+            return;
+        }
+        if let Some(form) = &mut self.form {
+            let count = form.fields.len();
+            if count == 0 {
+                return;
+            }
+            match key.code {
+                KeyCode::Tab | KeyCode::Down => form.cursor = (form.cursor + 1) % count,
+                KeyCode::BackTab | KeyCode::Up => form.cursor = (form.cursor + count - 1) % count,
+                KeyCode::Left | KeyCode::Right
+                    if form
+                        .fields
+                        .get(form.cursor)
+                        .is_some_and(|f| !f.choices.is_empty()) =>
+                {
+                    if let Some(field) = form.fields.get_mut(form.cursor) {
+                        field.cycle(key.code == KeyCode::Right);
+                    }
+                }
+                KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
+                    if form.cursor + 1 == count {
+                        self.submit();
+                    } else {
+                        form.cursor += 1;
+                    }
+                }
+                _ => {
+                    if let Some(field) = form.fields.get_mut(form.cursor) {
+                        edit(&mut field.value, key, true);
                     }
                 }
             }
-            return;
         }
+    }
+    /// Keys in the command catalog and the result view.
+    fn catalog_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::F(1) if self.active_request.is_none() => {
@@ -686,7 +730,7 @@ impl AppState {
             None
         };
         if let Some(target) = target {
-            if target.len() + clean.len() <= 256 * 1024 {
+            if target.len() + clean.len() <= MAX_INPUT {
                 target.push_str(&clean);
             } else {
                 self.status = "Input exceeds the 256 KiB form limit.".into();
@@ -807,6 +851,14 @@ mod tests {
         app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
         assert_eq!(app.selected, 0);
         assert_eq!(map.translate(j, false), Some(j));
+    }
+    #[test]
+    fn prompt_kinds_come_from_the_wire_and_unknown_ones_are_text() {
+        assert_eq!(PromptKind::from_wire("hash"), PromptKind::Hash);
+        assert_eq!(PromptKind::from_wire("document"), PromptKind::Document);
+        assert_eq!(PromptKind::from_wire("confirm"), PromptKind::Confirm);
+        assert_eq!(PromptKind::from_wire("text"), PromptKind::Text);
+        assert_eq!(PromptKind::from_wire("something-new"), PromptKind::Text);
     }
     #[test]
     fn stale_prompt_cannot_replace_active_request() {
