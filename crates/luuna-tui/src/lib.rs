@@ -8,6 +8,7 @@ pub mod components;
 pub mod config;
 pub mod detect;
 pub mod failures;
+pub mod form;
 pub mod format;
 pub mod frame;
 pub mod guide;
