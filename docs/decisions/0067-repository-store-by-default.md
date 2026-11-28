@@ -19,7 +19,7 @@ Until now a new project used the runtime store under the data directory. Reposit
 
 A project registered in a git checkout keeps its tickets, memory and prompts in `<checkout>/.luuna/` from its first use, with no setup step. Teammates who clone the repository get the committed records. A checkout whose stores already hold records, such as a clone of a repository someone else set up, keeps the runtime store for now. Using those records needs the explicit migration step from the design doc, which is later work, because ADR 0003 allows only one writable ticket authority.
 
-Both mode stays refused. How committed changes to `.luuna/` reach git (left for the developer to commit, or committed by a `lu sync` command) is still the owner's decision. This record writes files only, which works with either answer.
+Both mode stays refused. The owner chose that Luuna commits its own `.luuna/` changes; [ADR 0068](0068-commit-repository-store-changes.md) does that, and narrows decision 4's "never stages or commits".
 
 ## Evidence
 

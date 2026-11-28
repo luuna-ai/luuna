@@ -498,3 +498,24 @@ fn the_default_store_is_repository_unless_runtime_is_chosen() {
     let error = read(Some("both")).unwrap_err().to_string();
     assert!(error.contains("LUUNA_DEFAULT_STORE_MODE"), "{error}");
 }
+
+#[test]
+fn store_auto_commit_is_on_unless_turned_off() {
+    let data = tempfile::tempdir().unwrap();
+    let with = |value: Option<&'static str>| {
+        let path = data.path().as_os_str().to_os_string();
+        move |name: &str| match name {
+            "LUUNA_DATA_DIR" => Some(path.clone()),
+            "LUUNA_API_TOKEN" => Some(TOKEN.into()),
+            "LUUNA_STORE_AUTO_COMMIT" => value.map(OsString::from),
+            _ => None,
+        }
+    };
+    let read = |value| ServiceSettings::from_env(with(value)).map(|s| s.store_auto_commit);
+    assert!(read(None).unwrap());
+    assert!(read(Some("1")).unwrap());
+    assert!(!read(Some("0")).unwrap());
+    assert!(!read(Some("false")).unwrap());
+    let error = read(Some("yes")).unwrap_err().to_string();
+    assert!(error.contains("LUUNA_STORE_AUTO_COMMIT"), "{error}");
+}

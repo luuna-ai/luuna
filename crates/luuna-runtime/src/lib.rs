@@ -65,6 +65,8 @@ pub struct ServiceSettings {
     pub publication: PublicationSettings,
     /// Where a newly registered project keeps its component stores (ADR 0067).
     pub default_store: DefaultStore,
+    /// Whether changes to a checkout's `.luuna/` stores are committed (ADR 0068).
+    pub store_auto_commit: bool,
 }
 
 /// Where a newly registered project keeps its component stores (ADR 0067).
@@ -153,6 +155,15 @@ impl ServiceSettings {
         };
         let publication = PublicationSettings::from_env(&var)?;
         let default_store = DefaultStore::parse(text("LUUNA_DEFAULT_STORE_MODE")?.as_deref())?;
+        let store_auto_commit = match text("LUUNA_STORE_AUTO_COMMIT")?.as_deref() {
+            None | Some("1") | Some("true") => true,
+            Some("0") | Some("false") => false,
+            Some(other) => {
+                return Err(StartupError(format!(
+                    "LUUNA_STORE_AUTO_COMMIT must be 1 or 0 (got {other:?})"
+                )))
+            }
+        };
         let max_run_seconds = match text("LUUNA_RUN_TIMEOUT_SECONDS")? {
             Some(raw) => raw
                 .parse::<u64>()
@@ -181,6 +192,7 @@ impl ServiceSettings {
             port,
             publication,
             default_store,
+            store_auto_commit,
         })
     }
 }
@@ -205,6 +217,8 @@ pub struct AppState {
     /// Set by explicit shutdown before owned work is signalled to stop.
     /// Where a newly registered project keeps its stores (ADR 0067).
     default_store: DefaultStore,
+    /// Whether a checkout's `.luuna/` changes are committed (ADR 0068).
+    store_auto_commit: bool,
     shutting_down: Arc<std::sync::atomic::AtomicBool>,
     shutdown_requested: Arc<Notify>,
     admission: Arc<RwLock<()>>,
@@ -347,6 +361,7 @@ impl AppState {
             orbit_in_flight: Arc::new(Mutex::new(HashMap::new())),
             listen_port: None,
             default_store: DefaultStore::Runtime,
+            store_auto_commit: false,
             shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             shutdown_requested: Arc::new(Notify::new()),
             admission: Arc::new(RwLock::new(())),
@@ -367,6 +382,14 @@ impl AppState {
     /// service binary passes what `ServiceSettings::from_env` read.
     pub fn with_default_store(mut self, default_store: DefaultStore) -> Self {
         self.default_store = default_store;
+        self
+    }
+
+    /// Whether changes to a checkout's `.luuna/` stores are committed to its
+    /// current branch (ADR 0068); the service binary passes what
+    /// `ServiceSettings::from_env` read.
+    pub fn with_store_auto_commit(mut self, enabled: bool) -> Self {
+        self.store_auto_commit = enabled;
         self
     }
 
