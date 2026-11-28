@@ -98,9 +98,35 @@ async fn main() -> std::process::ExitCode {
                 Err(_) => std::collections::BTreeMap::new(),
             };
             if init {
+                let before = vars.clone();
                 luuna_tui::setup::prepare(&luuna_tui::components::install_root(), &mut vars)
                     .await?;
+                // A runtime started on an earlier launch keeps the settings
+                // it started with; restart it when init changed them.
+                if vars != before {
+                    luuna_tui::setup::restart_owned_runtime(&vars).await?;
+                }
                 luuna_tui::setup::ensure_runtime(&vars).await?;
+            } else if offline(&argv) {
+                // Help and version never mint a token or start the runtime.
+            } else {
+                // No token to type (ADR 0069): mint one for the default local
+                // runtime when none is set or saved. A failure here leaves the
+                // hidden prompt as the fallback.
+                if let Err(error) = luuna_tui::setup::ensure_service_token(&mut vars).await {
+                    eprintln!("Luuna setup: {error}");
+                }
+                // Starts the saved local runtime when it is not already
+                // running, so the workbench and commands are ready on launch.
+                let default_url = std::env::var("LUUNA_URL")
+                    .ok()
+                    .or_else(|| vars.get("LUUNA_URL").cloned())
+                    .is_none_or(|url| url.trim().is_empty() || url == luuna_tui::cli::DEFAULT_URL);
+                if default_url && vars.contains_key("LUUNA_API_TOKEN") {
+                    if let Err(error) = luuna_tui::setup::start_runtime(&vars).await {
+                        eprintln!("Luuna runtime: {error}");
+                    }
+                }
             }
             if init || !vars.is_empty() {
                 let mut command = tokio::process::Command::new(std::env::current_exe()?);
@@ -108,7 +134,7 @@ async fn main() -> std::process::ExitCode {
                     .args(&argv)
                     .env("LUUNA_PRIVATE_SETTINGS_LOADED", "1");
                 for (name, value) in vars {
-                    if std::env::var_os(&name).is_none() {
+                    if luuna_tui::setup::unset(&name) {
                         command.env(name, value);
                     }
                 }
@@ -173,6 +199,19 @@ fn guide_arguments(argv: &[String]) -> Result<Vec<(String, String)>, String> {
         }
     }
     Ok(flags)
+}
+
+/// Arguments that only print help or the catalogue, which never mint a token
+/// or start the runtime (ADR 0069).
+fn offline(argv: &[String]) -> bool {
+    match argv.first().map(String::as_str) {
+        None => !(io::stdin().is_terminal() && io::stdout().is_terminal()),
+        Some("help" | "--help" | "-h" | "catalog" | "--version" | "-V") => true,
+        Some(_) => argv
+            .iter()
+            .take_while(|arg| *arg != "--")
+            .any(|arg| arg == "--help" || arg == "-h"),
+    }
 }
 
 /// The process exit code; codes beyond a byte (a sandboxed command's, on Windows) leave unchanged,

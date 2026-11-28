@@ -641,7 +641,7 @@ pub fn overview(options: &Options) -> String {
     ));
     out.extend(hanging(
         &format!("  {}", s("LUUNA_API_TOKEN", "name")),
-        "service token; never echoed, prompted hidden on a terminal when missing",
+        "service token; minted and saved on first launch, never echoed, prompted hidden only for a runtime started by hand",
         width,
         column,
     ));

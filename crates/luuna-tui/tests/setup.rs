@@ -191,3 +191,221 @@ async fn installed_setup_uses_the_embedded_pi_lock_without_a_source_checkout() {
         "Disposable first-run setup failed"
     );
 }
+
+#[test]
+fn minted_tokens_are_long_random_and_different() {
+    let first = luuna_tui::setup::mint_token().unwrap();
+    let second = luuna_tui::setup::mint_token().unwrap();
+    assert_eq!(first.len(), 64);
+    assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
+    assert_ne!(first, second);
+}
+
+fn closed_url() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    format!("http://127.0.0.1:{port}")
+}
+
+#[tokio::test]
+async fn a_token_is_minted_and_saved_when_none_is_set_and_nothing_answers() {
+    use std::collections::BTreeMap;
+    let dir = tempfile::tempdir().unwrap();
+    let private = dir.path().join("private");
+    let url = closed_url();
+    let mut vars = BTreeMap::new();
+    let minted =
+        luuna_tui::setup::mint_service_token(&mut vars, |_| None, &url, || Ok(private.clone()))
+            .await
+            .unwrap();
+    assert!(minted);
+    let token = vars["LUUNA_API_TOKEN"].clone();
+    assert_eq!(token.len(), 64);
+    let saved = luuna_tui::setup::load(&private.join("environment.json")).unwrap();
+    assert_eq!(saved.get("LUUNA_API_TOKEN"), Some(&token));
+    assert!(saved.contains_key("LUUNA_DATA_DIR"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&private.join("environment.json")), 0o600);
+        assert_eq!(mode(&private), 0o700);
+    }
+    // A second launch keeps the saved token.
+    let again =
+        luuna_tui::setup::mint_service_token(&mut vars, |_| None, &url, || Ok(private.clone()))
+            .await
+            .unwrap();
+    assert!(!again);
+    assert_eq!(vars["LUUNA_API_TOKEN"], token);
+}
+
+#[tokio::test]
+async fn no_token_is_minted_over_a_set_token_another_url_or_a_running_runtime() {
+    use std::collections::BTreeMap;
+    let dir = tempfile::tempdir().unwrap();
+    let private = dir.path().join("private");
+    let url = closed_url();
+    let unused = || -> std::io::Result<std::path::PathBuf> { panic!("nothing should be saved") };
+    // An explicit LUUNA_API_TOKEN wins.
+    let mut vars = BTreeMap::new();
+    let env = |name: &str| (name == "LUUNA_API_TOKEN").then(|| "explicit".to_string());
+    assert!(
+        !luuna_tui::setup::mint_service_token(&mut vars, env, &url, unused)
+            .await
+            .unwrap()
+    );
+    // A runtime elsewhere is not Luuna's to give a token.
+    let env = |name: &str| (name == "LUUNA_URL").then(|| "http://127.0.0.1:1".to_string());
+    assert!(
+        !luuna_tui::setup::mint_service_token(&mut vars, env, &url, unused)
+            .await
+            .unwrap()
+    );
+    // A runtime someone started by hand already has a token Luuna cannot know.
+    let server = support::serve(|request| match request.path.as_str() {
+        "/api/v1/health" | "/health" => support::json(serde_json::json!({"status":"ok"})),
+        other => panic!("unexpected request: {other}"),
+    });
+    let running = server.url();
+    assert!(!luuna_tui::setup::mint_service_token(
+        &mut vars,
+        |_| None,
+        &running,
+        || Ok(private.clone())
+    )
+    .await
+    .unwrap());
+    assert!(vars.is_empty());
+    assert!(!private.exists());
+}
+
+#[test]
+fn help_never_mints_a_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_luuna-tui"))
+        .args(["doctor", "--help"])
+        .env("HOME", dir.path())
+        .env("XDG_CONFIG_HOME", dir.path().join("config"))
+        .env_remove("LUUNA_TUI_CONFIG")
+        .env_remove("LUUNA_API_TOKEN")
+        .env_remove("LUUNA_URL")
+        .env_remove("LUUNA_PRIVATE_SETTINGS_LOADED")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    // Nothing is created: no private folder, token or settings file.
+    assert!(!dir.path().join("config").exists());
+}
+
+#[tokio::test]
+async fn concurrent_first_launches_share_one_token() {
+    use std::collections::BTreeMap;
+    let dir = tempfile::tempdir().unwrap();
+    let private = dir.path().join("private");
+    let url = closed_url();
+    let launch = || {
+        let private = private.clone();
+        let url = url.clone();
+        async move {
+            let mut vars = BTreeMap::new();
+            luuna_tui::setup::mint_service_token(&mut vars, |_| None, &url, || Ok(private))
+                .await
+                .unwrap();
+            vars
+        }
+    };
+    let launches = tokio::join!(launch(), launch(), launch());
+    let saved = luuna_tui::setup::load(&private.join("environment.json")).unwrap();
+    // Every launch ends with the saved token and data folder.
+    for vars in [&launches.0, &launches.1, &launches.2] {
+        assert_eq!(vars, &saved);
+    }
+    assert!(!private.join(".mint.lock").exists());
+}
+
+#[tokio::test]
+async fn init_stops_the_runtime_it_started_so_new_settings_apply() {
+    use std::collections::BTreeMap;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    let stopped = Arc::new(AtomicBool::new(false));
+    let seen = stopped.clone();
+    let server = support::serve(move |request| match request.path.as_str() {
+        "/api/v1/health" | "/health" if !seen.load(Ordering::SeqCst) => {
+            support::json(serde_json::json!({"status":"ok"}))
+        }
+        "/api/v1/projects" if !seen.load(Ordering::SeqCst) => {
+            support::json(serde_json::json!({"projects":[]}))
+        }
+        "/api/v1/shutdown" => {
+            assert_eq!(
+                request.header("authorization"),
+                Some("Bearer saved-service-token-0123456789abcdef")
+            );
+            seen.store(true, Ordering::SeqCst);
+            support::json(serde_json::json!({"status":"shutting_down"}))
+        }
+        _ => support::status(503, "{\"error\":\"stopped\"}"),
+    });
+    let vars = BTreeMap::from([(
+        "LUUNA_API_TOKEN".to_string(),
+        "saved-service-token-0123456789abcdef".to_string(),
+    )]);
+    luuna_tui::setup::stop_owned_runtime(&vars, &server.url())
+        .await
+        .unwrap();
+    assert!(stopped.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn a_runtime_another_launch_started_is_adopted_with_its_saved_settings() {
+    use std::collections::BTreeMap;
+    let dir = tempfile::tempdir().unwrap();
+    let private = dir.path().join("private");
+    let url = closed_url();
+    let mut first = BTreeMap::new();
+    luuna_tui::setup::mint_service_token(&mut first, |_| None, &url, || Ok(private.clone()))
+        .await
+        .unwrap();
+    // The first launch's runtime now answers.
+    let server = support::serve(|request| match request.path.as_str() {
+        "/api/v1/health" | "/health" => support::json(serde_json::json!({"status":"ok"})),
+        other => panic!("unexpected request: {other}"),
+    });
+    let mut second = BTreeMap::new();
+    let minted = luuna_tui::setup::mint_service_token(
+        &mut second,
+        |_| None,
+        &server.url(),
+        || Ok(private.clone()),
+    )
+    .await
+    .unwrap();
+    assert!(!minted);
+    assert_eq!(second, first);
+}
+
+#[tokio::test]
+async fn a_runtime_that_rejects_the_saved_token_is_not_stopped() {
+    use std::collections::BTreeMap;
+    let server = support::serve(|request| match request.path.as_str() {
+        "/api/v1/health" | "/health" => support::json(serde_json::json!({"status":"ok"})),
+        "/api/v1/projects" => support::status(401, "{\"error\":\"authentication required\"}"),
+        other => panic!("unexpected request: {other}"),
+    });
+    let vars = BTreeMap::from([(
+        "LUUNA_API_TOKEN".to_string(),
+        "saved-service-token-0123456789abcdef".to_string(),
+    )]);
+    luuna_tui::setup::stop_owned_runtime(&vars, &server.url())
+        .await
+        .unwrap();
+}

@@ -73,7 +73,7 @@ Install the pinned Pi package `@earendil-works/pi-coding-agent@1.3.0` in a priva
 
 | Setting | Purpose and default |
 | --- | --- |
-| `LUUNA_API_TOKEN` | Required private bearer token of at least 32 visible ASCII characters, with no spaces or line breaks; provide the same token to the client |
+| `LUUNA_API_TOKEN` | Required private bearer token of at least 32 visible ASCII characters, with no spaces or line breaks; the terminal mints and saves one on first launch (ADR 0069); set it only for a runtime you start by hand |
 | `LUUNA_PI_COMMAND` | Pi executable, default `pi`; may be an absolute path. On Windows an npm `pi.cmd` shim found through PATH and PATHEXT is started as `node.exe` with its `dist/bundle/cli.js`; other batch launchers are refused, so point this at `node.exe` and pass `cli.js` in `LUUNA_PI_ARGS_JSON` for any other layout |
 | `LUUNA_PI_ARGS_JSON` | Optional JSON array of launcher arguments, useful with a direct Node executable |
 | `LUUNA_PI_PROVIDER`, `LUUNA_PI_MODEL` | Explicit provider/model defaults; may also be selected per run in the client |

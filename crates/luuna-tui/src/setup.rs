@@ -1,7 +1,5 @@
 //! User-owned first-run prerequisites. No secrets or tools live in the project.
 use crate::client::{Client, Signal};
-#[cfg(unix)]
-use std::io::Read;
 use std::{
     collections::BTreeMap,
     fs,
@@ -161,6 +159,206 @@ async fn run(
     }
 }
 
+/// A new service token: 32 random bytes from the operating system, as hex.
+pub fn mint_token() -> io::Result<String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| io::Error::other(error.to_string()))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Whether anything answers the unauthenticated health check at `url`.
+async fn answers(url: &str) -> bool {
+    let Ok(client) = Client::new(url, "health-probe") else {
+        return false;
+    };
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        client.get("/health", &Signal::never()),
+    )
+    .await
+    .is_ok_and(|r| r.is_ok())
+}
+
+/// Mints and saves the local service token when none is set or saved, so
+/// nobody has to type one (ADR 0069). Returns whether a token was minted.
+///
+/// Only the default local runtime gets one, and only when nothing answers
+/// there yet: a runtime someone started by hand has a token Luuna cannot
+/// know, so the hidden prompt stays for that case. The token is saved in the
+/// private settings (owner-only, outside every repository) beside the rest.
+pub async fn ensure_service_token(vars: &mut BTreeMap<String, String>) -> io::Result<bool> {
+    mint_service_token(
+        vars,
+        |name| std::env::var(name).ok(),
+        crate::cli::DEFAULT_URL,
+        directory,
+    )
+    .await
+}
+
+/// [`ensure_service_token`] with the environment, the default URL and the
+/// private directory given, for tests.
+#[doc(hidden)]
+pub async fn mint_service_token(
+    vars: &mut BTreeMap<String, String>,
+    env: impl Fn(&str) -> Option<String>,
+    default_url: &str,
+    private: impl FnOnce() -> io::Result<PathBuf>,
+) -> io::Result<bool> {
+    let set = |name: &str| env(name).filter(|v| !v.trim().is_empty());
+    if set("LUUNA_API_TOKEN").is_some()
+        || vars
+            .get("LUUNA_API_TOKEN")
+            .is_some_and(|v| !v.trim().is_empty())
+    {
+        return Ok(false);
+    }
+    let url = set("LUUNA_URL")
+        .or_else(|| vars.get("LUUNA_URL").cloned())
+        .unwrap_or_else(|| default_url.into());
+    if url != default_url {
+        return Ok(false);
+    }
+    if answers(&url).await {
+        // Possibly a runtime another launch just started with a token it
+        // saved: adopt the saved settings. Otherwise it is somebody else's.
+        if let Ok(private) = private() {
+            let saved = load(&private.join("environment.json")).unwrap_or_default();
+            if saved
+                .get("LUUNA_API_TOKEN")
+                .is_some_and(|v| !v.trim().is_empty())
+            {
+                for (name, value) in saved {
+                    vars.insert(name, value);
+                }
+            }
+        }
+        return Ok(false);
+    }
+    let private = private()?;
+    secure_dir(&private)?;
+    // One launch mints at a time; a launch that waited adopts the token the
+    // other one saved instead of replacing it.
+    let _lock = MintLock::acquire(&private).await?;
+    let path = private.join("environment.json");
+    let saved = load(&path)?;
+    if saved
+        .get("LUUNA_API_TOKEN")
+        .is_some_and(|v| !v.trim().is_empty())
+    {
+        // Adopt everything the other launch saved, the data folder included.
+        for (name, value) in saved {
+            vars.insert(name, value);
+        }
+        return Ok(false);
+    }
+    vars.insert("LUUNA_API_TOKEN".into(), mint_token()?);
+    vars.entry("LUUNA_DATA_DIR".into())
+        .or_insert_with(|| private.join("data").to_string_lossy().into_owned());
+    save(&path, vars)?;
+    Ok(true)
+}
+
+/// Whether `name` is absent or empty in this process's environment, which is
+/// how every launch path decides to use a saved value instead.
+pub fn unset(name: &str) -> bool {
+    std::env::var_os(name).is_none_or(|v| v.to_string_lossy().trim().is_empty())
+}
+
+/// An exclusive lock file in the private folder, held while a token is minted.
+struct MintLock(PathBuf);
+impl MintLock {
+    async fn acquire(private: &Path) -> io::Result<MintLock> {
+        let path = private.join(".mint.lock");
+        for _ in 0..100 {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(_) => return Ok(MintLock(path)),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    // A lock left by a launch that died is taken over.
+                    let stale = fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|t| t.elapsed().ok())
+                        .is_some_and(|age| age > Duration::from_secs(30));
+                    if stale {
+                        let _ = fs::remove_file(&path);
+                        continue;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(io::Error::other(
+            "Another Luuna launch is still creating the service token; try again",
+        ))
+    }
+}
+impl Drop for MintLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+/// After `lu init` changed the private settings, stops the local runtime it
+/// started earlier with the saved token, so the next start applies them.
+/// A runtime that rejects the saved token is somebody else's and is left alone.
+pub async fn restart_owned_runtime(vars: &BTreeMap<String, String>) -> io::Result<()> {
+    let url = std::env::var("LUUNA_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| vars.get("LUUNA_URL").cloned())
+        .unwrap_or_else(|| crate::cli::DEFAULT_URL.into());
+    if url != crate::cli::DEFAULT_URL {
+        return Ok(());
+    }
+    stop_owned_runtime(vars, &url).await
+}
+
+/// [`restart_owned_runtime`] against `url`, for tests.
+#[doc(hidden)]
+pub async fn stop_owned_runtime(vars: &BTreeMap<String, String>, url: &str) -> io::Result<()> {
+    let url = url.to_owned();
+    let Some(token) = vars.get("LUUNA_API_TOKEN") else {
+        return Ok(());
+    };
+    if !answers(&url).await {
+        return Ok(());
+    }
+    let client = Client::new(&url, token)
+        .map_err(|_| io::Error::other("Invalid runtime URL or service token"))?;
+    // Only a runtime that accepts the saved token is Luuna's to stop.
+    let owned = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.get("/projects", &Signal::never()),
+    )
+    .await;
+    if !matches!(owned, Ok(Ok(_))) {
+        return Ok(());
+    }
+    eprintln!("Restarting the local runtime with the new settings…");
+    // The answer may time out after the stop has begun, so the outcome is
+    // decided by whether the runtime stops answering, not by the reply.
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        client.post("/shutdown", None, &Signal::never()),
+    )
+    .await;
+    for _ in 0..200 {
+        if !answers(&url).await {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err(io::Error::other(
+        "The local runtime did not stop to pick up the new settings; stop it and run lu init again",
+    ))
+}
+
 /// Prepares interactive init; callers relaunch with the returned environment rather
 /// than mutating process environment after Tokio has started worker threads.
 pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::Result<()> {
@@ -175,19 +373,7 @@ pub async fn prepare(_root: &Path, vars: &mut BTreeMap<String, String>) -> io::R
             .or_else(|| vars.get(name).cloned())
     };
     if current("LUUNA_API_TOKEN", vars).is_none() {
-        #[cfg(unix)]
-        {
-            let mut bytes = [0u8; 32];
-            fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-            vars.insert(
-                "LUUNA_API_TOKEN".into(),
-                bytes.iter().map(|b| format!("{b:02x}")).collect(),
-            );
-        }
-        #[cfg(not(unix))]
-        return Err(io::Error::other(
-            "Set LUUNA_API_TOKEN using the platform credential setup",
-        ));
+        vars.insert("LUUNA_API_TOKEN".into(), mint_token()?);
     }
     vars.entry("LUUNA_DATA_DIR".into())
         .or_insert_with(|| private.join("data").to_string_lossy().into_owned());
@@ -264,7 +450,12 @@ async fn start_runtime_with_path(
     vars: &BTreeMap<String, String>,
     path: Option<std::ffi::OsString>,
 ) -> io::Result<Client> {
-    let value = |name: &str| std::env::var(name).ok().or_else(|| vars.get(name).cloned());
+    let value = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| vars.get(name).cloned())
+    };
     let token = value("LUUNA_API_TOKEN").unwrap_or_default();
     let url = value("LUUNA_URL").unwrap_or_else(|| crate::cli::DEFAULT_URL.into());
     let client = Client::new(&url, &token)
@@ -304,7 +495,7 @@ async fn start_runtime_with_path(
         }
         let mut command = Command::new(executable);
         for (name, value) in vars {
-            if std::env::var_os(name).is_none() {
+            if unset(name) {
                 command.env(name, value);
             }
         }
@@ -322,6 +513,11 @@ async fn start_runtime_with_path(
         let mut ready = false;
         for _ in 0..100 {
             if child.try_wait()?.is_some() {
+                // Another launch may have started the same runtime first.
+                if health().await {
+                    ready = true;
+                    break;
+                }
                 return Err(io::Error::other(
                     "Runtime startup failed; inspect Luuna's private runtime.log",
                 ));
@@ -368,12 +564,17 @@ fn desktop_search_path() -> std::ffi::OsString {
 /// saved and prints one JSON line with the URL and service token on stdout,
 /// which the desktop reads over an anonymous pipe. Nothing else is printed there.
 pub async fn desktop_connection() -> io::Result<String> {
-    let vars = load(&directory()?.join("environment.json"))?;
+    let mut vars = load(&directory()?.join("environment.json"))?;
+    ensure_service_token(&mut vars).await?;
     let token = std::env::var("LUUNA_API_TOKEN")
         .ok()
         .filter(|token| !token.is_empty())
         .or_else(|| vars.get("LUUNA_API_TOKEN").cloned())
-        .ok_or_else(|| io::Error::other("No service token is saved; run lu init first"))?;
+        .ok_or_else(|| {
+            io::Error::other(
+                "A runtime someone started by hand already answers on the default port; stop it, or set LUUNA_API_TOKEN to its token",
+            )
+        })?;
     let url = std::env::var("LUUNA_URL").unwrap_or_else(|_| crate::cli::DEFAULT_URL.into());
     if url != crate::cli::DEFAULT_URL {
         return Err(io::Error::other(
