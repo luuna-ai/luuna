@@ -1,5 +1,5 @@
 use crate::protocol::{
-    bounded_append, safe_text, BridgeEvent, ClientCommand, CommandDef, MAX_EVENTS,
+    bounded_append, safe_text, BridgeEvent, ClientCommand, CommandDef, EventKind, MAX_EVENTS,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{json, Map, Value};
@@ -372,8 +372,8 @@ impl AppState {
             .and_then(Value::as_str)
             .map(str::to_owned);
         let was_read = original.as_ref().is_some_and(|r| r.op == "read");
-        match event.event.as_str() {
-            "catalog" => {
+        match event.event {
+            EventKind::Catalog => {
                 match serde_json::from_value::<Vec<CommandDef>>(
                     event.fields.get("commands").cloned().unwrap_or(Value::Null),
                 ) {
@@ -384,7 +384,7 @@ impl AppState {
                     Err(_) => self.transport_failed("Bridge catalog is invalid."),
                 }
             }
-            "connection" => {
+            EventKind::Connection => {
                 let previous = self.connection.clone();
                 self.connection = event.text("state").to_string();
                 self.status = safe_text(event.text("message"));
@@ -394,7 +394,7 @@ impl AppState {
                     self.refresh();
                 }
             }
-            "prompt" if self.pending.contains_key(&event.id) => {
+            EventKind::Prompt if self.pending.contains_key(&event.id) => {
                 self.mode = Mode::Result;
                 if self.output_omitted && event.text("kind") == "hash" {
                     self.abort();
@@ -410,8 +410,10 @@ impl AppState {
                     value: String::new(),
                 });
             }
-            "output" if self.pending.contains_key(&event.id) => self.append(event.text("text")),
-            "event" if self.pending.contains_key(&event.id) => {
+            EventKind::Output if self.pending.contains_key(&event.id) => {
+                self.append(event.text("text"))
+            }
+            EventKind::Event if self.pending.contains_key(&event.id) => {
                 if let Some(record) = event.fields.get("record") {
                     self.events.push_back(record.clone());
                     if self.events.len() > MAX_EVENTS {
@@ -421,7 +423,7 @@ impl AppState {
                     self.append(&format!("{}\n", record));
                 }
             }
-            "result" | "error" => {
+            EventKind::Result | EventKind::Error => {
                 let Some(request) = self.pending.remove(&event.id) else {
                     return;
                 };
@@ -429,7 +431,7 @@ impl AppState {
                     self.active_request = None;
                     self.prompt = None;
                 }
-                if event.event == "error" {
+                if event.event == EventKind::Error {
                     let message = format!("{}{}",safe_text(event.text("message")),match event.text("outcome") {
                         "unknown"=>" Outcome unknown: inspect authoritative state before retrying; the runtime may have completed this action.",
                         "completed"=>" Execution completed, but the response is unavailable. Inspect authoritative state; do not repeat the mutation.",
@@ -468,10 +470,10 @@ impl AppState {
         let Some(guide) = self.guide.as_mut() else {
             return;
         };
-        match event.event.as_str() {
-            "guide" => guide.apply(&event.fields),
-            "result" | "error" => {
-                if event.event == "result" {
+        match event.event {
+            EventKind::Guide => guide.apply(&event.fields),
+            EventKind::Result | EventKind::Error => {
+                if event.event == EventKind::Result {
                     guide.ended(event.fields.get("value").unwrap_or(&Value::Null));
                 } else {
                     let outcome = match event.text("outcome") {
