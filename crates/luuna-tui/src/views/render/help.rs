@@ -2,21 +2,49 @@
 use super::*;
 
 pub(super) fn render_help(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) {
-    let mut lines = vec![
-        heading("LUUNA / TERMINAL WORKBENCH", theme),
-        Line::raw("A local runtime workbench, operated with the keyboard."),
-        Line::raw(""),
-    ];
+    let k = |action: &str| crate::keys::keymap().hint(action);
+    let mut lines = vec![heading("LUUNA", theme), Line::raw("")];
     for (title, body) in [
-        ("NAVIGATE", "F10 opens the menu. Tab changes focus. Arrow keys select; Enter opens. Escape returns. F1 opens Help; F2 opens every command; F5 refreshes. PageUp/PageDown scroll details. Ctrl+C quits the client. Every key has an alternative for keyboards without function keys (macOS takes F1-F12 unless Fn is held): see KEYS below."),
-        ("MISSIONS", "Left/Right pages all eight runtime workflow columns. Cards open tickets or testing prerequisites. This is a read-only projection: a card never moves a workflow or bypasses approval."),
-        ("ORBIT", "Every repository of the project at once. x runs one command in each, r runs a manifest recipe, s fetches present checkouts and clones missing ones; each opens a form first. These are your own commands, never evidence. b shows the sandbox plan; open the sandbox outside the workbench with lu sbx <project>."),
-        ("ATLAS AND BEACON", "Browse scoped memory and versioned prompts. User memory requires explicit inclusion. Select context deliberately; it stays unsent until a plan is submitted. Project changes clear these choices."),
-        ("FORMS", "Tab and Shift+Tab move fields. Alt+Enter (or Ctrl+J; Shift+Enter where the terminal reports it) inserts a line. Ctrl+S submits. Escape cancels. Left/Right pick from a field's choices (repositories, records, scopes, yes/no); typing still works. Letters, including q, are text while editing. Shared commands retain their confirmations and stale-version guards."),
-        ("PLANS AND EVIDENCE", "Read the complete plan and hash. Approval starts with a blank prompt: type approve (or the hash's first 8 digits) to approve exactly the plan shown; the complete hash is what is sent. Implementation remains separate. Run evidence tabs retain exact runtime state and reasons."),
-        ("SERVICE LIFETIME", "Leaving a view or closing this client never cancels the underlying run. Cancel and shutdown are explicitly named commands. Interrupted work is distinct from failed checks; completed alone is not passed evidence."),
-    ] { lines.push(heading(title, theme)); lines.push(Line::raw(body)); lines.push(Line::raw("")); }
-    lines.push(heading("STATE LEGEND / WORDS REMAIN AUTHORITATIVE", theme));
+        (
+            "GET AROUND",
+            format!(
+                "{} opens the menu. Number keys jump to a section ({} Home, {} Projects, {} Missions). ↑↓ select, Enter opens, Esc goes back. {} lists every command. {} refreshes. {} quits; the runtime keeps running.",
+                k("menu"), k("home"), k("projects"), k("missions"), k("commands"), k("refresh"), k("quit")
+            ),
+        ),
+        (
+            "FORMS",
+            format!(
+                "Tab moves between fields. ←→ picks a choice, or type its first letter. {} adds a line. {} submits, Esc cancels.",
+                k("newline"), k("submit")
+            ),
+        ),
+        (
+            "MISSIONS",
+            "←→ moves between columns. Enter opens a ticket. The board shows recorded state; moving work happens through plan, approve and implement.".to_string(),
+        ),
+        (
+            "ORBIT",
+            "Runs your own commands in every repository at once: x a command, r a recipe, s sync, b the sandbox plan. Results are never evidence.".to_string(),
+        ),
+        (
+            "ATLAS AND BEACON",
+            "Pick memory and a prompt for your next plan with s; z clears the picks. User memory is only listed after u.".to_string(),
+        ),
+        (
+            "PLANS",
+            "Read the whole plan first. To approve, type approve or the hash's first 8 digits; the full hash is sent. Approving does not start work: i implements.".to_string(),
+        ),
+        (
+            "RUNS",
+            "Esc stops waiting here; it never cancels a run. c on a run cancels it. Interrupted is not failed, and completed is not passed.".to_string(),
+        ),
+    ] {
+        lines.push(heading(title, theme));
+        lines.push(Line::raw(body));
+        lines.push(Line::raw(""));
+    }
+    lines.push(heading("STATES", theme));
     for state in [
         "passed",
         "running",
@@ -27,11 +55,8 @@ pub(super) fn render_help(frame: &mut Frame, app: &mut AppState, area: Rect, the
     ] {
         lines.push(status(state, theme));
     }
-    lines.push(Line::raw(
-        "z clears unsent plan context. s toggles the inspected record.",
-    ));
     lines.push(Line::raw(""));
-    lines.push(heading("KEYS / AS CONFIGURED", theme));
+    lines.push(heading("ALL KEYS", theme));
     let keymap = crate::keys::keymap();
     // The keys column is as wide as the longest binding list, so a description never runs into it.
     let width = crate::keys::ACTIONS
@@ -69,7 +94,7 @@ pub(super) fn render_help(frame: &mut Frame, app: &mut AppState, area: Rect, the
         "t switches the theme, e turns enhanced keyboard reports on or off. Both save now and apply when you reopen Luuna.",
     ));
     lines.push(Line::raw(
-        "For any setting: lu config set <name> <JSON value>. lu --print-config lists defaults.",
+        "Other settings: lu config set <name> <value>. lu --print-config lists them.",
     ));
     for warning in crate::config::loaded()
         .map(|l| l.warnings.as_slice())

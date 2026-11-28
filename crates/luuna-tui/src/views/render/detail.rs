@@ -3,7 +3,10 @@ use super::*;
 
 pub(super) fn detail_lines(screen: Screen, record: &Value, theme: Theme) -> Vec<Line<'static>> {
     if record.is_null() {
-        return vec![Line::raw("No recorded detail yet. F5 refreshes this view.")];
+        return vec![Line::raw(format!(
+            "Nothing loaded yet. {} refreshes.",
+            crate::keys::keymap().hint("refresh")
+        ))];
     }
     let mut lines = Vec::new();
     match screen {
@@ -36,13 +39,13 @@ pub(super) fn detail_lines(screen: Screen, record: &Value, theme: Theme) -> Vec<
         }
         Screen::Ticket => {
             lines.push(heading(&text(record, "title"), theme));
-            lines.push(field("Short id", short_id(&text(record, "id")), theme));
+            lines.push(field("Ticket", short_id(&text(record, "id")), theme));
             append_fields(
                 &mut lines,
                 record,
                 &[
-                    ("id", "Ticket"),
-                    ("revision", "Expected revision"),
+                    ("id", "Full id"),
+                    ("revision", "Revision"),
                     ("purpose", "Purpose"),
                     ("project_id", "Project"),
                 ],
@@ -90,15 +93,15 @@ pub(super) fn detail_lines(screen: Screen, record: &Value, theme: Theme) -> Vec<
             }
         }
         Screen::Memory | Screen::MemoryDetail => {
-            lines.push(heading(&text(record, "id"), theme));
-            lines.push(field("Short id", short_id(&text(record, "id")), theme));
+            lines.push(heading(&short_id(&text(record, "id")), theme));
+            lines.push(field("Full id", text(record, "id"), theme));
             append_fields(
                 &mut lines,
                 record,
                 &[
                     ("scope", "Scope"),
                     ("provenance", "Provenance"),
-                    ("hash", "Exact hash"),
+                    ("hash", "Hash"),
                     ("created_at", "Recorded"),
                 ],
                 theme,
@@ -109,10 +112,6 @@ pub(super) fn detail_lines(screen: Screen, record: &Value, theme: Theme) -> Vec<
                 lines.push(Line::raw(line.to_owned()));
             }
             lines.push(Line::raw(""));
-            lines.push(Line::styled(
-                "Context selection is unsent until you submit a plan.",
-                theme.muted(),
-            ));
         }
         Screen::Prompts | Screen::PromptDetail => {
             lines.push(heading(&text(record, "name"), theme));
@@ -121,22 +120,19 @@ pub(super) fn detail_lines(screen: Screen, record: &Value, theme: Theme) -> Vec<
                 record,
                 &[
                     ("version", "Version"),
-                    ("hash", "Exact hash"),
+                    ("hash", "Hash"),
                     ("provenance", "Provenance"),
                 ],
                 theme,
             );
             lines.push(Line::raw(""));
             if record.get("body").is_some() {
-                lines.push(heading("RENDERED BODY", theme));
+                lines.push(heading("BODY", theme));
                 for line in text(record, "body").lines() {
                     lines.push(Line::raw(line.to_owned()));
                 }
             } else {
-                lines.push(Line::styled(
-                    "Enter previews this exact version.",
-                    theme.muted(),
-                ));
+                lines.push(Line::styled("Enter shows this version.", theme.muted()));
             }
         }
         Screen::Runs | Screen::RunDetail => {
@@ -155,25 +151,25 @@ pub(super) fn detail_lines(screen: Screen, record: &Value, theme: Theme) -> Vec<
                 theme,
             );
             if let Some(metadata) = record.get("metadata") {
-                lines.push(heading("RECORDED CONTEXT", theme));
+                lines.push(heading("DETAILS", theme));
                 structured(metadata, &mut lines, 0, theme);
             }
             lines.push(Line::raw(""));
             lines.push(Line::styled(
-                "completed is a settled run, not passed validation.",
+                "Completed means the run ended; only passed checks are evidence.",
                 theme.muted(),
             ));
         }
         Screen::Plan => {
-            lines.push(heading("IMMUTABLE PLAN / REVIEW BEFORE APPROVAL", theme));
-            lines.push(field("Short id", short_id(&text(record, "id")), theme));
+            lines.push(heading("REVIEW THIS PLAN BEFORE APPROVING IT", theme));
+            lines.push(field("Plan", short_id(&text(record, "id")), theme));
             append_fields(
                 &mut lines,
                 record,
                 &[
-                    ("id", "Plan"),
+                    ("id", "Full id"),
                     ("revision", "Revision"),
-                    ("hash", "Complete plan hash"),
+                    ("hash", "Plan hash"),
                     ("project_id", "Project"),
                     ("ticket_id", "Ticket"),
                     ("ticket_revision", "Ticket revision"),
@@ -203,10 +199,10 @@ pub(super) fn detail_lines(screen: Screen, record: &Value, theme: Theme) -> Vec<
                 lines.push(Line::raw(""));
             }
             lines.push(Line::styled(
-                "Approval: after reviewing this plan, type approve (or the hash's first 8 digits) into a blank prompt; the complete hash is sent.",
+                "To approve: press a, then type approve (or the hash's first 8 digits). The full hash is sent.",
                 theme.tone("attention"),
             ));
-            lines.push(Line::raw("Implementation is a separate explicit action."));
+            lines.push(Line::raw("Approving does not start work: i implements."));
         }
         _ => structured(record, &mut lines, 0, theme),
     }
@@ -308,15 +304,13 @@ pub(super) fn render_run(frame: &mut Frame, app: &mut AppState, area: Rect, them
     };
     if index != 0 {
         if record.is_null() {
-            lines.push(Line::raw(
-                "No evidence loaded. F5 refreshes the selected tab.",
-            ));
+            lines.push(Line::raw("Nothing loaded for this tab yet."));
         } else {
             structured(&record, &mut lines, 0, theme);
         }
     }
     if command == "events" && !app.events.is_empty() {
-        lines.push(heading("LIVE EVENT STREAM", theme));
+        lines.push(heading("LIVE EVENTS", theme));
         for event in &app.events {
             structured(event, &mut lines, 0, theme);
         }

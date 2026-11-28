@@ -124,7 +124,10 @@ pub(super) fn render_orbit(frame: &mut Frame, app: &mut AppState, area: Rect, th
     ])
     .areas(area);
     let line = if view.is_null() {
-        "Orbit status not loaded / F5 reads it".to_owned()
+        format!(
+            "Not loaded yet. {} refreshes.",
+            crate::keys::keymap().hint("refresh")
+        )
     } else {
         let mut parts = vec![
             text(&view, "name"),
@@ -143,9 +146,9 @@ pub(super) fn render_orbit(frame: &mut Frame, app: &mut AppState, area: Rect, th
     if records.is_empty() {
         frame.render_widget(
             Paragraph::new(if app.active_request.is_some() {
-                "Reading Orbit status..."
+                "Loading…"
             } else {
-                "No repositories in this view."
+                "No repositories yet."
             })
             .style(theme.muted()),
             table,

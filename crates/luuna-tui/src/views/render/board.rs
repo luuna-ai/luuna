@@ -13,7 +13,16 @@ pub(super) fn render_board(frame: &mut Frame, app: &AppState, area: Rect, theme:
     let start = (selected_column / visible) * visible;
     let end = (start + visible).min(columns.len());
     let [info, cards] = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).areas(area);
-    frame.render_widget(Paragraph::new(format!("Read-only runtime projection / columns {}-{} of {}\nLeft/Right changes column; Enter inspects the card", start + 1, end, columns.len())).style(theme.muted()), info);
+    frame.render_widget(
+        Paragraph::new(format!(
+            "Columns {}-{} of {} · ←→ moves",
+            start + 1,
+            end,
+            columns.len()
+        ))
+        .style(theme.muted()),
+        info,
+    );
     let constraints = vec![Constraint::Ratio(1, (end - start) as u32); end - start];
     let areas = Layout::horizontal(constraints).split(cards);
     for (offset, column) in columns[start..end].iter().enumerate() {
