@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { commandsByName } from "./tui-client.mjs";
+import { commandsByName, formFields, formTitle } from "./tui-client.mjs";
 import { waitUntil } from "./tui-audit-runtime.mjs";
 
 export const keys = { F1: "\x1bOP", F2: "\x1bOQ", F3: "\x1bOR", F4: "\x1bOS", F5: "\x1b[15~", F6: "\x1b[17~", F7: "\x1b[18~", F8: "\x1b[19~", F10: "\x1b[21~", Right: "\x1b[C", Left: "\x1b[D", Down: "\x1b[B", Up: "\x1b[A", Home: "\x1b[H", End: "\x1b[F", PageDown: "\x1b[6~", Escape: "\x1b", Enter: "\r", Tab: "\t" };
@@ -13,10 +13,8 @@ export async function auditWorkflows({ terminal, fixture, capture, screenContain
   const apiRows = async (route) => (await fixture.api("GET", route)).body;
   const changed = (read, message) => waitUntil(read, { timeout: 90000, delay: 500, message });
   async function fill(name, values, extras = []) {
-    await screenContains(terminal, new RegExp(`\\(${name}\\)`));
-    const command = commandsByName.get(name);
-    const fields = [...command.args.map((arg) => arg.name), ...Object.keys(command.flags).sort().filter((key) => key !== "acknowledge-hash"), ...extras];
-    for (const field of fields) {
+    await screenContains(terminal, formTitle(name));
+    for (const field of formFields(name, extras)) {
       if (Object.hasOwn(values, field)) { await terminal.send("\x15"); await terminal.send(String(values[field]).replaceAll("\n", "\x1b\r")); }
       await terminal.send("\t");
     }

@@ -20,8 +20,62 @@ pub struct FormField {
     /// workbench already read (as short ids), the scopes and roles the runtime accepts, yes/no.
     /// Each is `(value, label)`. Typing stays possible; a choice only fills the field.
     pub choices: Vec<(String, String)>,
+    /// The value must be one of `choices` (a ticket type, a scope, yes/no): typing a letter
+    /// picks the next choice starting with it instead of inserting text.
+    pub fixed: bool,
+    /// Rarely needed (idempotency keys, revisions, budgets): listed last, under "More options".
+    pub advanced: bool,
+    /// Letters typed into a fixed field since its last pick, so "process" picks process
+    /// while a repeated "p" steps through the p choices.
+    pub typed: String,
 }
 impl FormField {
+    /// What a key does to this field: a fixed choice field jumps to the next choice that
+    /// starts with the typed letter (Backspace or Ctrl+U clears it); any other field edits text.
+    pub fn press(&mut self, key: KeyEvent) {
+        if !self.fixed || self.choices.is_empty() {
+            edit(&mut self.value, key, true);
+            return;
+        }
+        match key.code {
+            KeyCode::Char(c) if crate::keys::is_text(&key) => {
+                let c = c.to_ascii_lowercase();
+                let starts = |(value, label): &(String, String), prefix: &str| {
+                    value.to_ascii_lowercase().starts_with(prefix)
+                        || label.to_ascii_lowercase().starts_with(prefix)
+                };
+                // Extend what was typed while a choice still starts with it; otherwise step to
+                // the next choice starting with this letter.
+                let longer = format!("{}{c}", self.typed);
+                if let Some(at) = self.choices.iter().position(|ch| starts(ch, &longer)) {
+                    if longer.len() > 1 || self.choice_index() != Some(at) {
+                        self.value = self.choices[at].0.clone();
+                        self.typed = longer;
+                        return;
+                    }
+                }
+                let n = self.choices.len();
+                let from = self.choice_index().map_or(0, |i| i + 1);
+                let letter = c.to_string();
+                if let Some(next) = (0..n)
+                    .map(|step| (from + step) % n)
+                    .find(|&i| starts(&self.choices[i], &letter))
+                {
+                    self.value = self.choices[next].0.clone();
+                    self.typed = letter;
+                }
+            }
+            KeyCode::Backspace => {
+                self.value.clear();
+                self.typed.clear();
+            }
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.value.clear();
+                self.typed.clear();
+            }
+            _ => {}
+        }
+    }
     /// Moves to the next (or previous) choice and puts its value in the field.
     pub fn cycle(&mut self, forward: bool) -> bool {
         let n = self.choices.len();
@@ -35,6 +89,7 @@ impl FormField {
             None => n - 1,
         };
         self.value = self.choices[next].0.clone();
+        self.typed.clear();
         true
     }
     /// The position of the current value among the choices.
@@ -44,7 +99,7 @@ impl FormField {
             .position(|(value, _)| *value == self.value)
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ActionForm {
     pub command: CommandDef,
     pub fields: Vec<FormField>,
@@ -57,43 +112,48 @@ impl ActionForm {
             .iter()
             .map(|arg| FormField {
                 name: arg.name.clone(),
-                label: if arg.prompt.is_empty() {
-                    arg.name.clone()
-                } else {
-                    arg.prompt.clone()
-                },
-                hint: arg.description.clone(),
+                label: label(&arg.prompt, &arg.name),
+                hint: sentence(&arg.description),
                 value: context.get(&arg.name).cloned().unwrap_or_default(),
                 argument: true,
-                boolean: false,
-                repeated: false,
-                choices: Vec::new(),
+                ..Default::default()
             })
             .collect::<Vec<_>>();
-        fields.extend(
-            command
-                .flags
-                .iter()
-                .filter(|(name, _)| name.as_str() != "acknowledge-hash")
-                .map(|(name, flag)| FormField {
-                    name: name.clone(),
-                    label: format!("--{name}"),
-                    hint: if flag.prompt.is_empty() {
-                        flag.description.clone()
-                    } else {
-                        flag.prompt.clone()
-                    },
-                    value: String::new(),
-                    argument: false,
-                    boolean: flag.boolean,
-                    repeated: flag.repeat || flag.multiline,
-                    choices: if flag.boolean {
-                        vec![("yes".into(), String::new()), ("no".into(), String::new())]
-                    } else {
-                        Vec::new()
-                    },
-                }),
-        );
+        // Flags in the order commands.json lists them (the most useful first), not the
+        // alphabetical order the catalog's JSON object arrives in.
+        let order: Vec<String> = crate::commands::by_name(&command.name)
+            .map(|c| c.flags.iter().map(|(name, _)| name.clone()).collect())
+            .unwrap_or_default();
+        let mut flags: Vec<_> = command
+            .flags
+            .iter()
+            .filter(|(name, _)| name.as_str() != "acknowledge-hash")
+            .collect();
+        flags.sort_by_key(|(name, _)| order.iter().position(|o| o == *name).unwrap_or(usize::MAX));
+        fields.extend(flags.into_iter().map(|(name, flag)| {
+            let repeated = flag.repeat || flag.multiline;
+            let mut hint = sentence(&flag.description);
+            if repeated && !flag.boolean {
+                hint.push_str(" One per line: Alt+Enter adds a line.");
+            }
+            FormField {
+                name: name.clone(),
+                label: label(&flag.prompt, name),
+                hint,
+                boolean: flag.boolean,
+                repeated,
+                choices: if flag.boolean {
+                    vec![("yes".into(), String::new()), ("no".into(), String::new())]
+                } else {
+                    Vec::new()
+                },
+                fixed: flag.boolean,
+                advanced: ADVANCED.contains(&name.as_str()),
+                ..Default::default()
+            }
+        }));
+        // Advanced fields last; arguments keep their order among themselves, as `input` needs.
+        fields.sort_by_key(|field| field.advanced);
         Self {
             command,
             fields,
@@ -140,6 +200,58 @@ impl ActionForm {
         Ok((args, flags))
     }
 }
+/// Flags that are rarely set by hand: idempotency keys, revisions read for you, budgets and
+/// the multi-repository plan syntax. Forms list them last, under "More options".
+pub const ADVANCED: &[&str] = &[
+    "key",
+    "id",
+    "revision",
+    "expected-version",
+    "derived-from",
+    "override",
+    "task",
+    "workers",
+    "attempts",
+    "timeout",
+    "cost-usd",
+    "check",
+    "checks",
+    "clear-labels",
+];
+
+/// A field's label: the catalog's prompt without its parenthetical instructions (the hint
+/// and the choices say those), or the name in words ("cost-usd" is "Cost usd").
+pub fn label(prompt: &str, name: &str) -> String {
+    let prompt = prompt.trim();
+    let base = match prompt.find(" (") {
+        Some(at) if prompt.ends_with(')') => &prompt[..at],
+        _ => prompt,
+    };
+    if !base.is_empty() {
+        return base.to_string();
+    }
+    let words = name.replace(['-', '_'], " ");
+    let mut chars = words.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// A catalog description as a sentence: capitalized, with a full stop.
+pub fn sentence(text: &str) -> String {
+    let text = text.trim();
+    let mut chars = text.chars();
+    let mut out: String = match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => return String::new(),
+    };
+    if !out.ends_with(['.', '?', '!']) {
+        out.push('.');
+    }
+    out
+}
+
 pub(crate) fn edit(text: &mut String, key: KeyEvent, multiline: bool) {
     if text.len() >= MAX_INPUT && key.code != KeyCode::Backspace {
         return;
