@@ -688,7 +688,7 @@ fn cells_fit(painted: &str, h: u16) -> bool {
 
 #[test]
 fn orbit_is_in_navigation_after_projects_and_loads_the_context_project() {
-    let labels = views::NAV.iter().map(|(l, _)| *l).collect::<Vec<_>>();
+    let labels = views::NAV.iter().map(|(l, ..)| *l).collect::<Vec<_>>();
     let at = labels
         .iter()
         .position(|l| *l == "Orbit")
@@ -947,7 +947,7 @@ fn forms_offer_known_records_and_values_as_choices() {
     assert_eq!(field(&a, "repository").value, "web");
     key(&mut a, KeyCode::Left);
     assert_eq!(field(&a, "repository").value, "api");
-    assert!(draw(&mut a, 120, 35, false).contains("←/→ choose (1 of 2): api, web"));
+    assert!(draw(&mut a, 120, 35, false).contains("◂ api ▸  /fixture/api"));
     a.form = None;
     a.mode = Mode::Workbench;
 
@@ -1065,11 +1065,11 @@ fn a_short_or_latest_run_in_a_form_keeps_the_exact_identity_as_context() {
     let form = a.form.as_mut().unwrap();
     form.cursor = form.fields.iter().position(|f| f.name == "run").unwrap();
     key(&mut a, KeyCode::Right);
-    assert!(draw(&mut a, 120, 35, false).contains("run ◂▸: latest  the newest run"));
+    assert!(draw(&mut a, 120, 35, false).contains("◂ latest ▸  the newest run"));
     key(&mut a, KeyCode::Right);
     let painted = draw(&mut a, 120, 35, false);
     assert!(
-        painted.contains("run ◂▸: 8b1e0000  workflow 8b1e0000"),
+        painted.contains("◂ 8b1e0000 ▸  workflow 8b1e0000"),
         "{painted}"
     );
 }
@@ -1142,7 +1142,7 @@ fn the_approval_question_shows_what_to_type_and_how_to_cancel_at_eighty_columns(
     a.prompt = Some(luuna_tui::app::PendingPrompt {
         request_id: "r".into(),
         prompt_id: "p".into(),
-        kind: "hash".into(),
+        kind: luuna_tui::app::PromptKind::Hash,
         question: luuna_tui::commands::approval_question(
             "plan-ticket-3f2a91c0-1b2c-4d5e-8f90-0123456789ab",
             "12",
