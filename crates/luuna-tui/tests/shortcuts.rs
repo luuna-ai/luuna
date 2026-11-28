@@ -144,11 +144,13 @@ fn section_shortcuts_open_their_screen_from_everywhere() {
         for (keys, to) in [
             (["f1", "?"], Screen::Help),
             (["f2", ":"], Screen::Commands),
-            (["f3", "1"], Screen::Projects),
-            (["f4", "2"], Screen::Missions),
-            (["f6", "3"], Screen::Memory),
-            (["f7", "4"], Screen::Prompts),
-            (["f8", "5"], Screen::Runs),
+            (["1", "1"], Screen::Home),
+            (["f3", "2"], Screen::Projects),
+            (["3", "3"], Screen::Orbit),
+            (["f4", "4"], Screen::Missions),
+            (["f6", "5"], Screen::Memory),
+            (["f7", "6"], Screen::Prompts),
+            (["f8", "7"], Screen::Runs),
         ] {
             for spec in keys {
                 let mut a = app(from);
@@ -157,6 +159,54 @@ fn section_shortcuts_open_their_screen_from_everywhere() {
             }
         }
     }
+}
+
+#[test]
+fn the_menu_and_footer_show_keys_that_open_what_they_say() {
+    let keymap = luuna_tui::keys::keymap();
+    for (label, screen, action) in views::NAV {
+        if action.is_empty() {
+            continue;
+        }
+        let shown = keymap.hint(action);
+        assert!(
+            !shown.starts_with('F'),
+            "{label} shows {shown}, which needs Fn on a Mac"
+        );
+        let mut a = app(Screen::Help);
+        press(&mut a, &shown.to_lowercase());
+        assert_eq!(a.workbench.screen, *screen, "{label} key {shown}");
+    }
+    // Every key a footer names is bound, and is the one shown.
+    for screen in TOP.into_iter().chain([
+        Screen::Project,
+        Screen::Ticket,
+        Screen::MemoryDetail,
+        Screen::PromptDetail,
+        Screen::RunDetail,
+        Screen::Plan,
+        Screen::Commands,
+    ]) {
+        let footer = views::hints(screen);
+        assert!(!footer.contains("unbound"), "{screen:?}: {footer}");
+        assert!(!footer.contains("F1"), "{screen:?}: {footer}");
+    }
+}
+
+#[test]
+fn help_settings_keys_save_the_theme_and_keyboard_setting() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tui.json");
+    std::env::set_var("LUUNA_TUI_CONFIG", &path);
+    let mut a = app(Screen::Help);
+    press(&mut a, "t");
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["theme"]["preset"], "terminal", "{}", a.status);
+    press(&mut a, "e");
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["keyboard_enhancement"], false, "{}", a.status);
+    assert!(!a.quit);
+    std::env::remove_var("LUUNA_TUI_CONFIG");
 }
 
 #[test]
@@ -175,7 +225,7 @@ fn the_menu_opens_moves_opens_a_section_and_closes() {
     press(&mut a, "m");
     let target = views::NAV
         .iter()
-        .position(|(_, s)| *s == Screen::Runs)
+        .position(|(_, s, _)| *s == Screen::Runs)
         .unwrap();
     for _ in 0..target {
         press(&mut a, "j");
@@ -498,6 +548,8 @@ fn every_action_in_the_keymap_is_exercised_here() {
         "quit",
         "back",
         "help",
+        "home",
+        "orbit",
         "commands",
         "projects",
         "missions",
