@@ -1,12 +1,12 @@
  1 Home  2 Projects  3 Orbit  4 Missions  5 Atlas  6 Beacon  7 Runs  : Commands  ? Help
  LUUNA  ▸ demo (2 switch)  connected
-╔ LUUNA ══════════════════════╗╔ > Beacon / exact preview ═════════════════════════════════════════════════════════════╗
-║   1 Home                    ║║Unsent context: not selected / s selects                                               ║
+╔ LUUNA ══════════════════════╗╔ > Prompt ═════════════════════════════════════════════════════════════════════════════╗
+║   1 Home                    ║║Next plan: does not use it (s adds)                                                    ║
 ║   2 Projects                ║║review                                                                                 ║
 ║   3 Orbit                   ║║Version: 2                                                                             ║
-║   4 Missions                ║║Exact hash: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    ║
+║   4 Missions                ║║Hash: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa          ║
 ║   5 Atlas                   ║║                                                                                       ║
-║   6 Beacon *                ║║RENDERED BODY                                                                          ║
+║   6 Beacon *                ║║BODY                                                                                   ║
 ║   7 Runs                    ║║Review the exact candidate.                                                            ║
 ║     Set up a project        ║║Explain every finding.                                                                 ║
 ║   : Commands                ║║                                                                                       ║

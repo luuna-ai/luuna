@@ -15,7 +15,7 @@ pub(super) fn render_collection(frame: &mut Frame, app: &AppState, area: Rect, t
     .areas(area);
     let title = if screen == Screen::Memory {
         format!(
-            "Search: {}{}\nUser memory: {} (explicit choice)",
+            "Search: {}{}\nUser memory: {} (u switches)",
             safe_text(&app.workbench.query),
             if app.workbench.searching { "_" } else { "" },
             if app.workbench.include_user {
@@ -26,7 +26,7 @@ pub(super) fn render_collection(frame: &mut Frame, app: &AppState, area: Rect, t
         )
     } else if screen == Screen::Prompts {
         format!(
-            "Search: {}{}\nVersioned source; preview before selection",
+            "Search: {}{}\nEnter shows a version",
             safe_text(&app.workbench.query),
             if app.workbench.searching { "_" } else { "" }
         )

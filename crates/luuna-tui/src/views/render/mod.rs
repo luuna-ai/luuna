@@ -55,21 +55,21 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) {
     };
     let screen = app.workbench.screen;
     let title = match screen {
-        Screen::Home => "Home / workspace health",
-        Screen::Projects => "Projects / repositories",
-        Screen::Project => "Project / recorded identity",
-        Screen::Orbit => "Orbit / project repositories",
-        Screen::Missions => "Missions / workflow board",
-        Screen::Ticket => "Missions / ticket",
-        Screen::Memory => "Atlas / scoped memory",
-        Screen::MemoryDetail => "Atlas / record",
-        Screen::Prompts => "Beacon / versioned prompts",
-        Screen::PromptDetail => "Beacon / exact preview",
-        Screen::Runs => "Runs / recorded workflows",
-        Screen::RunDetail => "Run / evidence",
-        Screen::Plan => "Plan / immutable snapshot",
+        Screen::Home => "Home",
+        Screen::Projects => "Projects",
+        Screen::Project => "Project",
+        Screen::Orbit => "Orbit",
+        Screen::Missions => "Missions",
+        Screen::Ticket => "Ticket",
+        Screen::Memory => "Atlas",
+        Screen::MemoryDetail => "Memory",
+        Screen::Prompts => "Beacon",
+        Screen::PromptDetail => "Prompt",
+        Screen::Runs => "Runs",
+        Screen::RunDetail => "Run",
+        Screen::Plan => "Plan",
         Screen::Commands => "Commands",
-        Screen::Help => "Help / keyboard reference",
+        Screen::Help => "Help",
         Screen::Setup => "Setup",
     };
     let block = panel(title, !app.workbench.nav, theme);
@@ -91,7 +91,10 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) {
         Screen::Commands => {
             paragraph(
                 frame,
-                vec![Line::raw("F2 opens all runtime commands.")],
+                vec![Line::raw(format!(
+                    "{} opens every command.",
+                    crate::keys::keymap().hint("commands")
+                ))],
                 body,
                 &mut app.scroll,
                 theme,
@@ -107,11 +110,11 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) {
                 lines.insert(
                     0,
                     field(
-                        "Unsent context",
+                        "Next plan",
                         if app.workbench.memory_ids.contains(&text(&record, "id")) {
-                            "selected / s removes"
+                            "uses it (s removes)"
                         } else {
-                            "not selected / s selects"
+                            "does not use it (s adds)"
                         },
                         theme,
                     ),
@@ -127,11 +130,11 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) {
                 lines.insert(
                     0,
                     field(
-                        "Unsent context",
+                        "Next plan",
                         if app.workbench.prompt_selection.as_deref() == Some(identity.as_str()) {
-                            "selected / s removes"
+                            "uses it (s removes)"
                         } else {
-                            "not selected / s selects"
+                            "does not use it (s adds)"
                         },
                         theme,
                     ),
@@ -314,23 +317,20 @@ fn cell_lines(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
 
 fn append_context(lines: &mut Vec<Line<'static>>, app: &AppState, theme: Theme) {
     lines.push(Line::raw(""));
-    lines.push(heading("UNSENT CONTEXT / NOT THE RECORDED PLAN", theme));
+    lines.push(heading("YOUR NEXT PLAN WILL USE", theme));
     if app.workbench.memory_ids.is_empty() {
-        lines.push(Line::raw("No memory selected."));
+        lines.push(Line::raw("No memory"));
     }
     for id in &app.workbench.memory_ids {
         lines.push(field("Memory", id, theme));
     }
     lines.push(field(
-        "Exact prompt",
-        app.workbench
-            .prompt_selection
-            .as_deref()
-            .unwrap_or("none selected"),
+        "Prompt",
+        app.workbench.prompt_selection.as_deref().unwrap_or("none"),
         theme,
     ));
     lines.push(Line::styled(
-        "s toggles a record / z clears unsent context",
+        "Add memory or a prompt with s on Atlas or Beacon; z clears.",
         theme.muted(),
     ));
 }
@@ -400,12 +400,16 @@ fn status(state: &str, theme: Theme) -> Line<'static> {
 fn empty(app: &AppState) -> Vec<Line<'static>> {
     vec![
         Line::raw(if app.active_request.is_some() {
-            "Reading recorded runtime state..."
+            "Loading…"
         } else {
-            "No records in this view."
+            "Nothing here yet."
         }),
         Line::raw(""),
-        Line::raw("F5 refreshes. F2 opens available commands."),
+        Line::raw(format!(
+            "{} refreshes · {} every command",
+            crate::keys::keymap().hint("refresh"),
+            crate::keys::keymap().hint("commands")
+        )),
     ]
 }
 

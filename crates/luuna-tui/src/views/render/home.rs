@@ -14,56 +14,50 @@ pub(super) fn render_home(frame: &mut Frame, app: &mut AppState, area: Rect, the
     frame.render_widget(
         Paragraph::new(vec![
             Line::styled(
-                format!(
-                    "> {} [{}/{}]",
-                    text(&projects[current], "name"),
-                    current + 1,
-                    projects.len()
-                ),
+                if projects.len() > 1 {
+                    format!(
+                        "> {} ({} of {})",
+                        text(&projects[current], "name"),
+                        current + 1,
+                        projects.len()
+                    )
+                } else {
+                    format!("> {}", text(&projects[current], "name"))
+                },
                 theme.selected(),
             ),
             Line::styled(
-                "Up/Down project / Enter opens / PgUp/PgDn details",
+                if projects.len() > 1 {
+                    "↑↓ switches project"
+                } else {
+                    ""
+                },
                 theme.muted(),
             ),
         ]),
         selector,
     );
-    let mut lines = vec![
-        heading("YOUR DEVELOPMENT WORKSPACE", theme),
-        Line::raw("Repository health and work waiting for your attention."),
-        Line::raw(""),
-    ];
-    for (index, project) in projects.iter().enumerate().skip(current).take(1) {
-        lines.push(Line::styled(
-            format!(
-                "{} {}",
-                if index == app.workbench.cursor {
-                    ">"
-                } else {
-                    " "
-                },
-                text(project, "name")
-            ),
-            if index == app.workbench.cursor {
-                theme.selected()
-            } else {
-                theme.title()
-            },
-        ));
+    let mut lines = Vec::new();
+    for project in projects.iter().skip(current).take(1) {
         lines.push(field("Project", text(project, "id"), theme));
         lines.push(field("Manifest revision", text(project, "revision"), theme));
-        lines.push(field(
-            "Manifest hash",
-            text(project, "manifest_hash"),
-            theme,
-        ));
+        if !text(project, "manifest_hash").is_empty() {
+            lines.push(field(
+                "Manifest hash",
+                text(project, "manifest_hash"),
+                theme,
+            ));
+        }
+        let count = |key: &str, one: &str, many: &str| {
+            let n = project.get(key).and_then(Value::as_u64).unwrap_or(0);
+            format!("{n} {}", if n == 1 { one } else { many })
+        };
         lines.push(field(
             "Work",
             format!(
-                "{} tickets / {} active workflows",
-                text(project, "tickets"),
-                text(project, "active_workflows")
+                "{}, {}",
+                count("tickets", "ticket", "tickets"),
+                count("active_workflows", "active run", "active runs")
             ),
             theme,
         ));
@@ -73,7 +67,7 @@ pub(super) fn render_home(frame: &mut Frame, app: &mut AppState, area: Rect, the
     lines.push(heading("NEEDS ATTENTION", theme));
     let blockers = array(&home, "blockers");
     if blockers.is_empty() {
-        lines.push(Line::styled("No recorded blockers.", theme.muted()));
+        lines.push(Line::styled("Nothing needs you right now.", theme.muted()));
     }
     for blocker in blockers {
         lines.push(field("Project", text(blocker, "project_id"), theme));
@@ -103,7 +97,7 @@ pub(super) fn append_repositories(
             lines.push(status(&text(baseline, "status"), theme));
             for (key, label) in [
                 ("run_id", "Baseline run"),
-                ("manifest_revision", "Baseline manifest revision"),
+                ("manifest_revision", "Manifest revision"),
                 ("commit", "Commit"),
                 ("reason", "Reason"),
             ] {
@@ -112,10 +106,7 @@ pub(super) fn append_repositories(
                 }
             }
         } else {
-            lines.push(Line::styled(
-                "Baseline: not recorded in this view",
-                theme.muted(),
-            ));
+            lines.push(Line::styled("Baseline: none yet", theme.muted()));
         }
         if let Some(prerequisite) = repository.get("prerequisite").filter(|v| !v.is_null()) {
             lines.push(field(
