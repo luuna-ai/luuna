@@ -1,20 +1,20 @@
- Home  Setup  Projects  Orbit  Missions  Atlas  Beacon  Runs  Commands  Help
- LUUNA  ▸ demo (F3 switch) / WORKBENCH connected
-╔ LUUNA ══════════════════════╗╔ > Atlas / scoped memory ══════════════════════════════════════════════════════════════╗
-║ 1 Home                      ║║Search:                                                                                ║
-║ 2 Set up a project          ║║User memory: excluded (explicit choice)                                                ║
-║ 3 Projects                  ║║> [project] Use structured errors  ║mem-1                                              ║
-║ 4 Orbit                     ║║  id: mem-1                        ║Short id: mem-1                                    ║
-║ 5 Missions                  ║║                                   ║Scope: project                                     ║
-║ 6 Atlas *                   ║║                                   ║Provenance: Maintainer notes                       ║
-║ 7 Beacon                    ║║                                   ║Exact hash: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa║
-║ 8 Runs                      ║║                                   ║aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                   ║
-║ 9 Commands                  ║║                                   ║                                                   ║
-║ 10 Help                     ║║                                   ║CONTENT                                            ║
+ 1 Home  2 Projects  3 Orbit  4 Missions  5 Atlas  6 Beacon  7 Runs  : Commands  ? Help
+ LUUNA  ▸ demo (2 switch)  connected
+╔ LUUNA ══════════════════════╗╔ > Atlas ══════════════════════════════════════════════════════════════════════════════╗
+║   1 Home                    ║║Search:                                                                                ║
+║   2 Projects                ║║User memory: excluded (u switches)                                                     ║
+║   3 Orbit                   ║║> [project] Use structured errors  ║mem-1                                              ║
+║   4 Missions                ║║  id: mem-1                        ║Full id: mem-1                                     ║
+║   5 Atlas *                 ║║                                   ║Scope: project                                     ║
+║   6 Beacon                  ║║                                   ║Provenance: Maintainer notes                       ║
+║   7 Runs                    ║║                                   ║Hash:                                              ║
+║     Set up a project        ║║                                   ║sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa║
+║   : Commands                ║║                                   ║aaaaaaaaaaaaaaaaaaaa                               ║
+║   ? Help                    ║║                                   ║                                                   ║
+║                             ║║                                   ║CONTENT                                            ║
 ║                             ║║                                   ║Use structured errors                              ║
 ║                             ║║                                   ║                                                   ║
-║                             ║║                                   ║Context selection is unsent until you submit a plan║
-║                             ║║                                   ║.                                                  ║
+║                             ║║                                   ║                                                   ║
 ║                             ║║                                   ║                                                   ║
 ║                             ║║                                   ║                                                   ║
 ║                             ║║                                   ║                                                   ║
@@ -26,10 +26,10 @@
 ║PROJECT                      ║║                                   ║                                                   ║
 ║demo                         ║║                                   ║                                                   ║
 ║                             ║║                                   ║                                                   ║
-║UNSENT PLAN CONTEXT          ║║                                   ║                                                   ║
-║0 memory selection(s)        ║║                                   ║                                                   ║
-║No prompt selected           ║║                                   ║                                                   ║
-║F10 menu / Tab focus         ║║Enter inspect  n new  s starter set  / search  u user memory                           ║
+║NEXT PLAN USES               ║║                                   ║                                                   ║
+║No memory                    ║║                                   ║                                                   ║
+║No prompt                    ║║                                   ║                                                   ║
+║                             ║║                                   ║                                                   ║
 ╚═════════════════════════════╝╚═══════════════════════════════════════════════════════════════════════════════════════╝
 Connecting to the local runtime…
-Enter inspect  n new  s starter set  / search  u user memory
+ Enter open  n new  s starter set  / search  u user memory  m menu  ? help

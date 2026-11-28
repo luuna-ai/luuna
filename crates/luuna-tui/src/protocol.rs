@@ -79,13 +79,67 @@ impl ClientCommand {
     }
 }
 
+/// The kinds of event the bridge sends; anything else is a protocol failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EventKind {
+    Catalog,
+    Result,
+    Output,
+    Prompt,
+    Event,
+    Connection,
+    Error,
+    Guide,
+}
+
+impl EventKind {
+    pub const ALL: [EventKind; 8] = [
+        Self::Catalog,
+        Self::Result,
+        Self::Output,
+        Self::Prompt,
+        Self::Event,
+        Self::Connection,
+        Self::Error,
+        Self::Guide,
+    ];
+    /// The name the event travels under.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Catalog => "catalog",
+            Self::Result => "result",
+            Self::Output => "output",
+            Self::Prompt => "prompt",
+            Self::Event => "event",
+            Self::Connection => "connection",
+            Self::Error => "error",
+            Self::Guide => "guide",
+        }
+    }
+    /// The kind a wire name names, if it is one.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.as_str() == name)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BridgeEvent {
     pub v: u8,
     pub id: String,
-    pub event: String,
+    pub event: EventKind,
     #[serde(flatten)]
     pub fields: Map<String, Value>,
+}
+
+/// A frame as read, before its event name is checked.
+#[derive(Deserialize)]
+struct RawEvent {
+    v: u8,
+    id: String,
+    event: String,
+    #[serde(flatten)]
+    fields: Map<String, Value>,
 }
 
 impl BridgeEvent {
@@ -93,25 +147,18 @@ impl BridgeEvent {
         if bytes.len() > MAX_FRAME {
             return Err("Bridge frame exceeds 1 MiB.".into());
         }
-        let event: Self = serde_json::from_slice(bytes).map_err(|_| "Bridge sent invalid JSON.")?;
-        if event.v != VERSION || event.id.is_empty() || event.id.len() > 128 {
+        let raw: RawEvent =
+            serde_json::from_slice(bytes).map_err(|_| "Bridge sent invalid JSON.")?;
+        if raw.v != VERSION || raw.id.is_empty() || raw.id.len() > 128 {
             return Err("Bridge protocol version or request identity is invalid.".into());
         }
-        if ![
-            "catalog",
-            "result",
-            "output",
-            "prompt",
-            "event",
-            "connection",
-            "error",
-            "guide",
-        ]
-        .contains(&event.event.as_str())
-        {
-            return Err("Bridge sent an unknown event.".into());
-        }
-        Ok(event)
+        let event = EventKind::from_wire(&raw.event).ok_or("Bridge sent an unknown event.")?;
+        Ok(Self {
+            v: raw.v,
+            id: raw.id,
+            event,
+            fields: raw.fields,
+        })
     }
 
     pub fn text(&self, key: &str) -> &str {
@@ -221,6 +268,18 @@ mod tests {
             "hellored!\n界"
         );
         assert_eq!(safe_text("a\x1bPpayload\x1b\\b\x00\t"), "ab    ");
+    }
+    #[test]
+    fn every_event_kind_round_trips_its_wire_name_and_unknown_names_are_refused() {
+        for kind in EventKind::ALL {
+            assert_eq!(EventKind::from_wire(kind.as_str()), Some(kind));
+            assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.as_str()));
+        }
+        assert_eq!(EventKind::from_wire("telemetry"), None);
+        assert_eq!(
+            BridgeEvent::decode(br#"{"v":1,"id":"x","event":"telemetry"}"#).unwrap_err(),
+            "Bridge sent an unknown event."
+        );
     }
     #[test]
     fn strict_version_size_and_utf8_bounds() {

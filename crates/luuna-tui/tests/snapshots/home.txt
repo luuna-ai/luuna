@@ -1,21 +1,16 @@
- Home  Setup  Projects  Orbit  Missions  Atlas  Beacon  Runs  Commands  Help
- LUUNA  ▸ demo (F3 switch) / WORKBENCH connected
-╔ LUUNA ══════════════════════╗╔ > Home / workspace health ════════════════════════════════════════════════════════════╗
-║ 1 Home *                    ║║> Demo workspace [1/1]                                                                 ║
-║ 2 Set up a project          ║║Up/Down project / Enter opens / PgUp/PgDn details                                      ║
-║ 3 Projects                  ║║YOUR DEVELOPMENT WORKSPACE                                                             ║
-║ 4 Orbit                     ║║Repository health and work waiting for your attention.                                 ║
-║ 5 Missions                  ║║                                                                                       ║
-║ 6 Atlas                     ║║> Demo workspace                                                                       ║
-║ 7 Beacon                    ║║Project: demo                                                                          ║
-║ 8 Runs                      ║║Manifest revision: 2                                                                   ║
-║ 9 Commands                  ║║Manifest hash:                                                                         ║
-║ 10 Help                     ║║Work: 1 tickets / 1 active workflows                                                   ║
-║                             ║║Repository: api                                                                        ║
-║                             ║║Checkout: /fixture/api                                                                 ║
-║                             ║║+ passed                                                                               ║
-║                             ║║Baseline run: baseline-1                                                               ║
-║                             ║║Baseline manifest revision: 2                                                          ║
+ 1 Home  2 Projects  3 Orbit  4 Missions  5 Atlas  6 Beacon  7 Runs  : Commands  ? Help
+ LUUNA  ▸ demo (2 switch)  connected
+╔ LUUNA ══════════════════════╗╔ > Home ═══════════════════════════════════════════════════════════════════════════════╗
+║   1 Home *                  ║║> Demo workspace                                                                       ║
+║   2 Projects                ║║                                                                                       ║
+║   3 Orbit                   ║║Project: demo                                                                          ║
+║   4 Missions                ║║Manifest revision: 2                                                                   ║
+║   5 Atlas                   ║║Work: 1 ticket, 1 active run                                                           ║
+║   6 Beacon                  ║║Repository: api                                                                        ║
+║   7 Runs                    ║║Checkout: /fixture/api                                                                 ║
+║     Set up a project        ║║+ passed                                                                               ║
+║   : Commands                ║║Baseline run: baseline-1                                                               ║
+║   ? Help                    ║║Manifest revision: 2                                                                   ║
 ║                             ║║Commit: aabbcc                                                                         ║
 ║                             ║║                                                                                       ║
 ║                             ║║NEEDS ATTENTION                                                                        ║
@@ -23,13 +18,18 @@
 ║                             ║║Greeting                                                                               ║
 ║                             ║║? plan_ready                                                                           ║
 ║                             ║║Review the immutable plan                                                              ║
+║                             ║║                                                                                       ║
+║                             ║║                                                                                       ║
+║                             ║║                                                                                       ║
+║                             ║║                                                                                       ║
+║                             ║║                                                                                       ║
 ║PROJECT                      ║║                                                                                       ║
 ║demo                         ║║                                                                                       ║
 ║                             ║║                                                                                       ║
-║UNSENT PLAN CONTEXT          ║║                                                                                       ║
-║0 memory selection(s)        ║║                                                                                       ║
-║No prompt selected           ║║                                                                                       ║
-║F10 menu / Tab focus         ║║Enter project  s set up a project  F3 Projects  F5 refresh                             ║
+║NEXT PLAN USES               ║║                                                                                       ║
+║No memory                    ║║                                                                                       ║
+║No prompt                    ║║                                                                                       ║
+║                             ║║                                                                                       ║
 ╚═════════════════════════════╝╚═══════════════════════════════════════════════════════════════════════════════════════╝
 Connecting to the local runtime…
-Enter project  s set up a project  F3 Projects  F5 refresh
+ Enter open  s set up a project  r refresh  m menu  ? help
