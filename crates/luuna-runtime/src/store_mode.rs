@@ -215,6 +215,74 @@ pub async fn set(
     Ok(Json(describe(&state, &id)?))
 }
 
+/// ADR 0067: a newly registered project keeps its component stores in its
+/// first repository's checkout when the runtime's default store is
+/// repository. The mode is recorded only when that checkout passes the
+/// checks of ADR 0061 and none of its `.luuna` stores holds records yet, so
+/// no record is ever adopted, moved or merged; otherwise the project stays in
+/// the runtime store and can still be moved by choosing a mode. Returns the
+/// mode it recorded. The caller holds the component lock from before the
+/// registration is stored until this returns, so no component operation can
+/// see the new project in the runtime store first.
+pub(crate) fn apply_default(
+    state: &AppState,
+    id: &str,
+    first_repository: &str,
+) -> Result<Option<StoreMode>, ApiError> {
+    if state.default_store != crate::DefaultStore::Repository {
+        return Ok(None);
+    }
+    // A mode file already there (even one that cannot be read) is kept.
+    let file = luuna_storage::project_store_file_path(&state.config.data_dir, id)
+        .map_err(|_| not_found())?;
+    if std::fs::symlink_metadata(file).is_ok() {
+        return Ok(None);
+    }
+    let checkout = state
+        .store
+        .lock()
+        .map_err(internal)?
+        .repositories(id)
+        .map_err(internal)?
+        .into_iter()
+        .find(|r| r.repository_id == first_repository)
+        .map(|r| PathBuf::from(r.local_path));
+    let Some(checkout) = checkout else {
+        return Ok(None);
+    };
+    if check_checkout(&checkout, &state.config.data_dir).is_err() {
+        eprintln!("luuna-runtime: project {id} keeps the runtime store: its first checkout cannot hold repository stores");
+        return Ok(None);
+    }
+    if let Some(component) = STORES
+        .iter()
+        .find(|component| holds_records(&checkout.join(".luuna").join(component)))
+    {
+        eprintln!("luuna-runtime: project {id} keeps the runtime store: the checkout's {component} store already holds records");
+        return Ok(None);
+    }
+    if let Some((_, folder)) = crate::stores::legacy_store(&checkout) {
+        eprintln!("luuna-runtime: project {id} keeps the runtime store: the checkout still has a {folder} store");
+        return Ok(None);
+    }
+    let target = StoreMode::Repository {
+        repository: first_repository.to_owned(),
+    };
+    luuna_storage::write_project_store_mode(&state.config.data_dir, id, &target)
+        .map_err(internal)?;
+    state
+        .store
+        .lock()
+        .map_err(internal)?
+        .record_project_event(
+            id,
+            "project.store_mode.changed",
+            json!({"from": Value::Null, "to": mode_value(&target), "reason": "default"}),
+        )
+        .map_err(internal)?;
+    Ok(Some(target))
+}
+
 /// Whether a component store holds anything beyond what a fresh
 /// initialisation writes: any file other than its configuration, readme and
 /// ignore files that has a non-blank byte. A link, an unreadable entry or a

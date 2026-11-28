@@ -1,9 +1,11 @@
-//! Repository store mode against real temporary git checkouts (ADR 0061).
-//! A project whose store mode file names a registered repository uses that
-//! checkout's own `.luuna/<component>` stores, exactly as the developer
-//! initialised them: the runtime never initialises, moves, re-permissions,
-//! stages or commits anything there, and writes nothing outside
-//! `.luuna/<component>`. Uses git and the native component libraries on
+//! Repository store mode against real temporary git checkouts (ADRs 0061
+//! and 0067). A project whose store mode file names a registered repository
+//! uses that checkout's own `.luuna/<component>` stores. The runtime may
+//! initialise a missing store there with the component's own init, but it
+//! never moves, re-permissions, stages or commits anything, and writes
+//! nothing outside `.luuna/<component>` except the init's `.gitattributes`
+//! lines. A new project defaults to its first checkout's stores when the
+//! runtime's default store is repository. Uses git and the native component libraries on
 //! synthetic data; no network, toolchain or model.
 use axum::{
     body::{to_bytes, Body},
@@ -11,7 +13,7 @@ use axum::{
     Router,
 };
 use luuna_domain::{DirtyState, RepositoryIdentity, RepositoryObservation, StoreMode};
-use luuna_runtime::{router, AppState, RuntimeConfig};
+use luuna_runtime::{router, AppState, DefaultStore, RuntimeConfig};
 use luuna_storage::{write_project_store_mode, Store};
 use serde_json::{json, Value};
 use std::{
@@ -139,8 +141,10 @@ async fn checkout(parent: &Path, name: &str, tracking: Tracking, components: &[&
     }
     git(&dir, &["add", "."]);
     git(&dir, &["commit", "-q", "-m", "first"]);
-    let seed = initialised_stores(components).await;
-    copy_tree(&seed.path().join("seed/.luuna"), &dir.join(".luuna"));
+    if !components.is_empty() {
+        let seed = initialised_stores(components).await;
+        copy_tree(&seed.path().join("seed/.luuna"), &dir.join(".luuna"));
+    }
     if tracking == Tracking::Committed {
         git(&dir, &["add", ".luuna"]);
         git(&dir, &["commit", "-q", "-m", "stores"]);
@@ -355,7 +359,43 @@ async fn a_committed_store_changes_only_as_unstaged_edits() {
 }
 
 #[tokio::test]
-async fn a_store_the_developer_has_not_initialised_is_refused_and_never_created() {
+async fn a_missing_store_is_initialised_in_the_checkout_and_nothing_is_staged() {
+    // ADR 0067: enabling creates a missing `.luuna/<component>` store with the
+    // component's own init. Outside the stores only `.gitattributes` gains
+    // its union-merge lines; nothing is staged or committed.
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    select(data.path(), &checkout);
+    let head = git(&checkout, &["rev-parse", "HEAD"]);
+    let app = serve(data.path());
+    use_the_stores(&app, &checkout).await;
+    drop(app);
+    for component in STORES {
+        assert!(
+            checkout
+                .join(".luuna")
+                .join(component)
+                .join("config.yaml")
+                .is_file(),
+            "{component}"
+        );
+    }
+    let attributes = fs::read_to_string(checkout.join(".gitattributes")).unwrap();
+    assert!(attributes.contains(".luuna/missions/issues.jsonl merge=union"));
+    assert!(attributes.contains(".luuna/atlas/expertise/*.jsonl merge=union"));
+    let outside: Vec<String> = outside_stores(&checkout)
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect();
+    assert_eq!(outside, [".gitattributes", ".luuna", "README.md"]);
+    assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&checkout, &["diff", "--cached", "--name-only"]), "");
+    assert!(!data.path().join("components/projects/app").exists());
+}
+
+#[tokio::test]
+async fn a_store_folder_that_exists_but_is_not_usable_is_refused_and_left_alone() {
     let parent = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
     let checkout = checkout(
@@ -365,6 +405,7 @@ async fn a_store_the_developer_has_not_initialised_is_refused_and_never_created(
         &["atlas", "beacon"],
     )
     .await;
+    fs::create_dir_all(checkout.join(".luuna/missions")).unwrap();
     select(data.path(), &checkout);
     let before = outside_stores(&checkout);
     let app = serve(data.path());
@@ -374,10 +415,119 @@ async fn a_store_the_developer_has_not_initialised_is_refused_and_never_created(
     assert!(text.contains("initialise .luuna/missions"), "{text}");
     assert!(!text.contains(&*checkout.to_string_lossy()), "{text}");
     drop(app);
-    assert!(!checkout.join(".luuna/missions").exists());
+    assert!(!checkout.join(".luuna/missions/config.yaml").exists());
     assert_eq!(outside_stores(&checkout), before);
     let store = Store::open(data.path().join("luuna.sqlite3")).unwrap();
     assert_eq!(store.component_state("app").unwrap(), None);
+}
+
+#[tokio::test]
+async fn an_upstream_tool_store_is_never_moved_by_an_init() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    fs::create_dir_all(checkout.join(".canopy")).unwrap();
+    fs::write(
+        checkout.join(".canopy/prompts.jsonl"),
+        "{\"id\":\"kept\"}\n",
+    )
+    .unwrap();
+    fs::write(checkout.join(".gitignore"), ".canopy/*.lock\n").unwrap();
+    select(data.path(), &checkout);
+    let before = outside_stores(&checkout);
+    let app = serve(data.path());
+    let (status, body) = request(&app, "POST", "/api/v1/projects/app/components", None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"].as_str().unwrap().contains(".canopy store"),
+        "{body}"
+    );
+    drop(app);
+    assert_eq!(outside_stores(&checkout), before);
+    assert!(!checkout.join(".luuna").exists());
+    let store = Store::open(data.path().join("luuna.sqlite3")).unwrap();
+    assert_eq!(store.component_state("app").unwrap(), None);
+}
+
+fn serve_with_default(data_dir: &Path, default_store: DefaultStore) -> Router {
+    router(
+        AppState::open(configuration(data_dir.to_path_buf()))
+            .unwrap()
+            .with_default_store(default_store),
+    )
+}
+
+async fn register_over_api(app: &Router, checkout: &Path) -> (StatusCode, Value) {
+    request(
+        app,
+        "POST",
+        "/api/v1/projects",
+        Some(json!({
+            "id": "app",
+            "name": "App",
+            "repositories": [{"id": "api", "path": checkout.to_string_lossy()}],
+        })),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_new_project_defaults_to_its_checkout_stores_and_runs_from_there() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    let app = serve_with_default(data.path(), DefaultStore::Repository);
+    let (status, body) = register_over_api(&app, &checkout).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let (status, body) = request(&app, "GET", "/api/v1/projects/app/store-mode", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["mode"], "repository");
+    assert_eq!(body["repository"], "api");
+    assert_eq!(mode_changes(&app).await, 1);
+    use_the_stores(&app, &checkout).await;
+    drop(app);
+    assert!(checkout.join(".luuna/missions/config.yaml").is_file());
+    assert!(!data.path().join("components/projects/app").exists());
+}
+
+#[tokio::test]
+async fn the_default_keeps_the_runtime_store_when_the_checkout_already_holds_records() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Committed, &STORES).await;
+    fs::write(
+        checkout.join(".luuna/missions/issues.jsonl"),
+        "{\"id\":\"someone-elses\"}\n",
+    )
+    .unwrap();
+    let app = serve_with_default(data.path(), DefaultStore::Repository);
+    let (status, body) = register_over_api(&app, &checkout).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(store_file(data.path()), None);
+    assert_eq!(mode_changes(&app).await, 0);
+}
+
+#[tokio::test]
+async fn the_default_keeps_the_runtime_store_when_the_checkout_has_an_upstream_store() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    fs::create_dir_all(checkout.join(".seeds")).unwrap();
+    let app = serve_with_default(data.path(), DefaultStore::Repository);
+    let (status, body) = register_over_api(&app, &checkout).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(store_file(data.path()), None);
+}
+
+#[tokio::test]
+async fn the_runtime_default_records_no_store_mode() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    let app = serve_with_default(data.path(), DefaultStore::Runtime);
+    let (status, body) = register_over_api(&app, &checkout).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(store_file(data.path()), None);
 }
 
 #[tokio::test]
@@ -746,4 +896,142 @@ async fn a_refused_store_spends_no_idempotency_key() {
     )
     .await;
     assert!(status.is_success(), "{status}: {body}");
+}
+
+// ADR 0068: changes to a checkout's `.luuna/` stores are committed.
+
+fn serve_committing(data_dir: &Path) -> Router {
+    router(
+        AppState::open(configuration(data_dir.to_path_buf()))
+            .unwrap()
+            .with_store_auto_commit(true),
+    )
+}
+
+/// Files a commit changed, relative to the checkout.
+fn changed_in(checkout: &Path, commit: &str) -> Vec<String> {
+    git(
+        checkout,
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "--root",
+            commit,
+        ],
+    )
+    .lines()
+    .map(str::to_owned)
+    .collect()
+}
+
+#[tokio::test]
+async fn store_changes_are_committed_and_nothing_else_the_developer_has_is_taken() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    // The developer's own work in progress: one staged edit, one untracked file.
+    fs::write(
+        checkout.join("README.md"),
+        "fixture\nstaged by the developer\n",
+    )
+    .unwrap();
+    git(&checkout, &["add", "README.md"]);
+    fs::write(checkout.join("notes.txt"), "untracked\n").unwrap();
+    select(data.path(), &checkout);
+    let first = git(&checkout, &["rev-parse", "HEAD"]).trim().to_owned();
+    let app = serve_committing(data.path());
+    use_the_stores(&app, &checkout).await;
+    drop(app);
+    let log = git(
+        &checkout,
+        &["log", "--format=%H %s", &format!("{first}..HEAD")],
+    );
+    let commits: Vec<&str> = log.lines().collect();
+    assert!(commits.len() >= 3, "{log}");
+    assert!(log.contains("luuna: enable components"), "{log}");
+    assert!(log.contains("luuna: missions create"), "{log}");
+    for line in &commits {
+        let id = line.split(' ').next().unwrap();
+        for path in changed_in(&checkout, id) {
+            assert!(
+                path.starts_with(".luuna/") || path == ".gitattributes",
+                "{line}: {path}"
+            );
+        }
+    }
+    let status = git(&checkout, &["status", "--porcelain"]);
+    assert_eq!(status, "M  README.md\n?? notes.txt\n", "{status}");
+    assert_eq!(
+        git(&checkout, &["diff", "--cached", "--name-only"]),
+        "README.md\n"
+    );
+}
+
+#[tokio::test]
+async fn an_ignored_store_is_not_committed() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Ignored, &STORES).await;
+    select(data.path(), &checkout);
+    let head = git(&checkout, &["rev-parse", "HEAD"]);
+    let app = serve_committing(data.path());
+    use_the_stores(&app, &checkout).await;
+    drop(app);
+    assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), head);
+}
+
+#[tokio::test]
+async fn a_developer_edit_to_gitattributes_is_never_committed() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    fs::write(checkout.join(".gitattributes"), "*.png binary\n").unwrap();
+    select(data.path(), &checkout);
+    let first = git(&checkout, &["rev-parse", "HEAD"]).trim().to_owned();
+    let app = serve_committing(data.path());
+    use_the_stores(&app, &checkout).await;
+    drop(app);
+    let changed = git(&checkout, &["diff", "--name-only", &first, "HEAD"]);
+    assert!(changed.contains(".luuna/missions/"), "{changed}");
+    assert!(!changed.contains(".gitattributes"), "{changed}");
+    assert!(git(&checkout, &["status", "--porcelain"]).contains("?? .gitattributes"));
+}
+
+#[tokio::test]
+async fn nothing_is_committed_while_a_merge_is_in_progress() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &STORES).await;
+    let head = git(&checkout, &["rev-parse", "HEAD"]);
+    fs::write(checkout.join(".git/MERGE_HEAD"), &head).unwrap();
+    select(data.path(), &checkout);
+    let app = serve_committing(data.path());
+    use_the_stores(&app, &checkout).await;
+    drop(app);
+    assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), head);
+}
+
+#[tokio::test]
+async fn a_staged_gitattributes_the_developer_has_is_kept() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let checkout = checkout(parent.path(), "app", Tracking::Untracked, &[]).await;
+    // Staged one way, then emptied in the work tree: the index is theirs.
+    fs::write(checkout.join(".gitattributes"), "*.png binary\n").unwrap();
+    git(&checkout, &["add", ".gitattributes"]);
+    fs::write(checkout.join(".gitattributes"), "").unwrap();
+    select(data.path(), &checkout);
+    let first = git(&checkout, &["rev-parse", "HEAD"]).trim().to_owned();
+    let app = serve_committing(data.path());
+    use_the_stores(&app, &checkout).await;
+    drop(app);
+    let changed = git(&checkout, &["diff", "--name-only", &first, "HEAD"]);
+    assert!(changed.contains(".luuna/missions/"), "{changed}");
+    assert!(!changed.contains(".gitattributes"), "{changed}");
+    assert_eq!(
+        git(&checkout, &["show", ":.gitattributes"]),
+        "*.png binary\n"
+    );
 }

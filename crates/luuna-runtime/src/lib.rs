@@ -63,6 +63,36 @@ pub struct ServiceSettings {
     pub port: u16,
     /// GitHub publication (ADR 0018): token presence and API base URL.
     pub publication: PublicationSettings,
+    /// Where a newly registered project keeps its component stores (ADR 0067).
+    pub default_store: DefaultStore,
+    /// Whether changes to a checkout's `.luuna/` stores are committed (ADR 0068).
+    pub store_auto_commit: bool,
+}
+
+/// Where a newly registered project keeps its component stores (ADR 0067).
+/// `LUUNA_DEFAULT_STORE_MODE` selects it for the service binary; an in-process
+/// runtime built with [`AppState::open`] keeps the runtime store unless
+/// [`AppState::with_default_store`] says otherwise.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum DefaultStore {
+    /// The private store under the data directory.
+    #[default]
+    Runtime,
+    /// The `.luuna/` stores of the project's first repository checkout, when
+    /// that checkout can hold them and they hold no records yet.
+    Repository,
+}
+
+impl DefaultStore {
+    fn parse(value: Option<&str>) -> Result<Self, StartupError> {
+        match value {
+            None | Some("repository") => Ok(Self::Repository),
+            Some("runtime") => Ok(Self::Runtime),
+            Some(other) => Err(StartupError(format!(
+                "LUUNA_DEFAULT_STORE_MODE must be repository or runtime (got {other:?})"
+            ))),
+        }
+    }
 }
 
 /// A startup failure whose message names the setting at fault and the form it
@@ -124,6 +154,16 @@ impl ServiceSettings {
             None => 4242,
         };
         let publication = PublicationSettings::from_env(&var)?;
+        let default_store = DefaultStore::parse(text("LUUNA_DEFAULT_STORE_MODE")?.as_deref())?;
+        let store_auto_commit = match text("LUUNA_STORE_AUTO_COMMIT")?.as_deref() {
+            None | Some("1") | Some("true") => true,
+            Some("0") | Some("false") => false,
+            Some(other) => {
+                return Err(StartupError(format!(
+                    "LUUNA_STORE_AUTO_COMMIT must be 1 or 0 (got {other:?})"
+                )))
+            }
+        };
         let max_run_seconds = match text("LUUNA_RUN_TIMEOUT_SECONDS")? {
             Some(raw) => raw
                 .parse::<u64>()
@@ -151,6 +191,8 @@ impl ServiceSettings {
             },
             port,
             publication,
+            default_store,
+            store_auto_commit,
         })
     }
 }
@@ -173,6 +215,10 @@ pub struct AppState {
     /// `GET /api/v1/doctor` reports it. `None` for an in-process router.
     listen_port: Option<u16>,
     /// Set by explicit shutdown before owned work is signalled to stop.
+    /// Where a newly registered project keeps its stores (ADR 0067).
+    default_store: DefaultStore,
+    /// Whether a checkout's `.luuna/` changes are committed (ADR 0068).
+    store_auto_commit: bool,
     shutting_down: Arc<std::sync::atomic::AtomicBool>,
     shutdown_requested: Arc<Notify>,
     admission: Arc<RwLock<()>>,
@@ -314,6 +360,8 @@ impl AppState {
             component_locks: Arc::new(tokio::sync::Mutex::new(())),
             orbit_in_flight: Arc::new(Mutex::new(HashMap::new())),
             listen_port: None,
+            default_store: DefaultStore::Runtime,
+            store_auto_commit: false,
             shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             shutdown_requested: Arc::new(Notify::new()),
             admission: Arc::new(RwLock::new(())),
@@ -327,6 +375,21 @@ impl AppState {
     /// the service binary passes what `ServiceSettings::from_env` read.
     pub fn with_publication(mut self, settings: PublicationSettings) -> Self {
         self.publication = Arc::new(settings);
+        self
+    }
+
+    /// Where newly registered projects keep their component stores; the
+    /// service binary passes what `ServiceSettings::from_env` read.
+    pub fn with_default_store(mut self, default_store: DefaultStore) -> Self {
+        self.default_store = default_store;
+        self
+    }
+
+    /// Whether changes to a checkout's `.luuna/` stores are committed to its
+    /// current branch (ADR 0068); the service binary passes what
+    /// `ServiceSettings::from_env` read.
+    pub fn with_store_auto_commit(mut self, enabled: bool) -> Self {
+        self.store_auto_commit = enabled;
         self
     }
 

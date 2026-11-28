@@ -1,9 +1,12 @@
 use crate::protocol::{
-    bounded_append, safe_text, BridgeEvent, ClientCommand, CommandDef, MAX_EVENTS,
+    bounded_append, safe_text, BridgeEvent, ClientCommand, CommandDef, EventKind, MAX_EVENTS,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, VecDeque};
+
+use crate::form::{edit, MAX_INPUT};
+pub use crate::form::{ActionForm, FormField};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -15,139 +18,28 @@ pub enum Mode {
     Guide,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct FormField {
-    pub name: String,
-    pub label: String,
-    pub hint: String,
-    pub value: String,
-    pub argument: bool,
-    pub boolean: bool,
-    pub repeated: bool,
-    /// Values the developer can pick with Left/Right instead of typing (ADR 0042): records the
-    /// workbench already read (as short ids), the scopes and roles the runtime accepts, yes/no.
-    /// Each is `(value, label)`. Typing stays possible; a choice only fills the field.
-    pub choices: Vec<(String, String)>,
+/// What a runtime question asks for, which decides how it is answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PromptKind {
+    /// Exact plan approval: the plan scrolls above and Enter needs the plan fully visible.
+    Hash,
+    /// A multi-line document: Enter adds a line, Ctrl+S (or Ctrl+Enter) submits.
+    Document,
+    /// Yes or no, answered as a boolean.
+    Confirm,
+    /// Any other single-line text answer.
+    Text,
 }
 
-impl FormField {
-    /// Moves to the next (or previous) choice and puts its value in the field.
-    pub fn cycle(&mut self, forward: bool) -> bool {
-        let n = self.choices.len();
-        if n == 0 {
-            return false;
+impl PromptKind {
+    /// The kind a bridge `prompt` event names; unknown kinds are single-line text.
+    pub fn from_wire(kind: &str) -> Self {
+        match kind {
+            "hash" => Self::Hash,
+            "document" => Self::Document,
+            "confirm" => Self::Confirm,
+            _ => Self::Text,
         }
-        let next = match self.choice_index() {
-            Some(i) if forward => (i + 1) % n,
-            Some(i) => (i + n - 1) % n,
-            None if forward => 0,
-            None => n - 1,
-        };
-        self.value = self.choices[next].0.clone();
-        true
-    }
-    /// The position of the current value among the choices.
-    pub fn choice_index(&self) -> Option<usize> {
-        self.choices
-            .iter()
-            .position(|(value, _)| *value == self.value)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ActionForm {
-    pub command: CommandDef,
-    pub fields: Vec<FormField>,
-    pub cursor: usize,
-}
-impl ActionForm {
-    pub fn new(command: CommandDef, context: &BTreeMap<String, String>) -> Self {
-        let mut fields = command
-            .args
-            .iter()
-            .map(|arg| FormField {
-                name: arg.name.clone(),
-                label: if arg.prompt.is_empty() {
-                    arg.name.clone()
-                } else {
-                    arg.prompt.clone()
-                },
-                hint: arg.description.clone(),
-                value: context.get(&arg.name).cloned().unwrap_or_default(),
-                argument: true,
-                boolean: false,
-                repeated: false,
-                choices: Vec::new(),
-            })
-            .collect::<Vec<_>>();
-        fields.extend(
-            command
-                .flags
-                .iter()
-                .filter(|(name, _)| name.as_str() != "acknowledge-hash")
-                .map(|(name, flag)| FormField {
-                    name: name.clone(),
-                    label: format!("--{name}"),
-                    hint: if flag.prompt.is_empty() {
-                        flag.description.clone()
-                    } else {
-                        flag.prompt.clone()
-                    },
-                    value: String::new(),
-                    argument: false,
-                    boolean: flag.boolean,
-                    repeated: flag.repeat || flag.multiline,
-                    choices: if flag.boolean {
-                        vec![("yes".into(), String::new()), ("no".into(), String::new())]
-                    } else {
-                        Vec::new()
-                    },
-                }),
-        );
-        Self {
-            command,
-            fields,
-            cursor: 0,
-        }
-    }
-    pub fn input(&self) -> Result<(Vec<String>, Map<String, Value>), String> {
-        let mut args = Vec::new();
-        let mut flags = Map::new();
-        for field in &self.fields {
-            if field.name == "@confirm" {
-                if !matches!(field.value.trim().to_lowercase().as_str(), "yes" | "y") {
-                    return Err("Type yes in the confirmation field to perform this action.".into());
-                }
-                continue;
-            }
-            if field.name.starts_with('@') {
-                continue;
-            }
-            if field.argument {
-                if field.value.trim().is_empty() {
-                    return Err(format!("{} is required.", field.label));
-                }
-                args.push(field.value.clone());
-            } else if !field.value.is_empty() {
-                let value = if field.boolean {
-                    match field.value.to_lowercase().trim() {
-                        "yes" | "true" | "1" | "y" => Value::Bool(true),
-                        "no" | "false" | "0" | "n" => Value::Bool(false),
-                        _ => return Err(format!("{} needs yes or no.", field.label)),
-                    }
-                } else if field.repeated {
-                    json!(field
-                        .value
-                        .lines()
-                        .filter(|line| !line.trim().is_empty())
-                        .collect::<Vec<_>>())
-                } else {
-                    json!(field.value)
-                };
-                flags.insert(field.name.clone(), value);
-            }
-        }
-        Ok((args, flags))
     }
 }
 
@@ -155,7 +47,7 @@ impl ActionForm {
 pub struct PendingPrompt {
     pub request_id: String,
     pub prompt_id: String,
-    pub kind: String,
+    pub kind: PromptKind,
     pub question: String,
     pub value: String,
 }
@@ -269,10 +161,16 @@ impl AppState {
     pub fn append(&mut self, text: &str) {
         self.output_omitted |= bounded_append(&mut self.output, text);
     }
-    pub fn begin(&mut self, name: &str) {
+    /// True (with the status saying so) once the bridge has stopped: nothing more can be sent.
+    fn refuse_when_transport_stopped(&mut self) -> bool {
         if self.bridge_failed {
             self.status =
                 "Transport stopped. Restart the terminal to reconnect; no action was sent.".into();
+        }
+        self.bridge_failed
+    }
+    pub fn begin(&mut self, name: &str) {
+        if self.refuse_when_transport_stopped() {
             return;
         }
         if self.active_request.is_some() {
@@ -297,9 +195,7 @@ impl AppState {
         flags: Map<String, Value>,
         read_only: bool,
     ) {
-        if self.bridge_failed {
-            self.status =
-                "Transport stopped. Restart the terminal to reconnect; no action was sent.".into();
+        if self.refuse_when_transport_stopped() {
             return;
         }
         if self.active_request.is_some() {
@@ -476,8 +372,8 @@ impl AppState {
             .and_then(Value::as_str)
             .map(str::to_owned);
         let was_read = original.as_ref().is_some_and(|r| r.op == "read");
-        match event.event.as_str() {
-            "catalog" => {
+        match event.event {
+            EventKind::Catalog => {
                 match serde_json::from_value::<Vec<CommandDef>>(
                     event.fields.get("commands").cloned().unwrap_or(Value::Null),
                 ) {
@@ -488,7 +384,7 @@ impl AppState {
                     Err(_) => self.transport_failed("Bridge catalog is invalid."),
                 }
             }
-            "connection" => {
+            EventKind::Connection => {
                 let previous = self.connection.clone();
                 self.connection = event.text("state").to_string();
                 self.status = safe_text(event.text("message"));
@@ -498,7 +394,7 @@ impl AppState {
                     self.refresh();
                 }
             }
-            "prompt" if self.pending.contains_key(&event.id) => {
+            EventKind::Prompt if self.pending.contains_key(&event.id) => {
                 self.mode = Mode::Result;
                 if self.output_omitted && event.text("kind") == "hash" {
                     self.abort();
@@ -509,13 +405,15 @@ impl AppState {
                 self.prompt = Some(PendingPrompt {
                     request_id: event.id.clone(),
                     prompt_id: event.text("prompt_id").into(),
-                    kind: event.text("kind").into(),
+                    kind: PromptKind::from_wire(event.text("kind")),
                     question: safe_text(event.text("question")),
                     value: String::new(),
                 });
             }
-            "output" if self.pending.contains_key(&event.id) => self.append(event.text("text")),
-            "event" if self.pending.contains_key(&event.id) => {
+            EventKind::Output if self.pending.contains_key(&event.id) => {
+                self.append(event.text("text"))
+            }
+            EventKind::Event if self.pending.contains_key(&event.id) => {
                 if let Some(record) = event.fields.get("record") {
                     self.events.push_back(record.clone());
                     if self.events.len() > MAX_EVENTS {
@@ -525,7 +423,7 @@ impl AppState {
                     self.append(&format!("{}\n", record));
                 }
             }
-            "result" | "error" => {
+            EventKind::Result | EventKind::Error => {
                 let Some(request) = self.pending.remove(&event.id) else {
                     return;
                 };
@@ -533,7 +431,7 @@ impl AppState {
                     self.active_request = None;
                     self.prompt = None;
                 }
-                if event.event == "error" {
+                if event.event == EventKind::Error {
                     let message = format!("{}{}",safe_text(event.text("message")),match event.text("outcome") {
                         "unknown"=>" Outcome unknown: inspect authoritative state before retrying; the runtime may have completed this action.",
                         "completed"=>" Execution completed, but the response is unavailable. Inspect authoritative state; do not repeat the mutation.",
@@ -572,10 +470,10 @@ impl AppState {
         let Some(guide) = self.guide.as_mut() else {
             return;
         };
-        match event.event.as_str() {
-            "guide" => guide.apply(&event.fields),
-            "result" | "error" => {
-                if event.event == "result" {
+        match event.event {
+            EventKind::Guide => guide.apply(&event.fields),
+            EventKind::Result | EventKind::Error => {
+                if event.event == EventKind::Result {
                     guide.ended(event.fields.get("value").unwrap_or(&Value::Null));
                 } else {
                     let outcome = match event.text("outcome") {
@@ -618,6 +516,18 @@ impl AppState {
             crate::views::guide::key(self, key);
             return;
         }
+        // Outside forms and prompts a Ctrl or Alt letter is never the plain letter: Ctrl+S
+        // must not start setup, nor Ctrl+U flip Atlas's user memory.
+        if self.mode != Mode::Form
+            && self.prompt.is_none()
+            && matches!(key.code, KeyCode::Char(_))
+            && key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            && !(self.text_entry() && crate::keys::is_text(&key))
+        {
+            return;
+        }
         if crate::views::key(self, key) {
             return;
         }
@@ -639,97 +549,112 @@ impl AppState {
             }
             return;
         }
-        if let Some(prompt) = &mut self.prompt {
-            if prompt.kind == "hash" {
-                match key.code {
-                    KeyCode::Up => {
-                        self.scroll.scroll_up(1);
-                        return;
-                    }
-                    KeyCode::Down => {
-                        self.scroll.scroll_down(1);
-                        return;
-                    }
-                    KeyCode::Home => {
-                        self.scroll.to_top();
-                        return;
-                    }
-                    KeyCode::End => {
-                        self.scroll.to_bottom();
-                        return;
-                    }
-                    _ => {}
-                }
-            }
-            let submit_document = prompt.kind == "document"
-                && key.modifiers.contains(KeyModifiers::CONTROL)
-                && matches!(key.code, KeyCode::Char('s') | KeyCode::Enter);
-            if submit_document || key.code == KeyCode::Enter && prompt.kind != "document" {
-                if prompt.kind == "hash" && !self.approval_visible {
-                    self.status = "Enlarge the terminal to review the plan before approval.".into();
+        if self.prompt.is_some() {
+            self.prompt_key(key);
+        } else if self.mode == Mode::Form {
+            self.form_key(key);
+        } else {
+            self.catalog_key(key);
+        }
+    }
+    /// Keys while a runtime question is open: scroll a plan under review, edit or send the answer.
+    fn prompt_key(&mut self, key: KeyEvent) {
+        let Some(prompt) = &mut self.prompt else {
+            return;
+        };
+        if prompt.kind == PromptKind::Hash {
+            match key.code {
+                KeyCode::Up => {
+                    self.scroll.scroll_up(1);
                     return;
                 }
-                let value = if prompt.kind == "confirm" {
-                    match prompt.value.to_lowercase().trim() {
-                        "yes" | "y" => Value::Bool(true),
-                        "no" | "n" | "" => Value::Bool(false),
-                        _ => {
-                            self.status = "Type yes to confirm, or no to decline.".into();
-                            return;
-                        }
-                    }
-                } else {
-                    Value::String(prompt.value.clone())
-                };
-                let prompt = self.prompt.take().expect("present");
-                let id = self.id();
-                self.queue.push_back(ClientCommand::new(id, "reply", json!({"request_id":prompt.request_id,"prompt_id":prompt.prompt_id,"value":value})));
-            } else {
-                edit(&mut prompt.value, key, prompt.kind == "document");
+                KeyCode::Down => {
+                    self.scroll.scroll_down(1);
+                    return;
+                }
+                KeyCode::Home => {
+                    self.scroll.to_top();
+                    return;
+                }
+                KeyCode::End => {
+                    self.scroll.to_bottom();
+                    return;
+                }
+                _ => {}
             }
-            return;
         }
-        if self.mode == Mode::Form {
-            if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
-                self.submit();
+        let submit_document = prompt.kind == PromptKind::Document
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('s') | KeyCode::Enter);
+        if submit_document || key.code == KeyCode::Enter && prompt.kind != PromptKind::Document {
+            if prompt.kind == PromptKind::Hash && !self.approval_visible {
+                self.status = "Enlarge the terminal to review the plan before approval.".into();
                 return;
             }
-            if let Some(form) = &mut self.form {
-                let count = form.fields.len();
-                if count == 0 {
-                    return;
-                }
-                match key.code {
-                    KeyCode::Tab | KeyCode::Down => form.cursor = (form.cursor + 1) % count,
-                    KeyCode::BackTab | KeyCode::Up => {
-                        form.cursor = (form.cursor + count - 1) % count
-                    }
-                    KeyCode::Left | KeyCode::Right
-                        if form
-                            .fields
-                            .get(form.cursor)
-                            .is_some_and(|f| !f.choices.is_empty()) =>
-                    {
-                        if let Some(field) = form.fields.get_mut(form.cursor) {
-                            field.cycle(key.code == KeyCode::Right);
-                        }
-                    }
-                    KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
-                        if form.cursor + 1 == count {
-                            self.submit();
-                        } else {
-                            form.cursor += 1;
-                        }
-                    }
+            let value = if prompt.kind == PromptKind::Confirm {
+                match prompt.value.to_lowercase().trim() {
+                    "yes" | "y" => Value::Bool(true),
+                    "no" | "n" | "" => Value::Bool(false),
                     _ => {
-                        if let Some(field) = form.fields.get_mut(form.cursor) {
-                            edit(&mut field.value, key, true);
-                        }
+                        self.status = "Type yes to confirm, or no to decline.".into();
+                        return;
+                    }
+                }
+            } else {
+                Value::String(prompt.value.clone())
+            };
+            let prompt = self.prompt.take().expect("present");
+            let id = self.id();
+            self.queue.push_back(ClientCommand::new(
+                id,
+                "reply",
+                json!({"request_id":prompt.request_id,"prompt_id":prompt.prompt_id,"value":value}),
+            ));
+        } else {
+            edit(&mut prompt.value, key, prompt.kind == PromptKind::Document);
+        }
+    }
+    /// Keys in an action form: move between fields, pick a choice, edit, submit.
+    fn form_key(&mut self, key: KeyEvent) {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+            self.submit();
+            return;
+        }
+        if let Some(form) = &mut self.form {
+            let count = form.fields.len();
+            if count == 0 {
+                return;
+            }
+            match key.code {
+                KeyCode::Tab | KeyCode::Down => form.cursor = (form.cursor + 1) % count,
+                KeyCode::BackTab | KeyCode::Up => form.cursor = (form.cursor + count - 1) % count,
+                KeyCode::Left | KeyCode::Right
+                    if form
+                        .fields
+                        .get(form.cursor)
+                        .is_some_and(|f| !f.choices.is_empty()) =>
+                {
+                    if let Some(field) = form.fields.get_mut(form.cursor) {
+                        field.cycle(key.code == KeyCode::Right);
+                    }
+                }
+                KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
+                    if form.cursor + 1 == count {
+                        self.submit();
+                    } else {
+                        form.cursor += 1;
+                    }
+                }
+                _ => {
+                    if let Some(field) = form.fields.get_mut(form.cursor) {
+                        field.press(key);
                     }
                 }
             }
-            return;
         }
+    }
+    /// Keys in the command catalog and the result view.
+    fn catalog_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::F(1) if self.active_request.is_none() => {
@@ -807,27 +732,12 @@ impl AppState {
             None
         };
         if let Some(target) = target {
-            if target.len() + clean.len() <= 256 * 1024 {
+            if target.len() + clean.len() <= MAX_INPUT {
                 target.push_str(&clean);
             } else {
                 self.status = "Input exceeds the 256 KiB form limit.".into();
             }
         }
-    }
-}
-
-fn edit(text: &mut String, key: KeyEvent, multiline: bool) {
-    if text.len() >= 256 * 1024 && key.code != KeyCode::Backspace {
-        return;
-    }
-    match key.code {
-        KeyCode::Backspace => {
-            text.pop();
-        }
-        KeyCode::Enter if multiline => text.push('\n'),
-        KeyCode::Char(c) if crate::keys::is_text(&key) => text.push(c),
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => text.clear(),
-        _ => {}
     }
 }
 
@@ -943,6 +853,14 @@ mod tests {
         app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
         assert_eq!(app.selected, 0);
         assert_eq!(map.translate(j, false), Some(j));
+    }
+    #[test]
+    fn prompt_kinds_come_from_the_wire_and_unknown_ones_are_text() {
+        assert_eq!(PromptKind::from_wire("hash"), PromptKind::Hash);
+        assert_eq!(PromptKind::from_wire("document"), PromptKind::Document);
+        assert_eq!(PromptKind::from_wire("confirm"), PromptKind::Confirm);
+        assert_eq!(PromptKind::from_wire("text"), PromptKind::Text);
+        assert_eq!(PromptKind::from_wire("something-new"), PromptKind::Text);
     }
     #[test]
     fn stale_prompt_cannot_replace_active_request() {

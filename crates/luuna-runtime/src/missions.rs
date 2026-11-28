@@ -53,9 +53,12 @@ impl Intent {
 async fn call(state: &AppState, project: &str, args: &[String]) -> Result<Value, ApiError> {
     let workspace = integrations::workspace(state, project)?;
     integrations::require_store(&workspace, "missions")?;
-    luuna_components::call_missions_in(&workspace, args)
+    let value = luuna_components::call_missions_in(&workspace, args)
         .await
-        .map_err(|_| unavailable())
+        .map_err(|_| unavailable())?;
+    let command = args.first().map(String::as_str).unwrap_or_default();
+    crate::stores::commit_checkout_store(state, &workspace, "missions", Some(command)).await;
+    Ok(value)
 }
 
 async fn query_issues(

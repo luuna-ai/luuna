@@ -122,6 +122,25 @@ pub fn check_checkout(checkout: &Path, data_dir: &Path) -> Result<(), StoreRefus
     Ok(())
 }
 
+/// Store folders of the components' upstream tools (Seeds, Mulch, Canopy).
+/// A component's own `init` moves such a folder to `.luuna/<component>` and
+/// rewrites ignore files, so the runtime never initialises a checkout store
+/// while one is present, and a new project does not default to that checkout
+/// (ADR 0067).
+pub(crate) const LEGACY_STORES: [(&str, &str); 3] = [
+    ("missions", ".seeds"),
+    ("atlas", ".mulch"),
+    ("beacon", ".canopy"),
+];
+
+/// The first upstream store folder present in `checkout`, as (component,
+/// folder). Anything at that path counts, even a link.
+pub(crate) fn legacy_store(checkout: &Path) -> Option<(&'static str, &'static str)> {
+    LEGACY_STORES
+        .into_iter()
+        .find(|(_, folder)| std::fs::symlink_metadata(checkout.join(folder)).is_ok())
+}
+
 /// Most entries and folder depth looked through in a checkout component store.
 const TREE_MAX_ENTRIES: usize = 100_000;
 const TREE_MAX_DEPTH: usize = 32;
@@ -266,4 +285,48 @@ pub(crate) fn project_store(state: &AppState, project_id: &str) -> Result<StoreR
 /// The user-scope memory store of this runtime.
 pub(crate) fn user_store(state: &AppState) -> StoreRoot {
     StoreRoot::Managed(user_store_path(&state.config.data_dir))
+}
+
+/// Component commands that change a store; only these are followed by a
+/// commit (ADR 0068). A change another command made is picked up by the next
+/// commit.
+const WRITES: [&str; 8] = [
+    "create", "update", "block", "add", "record", "edit", "delete", "schema",
+];
+
+/// One commit at a time across the runtime, so two store changes never race
+/// on the same branch.
+static COMMITS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// After a component write to a checkout store, commit `.luuna/` to the
+/// checkout's current branch (ADR 0068). A failure is logged and never fails
+/// the component call: the change is already on disk and the next commit
+/// carries it. `command` of `None` is an explicit commit (component enable).
+pub(crate) async fn commit_checkout_store(
+    state: &AppState,
+    store: &StoreRoot,
+    component: &str,
+    command: Option<&str>,
+) {
+    if !state.store_auto_commit || !store.is_checkout() {
+        return;
+    }
+    if command.is_some_and(|command| !WRITES.contains(&command)) {
+        return;
+    }
+    let summary = match command {
+        Some(command) => format!("{component} {command}"),
+        None => component.to_owned(),
+    };
+    let message = format!(
+        "luuna: {summary}\n\nRecorded by Luuna in .luuna/ (ADR 0068). Set LUUNA_STORE_AUTO_COMMIT=0 to stop these commits."
+    );
+    let _guard = COMMITS.lock().await;
+    match state.git.commit_store(store.path(), &message).await {
+        Ok(luuna_git::StoreCommit::Busy) => eprintln!(
+            "luuna-runtime: .luuna changes left uncommitted: a merge, rebase or similar is in progress in the checkout"
+        ),
+        Ok(_) => {}
+        Err(error) => eprintln!("luuna-runtime: .luuna changes left uncommitted: {error}"),
+    }
 }

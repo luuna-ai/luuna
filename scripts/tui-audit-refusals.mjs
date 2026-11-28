@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { commandsByName } from "./tui-client.mjs";
+import { commandsByName, formFields, formTitle } from "./tui-client.mjs";
 import { keys } from "./tui-audit-workflows.mjs";
 import { waitUntil } from "./tui-audit-runtime.mjs";
 
@@ -14,9 +14,8 @@ export async function auditRefusals({ terminal, fixture, capture, screenContains
     await terminal.send(keys.F2); await sleep(100);
     await terminal.send("/"); await terminal.send(name); await terminal.send(keys.Enter); await sleep(100);
     await terminal.send(keys.Enter);
-    await screenContains(terminal, new RegExp(`\\(${name}\\)`));
-    const command = commandsByName.get(name);
-    for (const field of [...command.args.map((arg) => arg.name), ...Object.keys(command.flags).sort().filter((key) => key !== "acknowledge-hash")]) {
+    await screenContains(terminal, formTitle(name));
+    for (const field of formFields(name)) {
       if (Object.hasOwn(values, field)) { await terminal.send("\x15"); await terminal.send(String(values[field]).replaceAll("\n", "\x1b\r")); }
       await terminal.send(keys.Tab);
     }
