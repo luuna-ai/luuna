@@ -612,9 +612,11 @@ fn a_yes_no_runtime_question_is_answered_with_y_or_n() {
         let queued = app.queue.len();
         press(&mut app, "enter");
         press(&mut app, "x");
+        press(&mut app, &format!("ctrl+{key}"));
+        press(&mut app, &format!("alt+{key}"));
         assert!(
             app.prompt.is_some(),
-            "Enter or another letter does not answer"
+            "Enter, another letter or a modified y/n does not answer"
         );
         assert_eq!(app.queue.len(), queued);
         press(&mut app, key);

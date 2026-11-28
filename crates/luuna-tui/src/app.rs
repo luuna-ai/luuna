@@ -585,9 +585,11 @@ impl AppState {
         }
         if prompt.kind == PromptKind::Confirm {
             // A yes/no question is answered with one key, never typed out.
+            // Only the plain letter answers: Ctrl+Y or Alt+Y must never authorize an action.
+            let plain = (key.modifiers - KeyModifiers::SHIFT).is_empty();
             let answer = match key.code {
-                KeyCode::Char('y' | 'Y') => true,
-                KeyCode::Char('n' | 'N') => false,
+                KeyCode::Char('y' | 'Y') if plain => true,
+                KeyCode::Char('n' | 'N') if plain => false,
                 _ => {
                     self.status = "Press y for yes or n for no.".into();
                     return;
