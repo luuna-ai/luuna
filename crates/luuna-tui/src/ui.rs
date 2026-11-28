@@ -106,7 +106,13 @@ pub fn render(frame: &mut Frame, app: &mut AppState, theme: Theme) {
             format!(" {}", crate::views::hints(app.workbench.screen))
         }
     } else if area.width < 55 {
-        if app.prompt.is_some() {
+        if app
+            .prompt
+            .as_ref()
+            .is_some_and(|p| p.kind == crate::app::PromptKind::Confirm)
+        {
+            " y yes  n no  Esc".to_string()
+        } else if app.prompt.is_some() {
             " Enter answer PgUp/Dn Esc".to_string()
         } else if app.mode == Mode::Form {
             " Tab field ^S submit Esc".to_string()
@@ -115,6 +121,12 @@ pub fn render(frame: &mut Frame, app: &mut AppState, theme: Theme) {
         } else {
             " ↑↓ Enter Tab q".to_string()
         }
+    } else if app
+        .prompt
+        .as_ref()
+        .is_some_and(|p| p.kind == crate::app::PromptKind::Confirm)
+    {
+        " y yes · n no · Esc abort".to_string()
     } else if app.prompt.is_some() {
         " Enter answer · PgUp/PgDn plan · Esc abort".to_string()
     } else if app.mode == Mode::Form {
@@ -378,8 +390,11 @@ fn render_prompt(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme) {
     } else {
         " Runtime question "
     };
+    let confirm = prompt.kind == crate::app::PromptKind::Confirm;
     let suffix = if prompt.kind == crate::app::PromptKind::Document {
         "^S submit"
+    } else if confirm {
+        "y yes · n no"
     } else {
         "Enter submit"
     };
@@ -388,7 +403,12 @@ fn render_prompt(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme) {
         .into_iter()
         .next()
         .unwrap_or_default();
-    let input = wrapped_lines(&format!("> {}", safe_text(&prompt.value)), width)
+    let answer = if confirm {
+        "> [y] Yes   [n] No".to_string()
+    } else {
+        format!("> {}", safe_text(&prompt.value))
+    };
+    let input = wrapped_lines(&answer, width)
         .into_iter()
         .last()
         .unwrap_or_default();

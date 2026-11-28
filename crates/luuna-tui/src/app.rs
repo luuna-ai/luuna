@@ -581,6 +581,19 @@ impl AppState {
                 _ => {}
             }
         }
+        if prompt.kind == PromptKind::Confirm {
+            // A yes/no question is answered with one key, never typed out.
+            let answer = match key.code {
+                KeyCode::Char('y' | 'Y') => true,
+                KeyCode::Char('n' | 'N') => false,
+                _ => {
+                    self.status = "Press y for yes or n for no.".into();
+                    return;
+                }
+            };
+            self.answer(Value::Bool(answer));
+            return;
+        }
         let submit_document = prompt.kind == PromptKind::Document
             && key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('s') | KeyCode::Enter);
@@ -589,28 +602,23 @@ impl AppState {
                 self.status = "Enlarge the terminal to review the plan before approval.".into();
                 return;
             }
-            let value = if prompt.kind == PromptKind::Confirm {
-                match prompt.value.to_lowercase().trim() {
-                    "yes" | "y" => Value::Bool(true),
-                    "no" | "n" | "" => Value::Bool(false),
-                    _ => {
-                        self.status = "Type yes to confirm, or no to decline.".into();
-                        return;
-                    }
-                }
-            } else {
-                Value::String(prompt.value.clone())
-            };
-            let prompt = self.prompt.take().expect("present");
-            let id = self.id();
-            self.queue.push_back(ClientCommand::new(
-                id,
-                "reply",
-                json!({"request_id":prompt.request_id,"prompt_id":prompt.prompt_id,"value":value}),
-            ));
+            let value = Value::String(prompt.value.clone());
+            self.answer(value);
         } else {
             edit(&mut prompt.value, key, prompt.kind == PromptKind::Document);
         }
+    }
+    /// Sends the open runtime question's answer and closes it.
+    fn answer(&mut self, value: Value) {
+        let Some(prompt) = self.prompt.take() else {
+            return;
+        };
+        let id = self.id();
+        self.queue.push_back(ClientCommand::new(
+            id,
+            "reply",
+            json!({"request_id":prompt.request_id,"prompt_id":prompt.prompt_id,"value":value}),
+        ));
     }
     /// Keys in an action form: move between fields, pick a choice, edit, submit.
     fn form_key(&mut self, key: KeyEvent) {

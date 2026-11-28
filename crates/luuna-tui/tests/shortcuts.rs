@@ -596,3 +596,31 @@ fn every_action_in_the_keymap_is_exercised_here() {
         assert!(covered.contains(name), "{name} has no shortcut test");
     }
 }
+
+#[test]
+fn a_yes_no_runtime_question_is_answered_with_y_or_n() {
+    use luuna_tui::app::{PendingPrompt, PromptKind};
+    for (key, answer) in [("y", true), ("n", false)] {
+        let mut app = app(Screen::Home);
+        app.prompt = Some(PendingPrompt {
+            request_id: "r".into(),
+            prompt_id: "p".into(),
+            kind: PromptKind::Confirm,
+            question: "Continue?".into(),
+            value: String::new(),
+        });
+        let queued = app.queue.len();
+        press(&mut app, "enter");
+        press(&mut app, "x");
+        assert!(
+            app.prompt.is_some(),
+            "Enter or another letter does not answer"
+        );
+        assert_eq!(app.queue.len(), queued);
+        press(&mut app, key);
+        assert!(app.prompt.is_none(), "{key} answers at once");
+        let reply = app.queue.back().unwrap();
+        assert_eq!(reply.op, "reply");
+        assert_eq!(reply.fields["value"], answer);
+    }
+}
