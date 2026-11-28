@@ -6,7 +6,7 @@ mod detail;
 mod help;
 mod home;
 mod orbit;
-use super::{hints, orbit_tone, rows, selected, snapshot, Screen, EVIDENCE, NAV};
+use super::{orbit_tone, rows, selected, snapshot, Screen, EVIDENCE, NAV};
 use crate::{
     app::AppState,
     protocol::safe_text,
@@ -78,8 +78,7 @@ pub fn render(frame: &mut Frame, app: &mut AppState, area: Rect, theme: Theme) {
     if inside.height == 0 || inside.width == 0 {
         return;
     }
-    let [body, keys] = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(inside);
-    frame.render_widget(Paragraph::new(hints(screen)).style(theme.accent()), keys);
+    let body = inside;
     match screen {
         Screen::Missions => render_board(frame, app, body, theme),
         Screen::Home => render_home(frame, app, body, theme),
@@ -166,10 +165,10 @@ fn render_navigation(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme
     let context_height = if inner.height >= 18 { 7 } else { 0 };
     let [list_area, context_area] =
         Layout::vertical([Constraint::Min(1), Constraint::Length(context_height)]).areas(inner);
+    let keymap = crate::keys::keymap();
     let items = NAV
         .iter()
-        .enumerate()
-        .map(|(i, (label, screen))| {
+        .map(|(label, screen, action)| {
             let active = *screen == app.workbench.screen
                 || match screen {
                     Screen::Projects => app.workbench.screen == Screen::Project,
@@ -181,8 +180,13 @@ fn render_navigation(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme
                     Screen::Runs => app.workbench.screen == Screen::RunDetail,
                     _ => false,
                 };
+            let key = if action.is_empty() {
+                String::new()
+            } else {
+                keymap.hint(action)
+            };
             ListItem::new(Line::from(vec![
-                Span::styled(format!(" {} ", i + 1), theme.accent()),
+                Span::styled(format!(" {key:>3} "), theme.accent()),
                 Span::styled(
                     format!("{label}{}", if active { " *" } else { "" }),
                     if active { theme.title() } else { theme.panel() },
@@ -212,20 +216,20 @@ fn render_navigation(frame: &mut Frame, app: &AppState, area: Rect, theme: Theme
                     .unwrap_or("Choose a project"),
             )),
             Line::raw(""),
-            heading("UNSENT PLAN CONTEXT", theme),
-            Line::raw(format!(
-                "{} memory selection(s)",
-                app.workbench.memory_ids.len()
-            )),
+            heading("NEXT PLAN USES", theme),
+            Line::raw(match app.workbench.memory_ids.len() {
+                0 => "No memory".to_string(),
+                1 => "1 memory".to_string(),
+                n => format!("{n} memories"),
+            }),
         ];
         lines.push(Line::raw(
             app.workbench
                 .prompt_selection
                 .as_deref()
                 .map(safe_text)
-                .unwrap_or_else(|| "No prompt selected".into()),
+                .unwrap_or_else(|| "No prompt".into()),
         ));
-        lines.push(Line::styled("F10 menu / Tab focus", theme.muted()));
         frame.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: false }),
             context_area,
@@ -260,28 +264,50 @@ fn cell_lines(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
     let width = usize::from(width.max(1));
     let mut result = Vec::new();
     for line in lines {
-        let mut row = Line::default().style(line.style);
-        let mut used = 0;
-        for span in line.spans {
-            let mut part = String::new();
-            for character in span.content.chars() {
-                let cells = character.width().unwrap_or(0);
-                if character == '\n' || used + cells > width {
-                    row.spans
-                        .push(Span::styled(std::mem::take(&mut part), span.style));
-                    result.push(row);
-                    row = Line::default().style(line.style);
-                    used = 0;
-                    if character == '\n' {
-                        continue;
+        let cells: Vec<(char, ratatui::style::Style)> = line
+            .spans
+            .iter()
+            .flat_map(|span| span.content.chars().map(move |c| (c, span.style)))
+            .collect();
+        for segment in cells.split(|(c, _)| *c == '\n') {
+            let mut start = 0;
+            loop {
+                // The longest run that fits, broken after its last space when it has one, so
+                // words stay whole; a word (or hash) wider than the row is split where it ends.
+                let mut used = 0;
+                let mut end = start;
+                while end < segment.len() {
+                    let cells = segment[end].0.width().unwrap_or(0);
+                    if used + cells > width {
+                        break;
+                    }
+                    used += cells;
+                    end += 1;
+                }
+                let (row_end, next) = if end < segment.len() {
+                    match segment[start..=end].iter().rposition(|(c, _)| *c == ' ') {
+                        Some(at) if at > 0 => (start + at, start + at + 1),
+                        _ => (end.max(start + 1), end.max(start + 1)),
+                    }
+                } else {
+                    (end, end)
+                };
+                let mut row = Line::default().style(line.style);
+                for (character, style) in &segment[start..row_end] {
+                    match row.spans.last_mut() {
+                        Some(span) if span.style == *style => {
+                            span.content.to_mut().push(*character)
+                        }
+                        _ => row.spans.push(Span::styled(character.to_string(), *style)),
                     }
                 }
-                part.push(character);
-                used += cells;
+                result.push(row);
+                if next >= segment.len() {
+                    break;
+                }
+                start = next;
             }
-            row.spans.push(Span::styled(part, span.style));
         }
-        result.push(row);
     }
     result
 }

@@ -40,17 +40,19 @@ pub enum Screen {
     /// Opens the setup guide (`prime`) instead of a workbench screen.
     Setup,
 }
-pub const NAV: &[(&str, Screen)] = &[
-    ("Home", Screen::Home),
-    ("Set up a project", Screen::Setup),
-    ("Projects", Screen::Projects),
-    ("Orbit", Screen::Orbit),
-    ("Missions", Screen::Missions),
-    ("Atlas", Screen::Memory),
-    ("Beacon", Screen::Prompts),
-    ("Runs", Screen::Runs),
-    ("Commands", Screen::Commands),
-    ("Help", Screen::Help),
+/// The sections in menu order: label, screen, and the keymap action that opens it ("" for none).
+/// The number keys follow this order, so the menu shows the key that opens each row.
+pub const NAV: &[(&str, Screen, &str)] = &[
+    ("Home", Screen::Home, "home"),
+    ("Projects", Screen::Projects, "projects"),
+    ("Orbit", Screen::Orbit, "orbit"),
+    ("Missions", Screen::Missions, "missions"),
+    ("Atlas", Screen::Memory, "memory"),
+    ("Beacon", Screen::Prompts, "prompts"),
+    ("Runs", Screen::Runs, "runs"),
+    ("Set up a project", Screen::Setup, ""),
+    ("Commands", Screen::Commands, "commands"),
+    ("Help", Screen::Help, "help"),
 ];
 pub const EVIDENCE: &[(&str, &str)] = &[
     ("run", "Overview"),
@@ -83,25 +85,97 @@ pub struct WorkbenchState {
     /// Which Orbit record the detail area shows first: `sbx` or the last Orbit mutation.
     pub orbit_detail: Option<String>,
 }
-pub fn hints(screen: Screen) -> &'static str {
+/// Each screen's keys, as (keymap action, what it does). The footer shows them with the key
+/// the developer actually has bound, preferring one that works without Fn on a Mac.
+pub fn hint_items(screen: Screen) -> &'static [(&'static str, &'static str)] {
     match screen {
-        Screen::Home => "Enter project  s set up a project  F3 Projects  F5 refresh",
-        Screen::Projects => "Enter open  n register  s guided setup  F5 refresh",
-        Screen::Orbit => "x exec  r recipe  s sync  b sandbox  F5 refresh",
-        Screen::Project => "b baseline  d discover  c confirm  x components  y activate",
-        Screen::Missions => "←→ columns  Enter ticket  p plan  g follow run  n new  r refresh",
-        Screen::Ticket => "e edit  p plan  g run  o source  c reconcile",
-        Screen::Memory => "Enter inspect  n new  s starter set  / search  u user memory",
-        Screen::MemoryDetail => "e correct  d delete  p promote  s select context",
-        Screen::Prompts => "Enter preview  n new  / search",
-        Screen::PromptDetail => "e update  s select exact prompt",
-        Screen::Runs => "Enter inspect  r refresh",
-        Screen::RunDetail => "←→ evidence  f follow  c cancel  a actions  p plan",
-        Screen::Plan => "a approve (type approve)  i implement  g run",
-        Screen::Help => "c change theme  k keyboard reports  F10 menu  Esc back",
-        Screen::Setup => "Guided setup",
-        Screen::Commands => "Enter action  Tab context  / search",
+        Screen::Home => &[
+            ("open", "open"),
+            ("select", "set up a project"),
+            ("reload", "refresh"),
+        ],
+        Screen::Projects => &[
+            ("open", "open"),
+            ("new", "add project"),
+            ("select", "guided setup"),
+            ("reload", "refresh"),
+        ],
+        Screen::Orbit => &[
+            ("components", "run command"),
+            ("reload", "run recipe"),
+            ("select", "sync"),
+            ("baseline", "sandbox"),
+        ],
+        Screen::Project => &[
+            ("baseline", "baseline"),
+            ("discover", "discover"),
+            ("confirm", "confirm"),
+            ("components", "components"),
+            ("enable", "enable"),
+        ],
+        Screen::Missions => &[
+            ("right", "column"),
+            ("open", "open"),
+            ("plan", "plan"),
+            ("go-run", "run"),
+            ("new", "new ticket"),
+        ],
+        Screen::Ticket => &[
+            ("edit", "edit"),
+            ("plan", "plan"),
+            ("go-run", "run"),
+            ("source", "source"),
+            ("confirm", "reconcile"),
+        ],
+        Screen::Memory => &[
+            ("open", "open"),
+            ("new", "new"),
+            ("select", "starter set"),
+            ("search", "search"),
+            ("user-scope", "user memory"),
+        ],
+        Screen::MemoryDetail => &[
+            ("select", "use in plan"),
+            ("edit", "correct"),
+            ("plan", "promote"),
+            ("discover", "forget"),
+        ],
+        Screen::Prompts => &[("open", "preview"), ("new", "new"), ("search", "search")],
+        Screen::PromptDetail => &[("select", "use in plan"), ("edit", "new version")],
+        Screen::Runs => &[("open", "open"), ("reload", "refresh")],
+        Screen::RunDetail => &[
+            ("right", "evidence"),
+            ("follow", "follow"),
+            ("plan", "plan"),
+            ("approve", "actions"),
+            ("confirm", "cancel run"),
+        ],
+        Screen::Plan => &[
+            ("approve", "approve"),
+            ("implement", "implement"),
+            ("go-run", "run"),
+        ],
+        Screen::Help => &[("theme", "theme"), ("keyboard", "enhanced keys")],
+        Screen::Setup => &[],
+        Screen::Commands => &[("open", "run"), ("next", "filter"), ("search", "search")],
     }
+}
+
+/// The footer line for a screen: its own keys, then the menu and Help.
+pub fn hints(screen: Screen) -> String {
+    let keymap = crate::keys::keymap();
+    hint_items(screen)
+        .iter()
+        .chain([("menu", "menu"), ("help", "help")].iter())
+        .map(|(action, label)| match *action {
+            // Help's own settings keys are fixed letters, not keymap actions.
+            "theme" => format!("t {label}"),
+            "keyboard" => format!("e {label}"),
+            "right" => format!("←→ {label}"),
+            _ => format!("{} {label}", keymap.hint(action)),
+        })
+        .collect::<Vec<_>>()
+        .join("  ")
 }
 
 /// Orbit outcomes are the developer's own commands, never evidence (ADR 0013, ADR 0036):

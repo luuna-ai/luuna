@@ -66,7 +66,7 @@ pub(super) fn render_help(frame: &mut Frame, app: &mut AppState, area: Rect, the
     }
 
     lines.push(Line::raw(
-        "Press c to switch theme or k to toggle enhanced keyboard reports. Changes save immediately; reopen to apply.",
+        "t switches the theme, e turns enhanced keyboard reports on or off. Both save now and apply when you reopen Luuna.",
     ));
     lines.push(Line::raw(
         "For any setting: lu config set <name> <JSON value>. lu --print-config lists defaults.",

@@ -688,7 +688,7 @@ fn cells_fit(painted: &str, h: u16) -> bool {
 
 #[test]
 fn orbit_is_in_navigation_after_projects_and_loads_the_context_project() {
-    let labels = views::NAV.iter().map(|(l, _)| *l).collect::<Vec<_>>();
+    let labels = views::NAV.iter().map(|(l, ..)| *l).collect::<Vec<_>>();
     let at = labels
         .iter()
         .position(|l| *l == "Orbit")

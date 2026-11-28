@@ -1,16 +1,16 @@
- Home  Setup  Projects  Orbit  Missions  Atlas  Beacon  Runs  Commands  Help
- LUUNA  ▸ demo (F3 switch) / WORKBENCH connected
+ 1 Home  2 Projects  3 Orbit  4 Missions  5 Atlas  6 Beacon  7 Runs  : Commands  ? Help
+ LUUNA  ▸ demo (2 switch)  connected
 ╔ LUUNA ══════════════════════╗╔ > Beacon / exact preview ═════════════════════════════════════════════════════════════╗
-║ 1 Home                      ║║Unsent context: not selected / s selects                                               ║
-║ 2 Set up a project          ║║review                                                                                 ║
-║ 3 Projects                  ║║Version: 2                                                                             ║
-║ 4 Orbit                     ║║Exact hash: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    ║
-║ 5 Missions                  ║║                                                                                       ║
-║ 6 Atlas                     ║║RENDERED BODY                                                                          ║
-║ 7 Beacon *                  ║║Review the exact candidate.                                                            ║
-║ 8 Runs                      ║║Explain every finding.                                                                 ║
-║ 9 Commands                  ║║                                                                                       ║
-║ 10 Help                     ║║                                                                                       ║
+║   1 Home                    ║║Unsent context: not selected / s selects                                               ║
+║   2 Projects                ║║review                                                                                 ║
+║   3 Orbit                   ║║Version: 2                                                                             ║
+║   4 Missions                ║║Exact hash: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    ║
+║   5 Atlas                   ║║                                                                                       ║
+║   6 Beacon *                ║║RENDERED BODY                                                                          ║
+║   7 Runs                    ║║Review the exact candidate.                                                            ║
+║     Set up a project        ║║Explain every finding.                                                                 ║
+║   : Commands                ║║                                                                                       ║
+║   ? Help                    ║║                                                                                       ║
 ║                             ║║                                                                                       ║
 ║                             ║║                                                                                       ║
 ║                             ║║                                                                                       ║
@@ -26,10 +26,10 @@
 ║PROJECT                      ║║                                                                                       ║
 ║demo                         ║║                                                                                       ║
 ║                             ║║                                                                                       ║
-║UNSENT PLAN CONTEXT          ║║                                                                                       ║
-║0 memory selection(s)        ║║                                                                                       ║
-║No prompt selected           ║║                                                                                       ║
-║F10 menu / Tab focus         ║║e update  s select exact prompt                                                        ║
+║NEXT PLAN USES               ║║                                                                                       ║
+║No memory                    ║║                                                                                       ║
+║No prompt                    ║║                                                                                       ║
+║                             ║║                                                                                       ║
 ╚═════════════════════════════╝╚═══════════════════════════════════════════════════════════════════════════════════════╝
 Connecting to the local runtime…
-e update  s select exact prompt
+ s use in plan  e new version  m menu  ? help

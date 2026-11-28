@@ -31,17 +31,19 @@ pub const ACTIONS: &[(&str, &str, &[&str], &str)] = &[
     ),
     ("help", "f1", &["f1", "?"], "Help"),
     ("commands", "f2", &["f2", ":"], "Every runtime command"),
-    ("projects", "f3", &["f3", "1"], "Projects"),
-    ("missions", "f4", &["f4", "2"], "Missions board"),
+    ("home", "f9", &["1"], "Home"),
+    ("projects", "f3", &["f3", "2"], "Projects"),
+    ("orbit", "f11", &["3"], "Orbit: every repository at once"),
+    ("missions", "f4", &["f4", "4"], "Missions board"),
     (
         "refresh",
         "f5",
         &["f5", "ctrl+r"],
         "Refresh the current read",
     ),
-    ("memory", "f6", &["f6", "3"], "Atlas memory"),
-    ("prompts", "f7", &["f7", "4"], "Beacon prompts"),
-    ("runs", "f8", &["f8", "5"], "Runs"),
+    ("memory", "f6", &["f6", "5"], "Atlas memory"),
+    ("prompts", "f7", &["f7", "6"], "Beacon prompts"),
+    ("runs", "f8", &["f8", "7"], "Runs"),
     ("menu", "f10", &["f10", "m"], "Toggle the section menu"),
     ("up", "up", &["up", "k", "ctrl+p"], "Move up"),
     ("down", "down", &["down", "j", "ctrl+n"], "Move down"),
@@ -366,6 +368,18 @@ impl Keymap {
     pub fn first(&self, action: &str) -> String {
         self.bindings(action)
             .first()
+            .map(label)
+            .unwrap_or_else(|| "unbound".into())
+    }
+
+    /// The binding to show in a hint: the first one that is not a function key (macOS keeps
+    /// F1-F12 unless Fn is held), else the first; "unbound" when there is none.
+    pub fn hint(&self, action: &str) -> String {
+        let bound = self.bindings(action);
+        bound
+            .iter()
+            .find(|chord| !matches!(chord.code, KeyCode::F(_)))
+            .or_else(|| bound.first())
             .map(label)
             .unwrap_or_else(|| "unbound".into())
     }
